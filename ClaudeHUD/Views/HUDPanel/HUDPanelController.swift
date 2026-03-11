@@ -1,0 +1,78 @@
+import Cocoa
+import SwiftUI
+
+class HUDPanelController {
+    private var panel: NSPanel?
+    private let appState: AppState
+
+    init(appState: AppState) {
+        self.appState = appState
+    }
+
+    func createPanel() {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 600),
+            styleMask: [.titled, .closable, .resizable, .nonactivatingPanel, .hudWindow],
+            backing: .buffered,
+            defer: false
+        )
+
+        panel.level = .floating
+        panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.isOpaque = false
+        panel.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.95)
+        panel.titlebarAppearsTransparent = true
+        panel.titleVisibility = .hidden
+        panel.isMovableByWindowBackground = true
+        panel.minSize = NSSize(width: 360, height: 400)
+        panel.setFrameAutosaveName("ClaudeHUDPanel")
+
+        // If no saved frame, position in top-right
+        if panel.frame.origin == .zero {
+            if let screen = NSScreen.main {
+                let x = screen.visibleFrame.maxX - 440
+                let y = screen.visibleFrame.maxY - 620
+                panel.setFrameOrigin(NSPoint(x: x, y: y))
+            }
+        }
+
+        let contentView = HUDContentView()
+            .environmentObject(appState)
+            .environmentObject(appState.conversationManager)
+            .environmentObject(appState.serverManager)
+
+        panel.contentView = NSHostingView(rootView: contentView)
+
+        // Close notification
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: panel,
+            queue: .main
+        ) { [weak self] _ in
+            self?.appState.isHUDVisible = false
+        }
+
+        self.panel = panel
+    }
+
+    func show() {
+        if panel == nil { createPanel() }
+        panel?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func hide() {
+        panel?.orderOut(nil)
+    }
+
+    func toggle() {
+        if panel?.isVisible == true {
+            hide()
+        } else {
+            show()
+        }
+    }
+}
