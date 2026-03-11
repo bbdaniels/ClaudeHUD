@@ -3,6 +3,7 @@ import SwiftUI
 struct ChatView: View {
     @EnvironmentObject var conversation: ConversationManager
     @EnvironmentObject var tabManager: TabManager
+    @Environment(\.fontScale) private var scale
     @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
 
@@ -23,9 +24,9 @@ struct ChatView: View {
                     Button(action: { conversation.cancel() }) {
                         HStack(spacing: 6) {
                             Image(systemName: "stop.circle.fill")
-                                .font(.system(size: 14))
+                                .font(.smallFont(scale))
                             Text("Stop")
-                                .font(.system(size: 13))
+                                .font(.bodyFont(scale))
                         }
                         .foregroundColor(.red)
                     }
@@ -59,7 +60,7 @@ struct ChatView: View {
                             ProgressView()
                                 .scaleEffect(0.6)
                             Text("Thinking...")
-                                .font(.system(size: 12))
+                                .font(.smallFont(scale))
                                 .foregroundColor(.secondary)
                             Spacer()
                         }
@@ -102,16 +103,18 @@ struct ChatView: View {
 }
 
 struct WelcomeView: View {
+    @Environment(\.fontScale) private var scale
     var body: some View {
         VStack(spacing: 12) {
             Spacer()
 
-            Image(systemName: "sparkle")
-                .font(.system(size: 32))
-                .foregroundColor(.orange.opacity(0.6))
+            Image("ClaudeLogo")
+                .resizable()
+                .frame(width: 48, height: 48)
+                .opacity(0.6)
 
             Text("What can I do for you today?")
-                .font(.system(size: 15, weight: .medium))
+                .font(.bodyMedium(scale))
                 .foregroundColor(.secondary)
 
             Spacer()

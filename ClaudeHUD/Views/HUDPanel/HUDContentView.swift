@@ -1,17 +1,46 @@
 import SwiftUI
 
+// MARK: - Dynamic Font Scale
+
+private struct FontScaleKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 1.0
+}
+
+extension EnvironmentValues {
+    var fontScale: CGFloat {
+        get { self[FontScaleKey.self] }
+        set { self[FontScaleKey.self] = newValue }
+    }
+}
+
+extension Font {
+    // MARK: - App Fonts (change family names here only)
+    private static let bodyFamily = "Fira Sans"
+    private static let codeFamily = "Fira Code"
+
+    static func bodyFont(_ s: CGFloat) -> Font { .custom(bodyFamily, size: 17 * s) }
+    static func bodyMedium(_ s: CGFloat) -> Font { .custom(bodyFamily, size: 17 * s).weight(.medium) }
+    static func bodySemibold(_ s: CGFloat) -> Font { .custom(bodyFamily, size: 17 * s).weight(.semibold) }
+    static func smallFont(_ s: CGFloat) -> Font { .custom(bodyFamily, size: 14 * s) }
+    static func smallMedium(_ s: CGFloat) -> Font { .custom(bodyFamily, size: 14 * s).weight(.medium) }
+    static func captionFont(_ s: CGFloat) -> Font { .custom(bodyFamily, size: 12.5 * s) }
+    static func codeFont(_ s: CGFloat) -> Font { .custom(codeFamily, size: 15.5 * s) }
+    static func codeLarge(_ s: CGFloat) -> Font { .custom(codeFamily, size: 16.5 * s) }
+}
+
 struct HUDContentView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var tabManager: TabManager
     @State private var showPermissionPopover = false
+    @State private var fontScale: CGFloat = 1.0
 
     var body: some View {
         VStack(spacing: 0) {
             // Header
             HStack(spacing: 8) {
-                Image(systemName: "sparkle")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.orange)
+                Image("ClaudeLogo")
+                    .resizable()
+                    .frame(width: 18, height: 18)
 
                 Picker("", selection: $tabManager.selectedModel) {
                     Text("Sonnet").tag("sonnet")
@@ -24,9 +53,9 @@ struct HUDContentView: View {
                 Button(action: { showPermissionPopover.toggle() }) {
                     HStack(spacing: 4) {
                         Image(systemName: permissionIcon)
-                            .font(.system(size: 11))
+                            .font(.smallFont(fontScale))
                         Text(permissionLabel)
-                            .font(.system(size: 11))
+                            .font(.smallFont(fontScale))
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
@@ -58,6 +87,17 @@ struct HUDContentView: View {
                 .environmentObject(tabManager.currentConversation)
         }
         .frame(minWidth: 380, minHeight: 420)
+        .environment(\.fontScale, fontScale)
+        .background(
+            GeometryReader { geo in
+                Color.clear.onAppear {
+                    fontScale = max(0.85, min(1.4, geo.size.width / 420))
+                }
+                .onChange(of: geo.size.width) { _, w in
+                    fontScale = max(0.85, min(1.4, w / 420))
+                }
+            }
+        )
         .overlay(
             Group {
                 Button("") { tabManager.addTab() }
@@ -103,6 +143,7 @@ struct HUDContentView: View {
 
 struct TabBar: View {
     @EnvironmentObject var tabManager: TabManager
+    @Environment(\.fontScale) private var scale
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -114,7 +155,7 @@ struct TabBar: View {
                 // Add tab button
                 Button(action: { tabManager.addTab() }) {
                     Image(systemName: "plus")
-                        .font(.system(size: 10))
+                        .font(.captionFont(scale))
                         .foregroundColor(.secondary)
                         .frame(width: 24, height: 24)
                 }
@@ -131,6 +172,7 @@ struct TabBar: View {
 struct TabButton: View {
     let tab: ConversationTab
     @EnvironmentObject var tabManager: TabManager
+    @Environment(\.fontScale) private var scale
 
     private var isSelected: Bool {
         tabManager.selectedTabId == tab.id
@@ -139,14 +181,14 @@ struct TabButton: View {
     var body: some View {
         HStack(spacing: 4) {
             Text(tab.title)
-                .font(.system(size: 11))
+                .font(.smallFont(scale))
                 .lineLimit(1)
                 .foregroundColor(isSelected ? .primary : .secondary)
 
             if tabManager.tabs.count > 1 {
                 Button(action: { tabManager.closeTab(tab.id) }) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.custom("Fira Sans", size: 8 * scale).weight(.bold))
                         .foregroundColor(.secondary.opacity(0.6))
                 }
                 .buttonStyle(.borderless)
@@ -169,6 +211,7 @@ struct TabButton: View {
 
 struct PermissionPopover: View {
     @Binding var selection: String
+    @Environment(\.fontScale) private var scale
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -209,21 +252,22 @@ struct PermissionOption: View {
     let color: Color
     let tag: String
     @Binding var selection: String
+    @Environment(\.fontScale) private var scale
 
     var body: some View {
         Button(action: { selection = tag }) {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: selection == tag ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 14))
+                    .font(.bodyFont(scale))
                     .foregroundColor(selection == tag ? color : .secondary)
                     .frame(width: 18)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.bodyMedium(scale))
                         .foregroundColor(.primary)
                     Text(description)
-                        .font(.system(size: 11))
+                        .font(.smallFont(scale))
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }

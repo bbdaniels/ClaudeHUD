@@ -40,7 +40,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "sparkle", accessibilityDescription: "ClaudeHUD")
+            let icon = NSImage(named: "MenuBarIcon")
+            icon?.isTemplate = false
+            button.image = icon
             button.action = #selector(statusItemClicked(_:))
             button.target = self
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])

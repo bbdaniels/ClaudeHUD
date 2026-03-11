@@ -6,10 +6,11 @@ struct InputBar: View {
     let onSend: () -> Void
 
     @EnvironmentObject var conversation: ConversationManager
+    @Environment(\.fontScale) private var scale
 
     var body: some View {
         TextField("Ask anything...", text: $text)
-            .font(.system(size: 13))
+            .font(.bodyFont(scale))
             .textFieldStyle(.plain)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)

@@ -230,6 +230,38 @@ class ClaudeCLIClient: ObservableObject {
         }
     }
 
+    /// Quick one-shot query (no session, no streaming). Used for lightweight tasks like title generation.
+    func quickQuery(_ prompt: String, model: String = "haiku") async throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: claudePath)
+        process.arguments = [
+            "-p",
+            "--output-format", "text",
+            "--model", model,
+            "--dangerously-skip-permissions",
+            prompt
+        ]
+        process.currentDirectoryURL = URL(fileURLWithPath: NSHomeDirectory())
+
+        var env = ProcessInfo.processInfo.environment
+        env.removeValue(forKey: "CLAUDECODE")
+        process.environment = env
+
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = Pipe() // discard
+
+        try process.run()
+
+        return await withCheckedContinuation { continuation in
+            process.terminationHandler = { _ in
+                let data = stdout.fileHandleForReading.readDataToEndOfFile()
+                let result = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                continuation.resume(returning: result)
+            }
+        }
+    }
+
     func cancel() {
         currentProcess?.terminate()
         currentProcess = nil

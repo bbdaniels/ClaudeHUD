@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ToolCallView: View {
     let toolCall: ToolCallInfo
+    @Environment(\.fontScale) private var scale
     @State private var isExpanded = false
 
     // Strip mcp__servername__ prefix for display
@@ -22,13 +23,13 @@ struct ToolCallView: View {
             Button(action: { withAnimation { isExpanded.toggle() } }) {
                 HStack(spacing: 6) {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.caption2)
+                        .font(.codeFont(scale))
 
                     Image(systemName: "wrench")
-                        .font(.caption)
+                        .font(.codeLarge(scale))
 
                     Text(displayName)
-                        .font(.caption)
+                        .font(.codeLarge(scale))
                         .fontWeight(.medium)
 
                     Spacer()
@@ -39,11 +40,11 @@ struct ToolCallView: View {
                     } else if toolCall.isError {
                         Image(systemName: "exclamationmark.triangle")
                             .foregroundColor(.red)
-                            .font(.caption)
+                            .font(.codeLarge(scale))
                     } else {
                         Image(systemName: "checkmark.circle")
                             .foregroundColor(.green)
-                            .font(.caption)
+                            .font(.codeLarge(scale))
                     }
                 }
             }
@@ -54,20 +55,20 @@ struct ToolCallView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     // Arguments
                     Text("Arguments:")
-                        .font(.caption2)
+                        .font(.codeFont(scale))
                         .foregroundColor(.secondary)
                     Text(toolCall.arguments)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.codeLarge(scale))
                         .textSelection(.enabled)
                         .lineLimit(5)
 
                     // Result
                     if let result = toolCall.result {
                         Text("Result:")
-                            .font(.caption2)
+                            .font(.codeFont(scale))
                             .foregroundColor(.secondary)
                         Text(result)
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.codeLarge(scale))
                             .textSelection(.enabled)
                             .lineLimit(10)
                             .foregroundColor(toolCall.isError ? .red : .primary)

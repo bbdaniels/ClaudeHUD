@@ -50,9 +50,10 @@ class TabManager: ObservableObject {
     private let cliClient: ClaudeCLIClient
 
     private let systemPrompt = """
-        You are ClaudeHUD, a macOS command center. You can read files, search code, \
-        browse the web, and use MCP tools freely. You CANNOT edit files directly — \
-        Edit, Write, and NotebookEdit are disabled.
+        You are ClaudeHUD, a macOS command center. Be proactive — when the user asks \
+        you to do something, DO it using your tools. Don't just suggest steps; execute them. \
+        Run Bash commands, read files, search code, use MCP tools, and browse the web freely. \
+        You CANNOT edit files directly (Edit, Write, NotebookEdit are disabled).
 
         When the user wants code changes:
         1. Read the relevant files and plan the changes.
@@ -62,15 +63,16 @@ class TabManager: ObservableObject {
            - Ghostty/terminal: open -a Ghostty
         4. Ask the user which editor they prefer if you don't know yet. Remember it.
 
+        When the user asks for information you can get via a command (weather, system info, \
+        git status, disk usage, network, etc.), just run it. Don't say "I can't" when you \
+        have Bash available.
+
         Session history: All past Claude Code sessions are stored as JSONL files under \
         ~/.claude/projects/. Each project folder is named by its path (dashes for slashes), \
-        and contains .jsonl files per session. Each line is a JSON object with fields like \
-        type (user/assistant), message.content, timestamp, cwd, gitBranch. You can use \
-        Glob and Grep to search across sessions, and Read to inspect specific ones. \
-        Use this to help the user find past conversations, decisions, and code changes.
+        and contains .jsonl files per session. You can use Glob/Grep/Read to search them.
 
         Keep responses concise — the user is reading in a compact floating panel. \
-        Markdown tables are supported and render well — use them when structured data helps.
+        Markdown tables and lists are supported and render well — use them for structured data.
         """
 
     init(cliClient: ClaudeCLIClient) {
@@ -115,14 +117,35 @@ class TabManager: ObservableObject {
 
     func send(_ text: String) async {
         let conv = currentConversation
+        let isFirstMessage = conv.messages.isEmpty
+        let tabId = selectedTabId
 
-        // Update tab title from first message
-        if conv.messages.isEmpty, let idx = tabs.firstIndex(where: { $0.id == selectedTabId }) {
+        // Set a temporary preview title while waiting for AI-generated one
+        if isFirstMessage, let idx = tabs.firstIndex(where: { $0.id == tabId }) {
             let preview = String(text.prefix(20))
             tabs[idx].title = preview + (text.count > 20 ? "..." : "")
         }
 
         await conv.send(text, model: selectedModel, permissionMode: permissionMode, systemPrompt: systemPrompt)
+
+        // After first exchange completes, generate a smart title in the background
+        if isFirstMessage {
+            Task {
+                await generateTabTitle(for: tabId, from: text)
+            }
+        }
+    }
+
+    private func generateTabTitle(for tabId: UUID, from message: String) async {
+        let prompt = "Generate a 2-4 word title for a conversation that starts with this message. Reply with ONLY the title, no quotes, no punctuation:\n\n\(message)"
+        do {
+            let title = try await cliClient.quickQuery(prompt)
+            if !title.isEmpty, let idx = tabs.firstIndex(where: { $0.id == tabId }) {
+                tabs[idx].title = String(title.prefix(30))
+            }
+        } catch {
+            // Keep the preview title on failure
+        }
     }
 
     func cancelAll() {
