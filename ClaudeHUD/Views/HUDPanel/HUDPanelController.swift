@@ -30,7 +30,6 @@ class HUDPanelController {
         panel.minSize = NSSize(width: 380, height: 420)
         panel.setFrameAutosaveName("ClaudeHUDPanel")
 
-        // If no saved frame, position in top-right
         if panel.frame.origin == .zero {
             if let screen = NSScreen.main {
                 let x = screen.visibleFrame.maxX - 440
@@ -41,18 +40,18 @@ class HUDPanelController {
 
         let contentView = HUDContentView()
             .environmentObject(appState)
-            .environmentObject(appState.conversationManager)
+            .environmentObject(appState.tabManager)
             .environmentObject(appState.cliClient)
 
         panel.contentView = NSHostingView(rootView: contentView)
 
-        // Cancel any running request when window closes
+        // Cancel running requests when window closes
         NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: panel,
             queue: .main
         ) { [weak self] _ in
-            self?.appState.conversationManager.cancel()
+            self?.appState.tabManager.cancelAll()
         }
 
         self.panel = panel

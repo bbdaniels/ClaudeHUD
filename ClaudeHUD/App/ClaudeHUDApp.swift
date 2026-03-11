@@ -73,7 +73,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func newConversation() {
-        appState.conversationManager.newConversation()
+        appState.tabManager.addTab()
         panelController?.show()
     }
 

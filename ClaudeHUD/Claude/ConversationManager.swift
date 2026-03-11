@@ -26,18 +26,28 @@ struct ToolCallInfo: Identifiable {
     var isComplete: Bool = false
 }
 
-// MARK: - Conversation Manager
+// MARK: - Tab Model
+
+struct ConversationTab: Identifiable {
+    let id = UUID()
+    var title: String = "New"
+}
+
+// MARK: - Tab Manager
 
 @MainActor
-class ConversationManager: ObservableObject {
-    @Published var messages: [ChatMessage] = []
-    @Published var isProcessing = false
-    @Published var totalTokens = 0
-    @Published var selectedModel: String = "opus"
-    @Published var permissionMode: String = "dangerously-skip"
-    @Published var costUSD: Double = 0
+class TabManager: ObservableObject {
+    @Published var tabs: [ConversationTab]
+    @Published var selectedTabId: UUID
+    @Published var selectedModel: String = UserDefaults.standard.string(forKey: "selectedModel") ?? "opus" {
+        didSet { UserDefaults.standard.set(selectedModel, forKey: "selectedModel") }
+    }
+    @Published var permissionMode: String = UserDefaults.standard.string(forKey: "permissionMode") ?? "plan" {
+        didSet { UserDefaults.standard.set(permissionMode, forKey: "permissionMode") }
+    }
 
-    let cliClient: ClaudeCLIClient
+    private var conversations: [UUID: ConversationManager] = [:]
+    private let cliClient: ClaudeCLIClient
 
     private let systemPrompt = """
         You are ClaudeHUD, a macOS command center. You can read files, search code, \
@@ -59,25 +69,91 @@ class ConversationManager: ObservableObject {
         Glob and Grep to search across sessions, and Read to inspect specific ones. \
         Use this to help the user find past conversations, decisions, and code changes.
 
-        Keep responses concise — the user is reading in a compact floating panel.
+        Keep responses concise — the user is reading in a compact floating panel. \
+        Markdown tables are supported and render well — use them when structured data helps.
         """
+
+    init(cliClient: ClaudeCLIClient) {
+        let firstTab = ConversationTab()
+        self.cliClient = cliClient
+        self.tabs = [firstTab]
+        self.selectedTabId = firstTab.id
+        self.conversations[firstTab.id] = ConversationManager(cliClient: cliClient)
+    }
+
+    var currentConversation: ConversationManager {
+        if let conv = conversations[selectedTabId] {
+            return conv
+        }
+        let conv = ConversationManager(cliClient: cliClient)
+        conversations[selectedTabId] = conv
+        return conv
+    }
+
+    func addTab() {
+        let tab = ConversationTab()
+        tabs.append(tab)
+        conversations[tab.id] = ConversationManager(cliClient: cliClient)
+        selectedTabId = tab.id
+    }
+
+    func closeTab(_ id: UUID) {
+        conversations[id]?.cancel()
+        conversations.removeValue(forKey: id)
+        tabs.removeAll { $0.id == id }
+
+        // Always keep at least one tab
+        if tabs.isEmpty {
+            let tab = ConversationTab()
+            tabs.append(tab)
+            conversations[tab.id] = ConversationManager(cliClient: cliClient)
+            selectedTabId = tab.id
+        } else if selectedTabId == id {
+            selectedTabId = tabs.last!.id
+        }
+    }
+
+    func send(_ text: String) async {
+        let conv = currentConversation
+
+        // Update tab title from first message
+        if conv.messages.isEmpty, let idx = tabs.firstIndex(where: { $0.id == selectedTabId }) {
+            let preview = String(text.prefix(20))
+            tabs[idx].title = preview + (text.count > 20 ? "..." : "")
+        }
+
+        await conv.send(text, model: selectedModel, permissionMode: permissionMode, systemPrompt: systemPrompt)
+    }
+
+    func cancelAll() {
+        for conv in conversations.values {
+            conv.cancel()
+        }
+    }
+}
+
+// MARK: - Conversation Manager
+
+@MainActor
+class ConversationManager: ObservableObject {
+    @Published var messages: [ChatMessage] = []
+    @Published var isProcessing = false
+    @Published var totalTokens = 0
+
+    private let cliClient: ClaudeCLIClient
 
     init(cliClient: ClaudeCLIClient) {
         self.cliClient = cliClient
     }
 
-    // MARK: - Public API
-
-    func send(_ text: String) async {
+    func send(_ text: String, model: String, permissionMode: String, systemPrompt: String?) async {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         isProcessing = true
         defer { isProcessing = false }
 
-        // Add user message to UI
         messages.append(ChatMessage(role: .user, content: text))
 
-        // Track the assistant message we're building up from stream events
         var assistantText = ""
         var pendingToolCalls: [ToolCallInfo] = []
         var assistantMessageIndex: Int?
@@ -85,7 +161,7 @@ class ConversationManager: ObservableObject {
         do {
             let result = try await cliClient.send(
                 message: text,
-                model: selectedModel,
+                model: model,
                 permissionMode: permissionMode,
                 systemPrompt: systemPrompt
             ) { [weak self] event in
@@ -99,7 +175,6 @@ class ConversationManager: ObservableObject {
                     if let text = msg.text {
                         assistantText = text
 
-                        // Create or update the assistant message
                         if let idx = assistantMessageIndex {
                             self.messages[idx].content = assistantText
                         } else {
@@ -115,7 +190,6 @@ class ConversationManager: ObservableObject {
                     )
                     pendingToolCalls.append(info)
 
-                    // Ensure we have an assistant message to attach tool calls to
                     if let idx = assistantMessageIndex {
                         self.messages[idx].toolCalls.append(info)
                     } else {
@@ -126,7 +200,6 @@ class ConversationManager: ObservableObject {
                     }
 
                 case .toolResult(let toolResult):
-                    // Update the matching tool call with its result
                     if let msgIdx = assistantMessageIndex {
                         if let tcIdx = self.messages[msgIdx].toolCalls.lastIndex(where: { $0.toolName != "" && !$0.isComplete }) {
                             self.messages[msgIdx].toolCalls[tcIdx].result = toolResult.content
@@ -135,18 +208,15 @@ class ConversationManager: ObservableObject {
                     }
 
                 case .result:
-                    break // handled below
+                    break
 
                 case .unknown:
                     break
                 }
             }
 
-            // Update totals from the final result
             totalTokens += result.inputTokens + result.outputTokens
-            costUSD += result.costUSD
 
-            // If the final result text differs from what we streamed, update
             if let idx = assistantMessageIndex, !result.result.isEmpty {
                 messages[idx].content = result.result
             } else if assistantMessageIndex == nil && !result.result.isEmpty {
@@ -163,24 +233,8 @@ class ConversationManager: ObservableObject {
         }
     }
 
-    func newConversation() {
-        messages = []
-        totalTokens = 0
-        costUSD = 0
-        cliClient.newSession()
-    }
-
     func cancel() {
         cliClient.cancel()
         isProcessing = false
-    }
-
-    var costString: String {
-        if costUSD >= 0.01 {
-            return String(format: "$%.2f", costUSD)
-        } else if costUSD > 0 {
-            return String(format: "$%.3f", costUSD)
-        }
-        return ""
     }
 }

@@ -5,15 +5,13 @@ private let logger = Logger(subsystem: "com.claudehud", category: "AppState")
 
 @MainActor
 class AppState: ObservableObject {
-    @Published var showSettings = false
-
     let cliClient = ClaudeCLIClient()
     let serverManager = MCPServerManager()
-    let conversationManager: ConversationManager
+    let tabManager: TabManager
     let hotkeyService = HotkeyService()
 
     init() {
-        self.conversationManager = ConversationManager(cliClient: cliClient)
+        self.tabManager = TabManager(cliClient: cliClient)
     }
 
     func setup() async {

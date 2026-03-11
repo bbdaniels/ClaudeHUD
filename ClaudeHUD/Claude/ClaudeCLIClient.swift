@@ -122,9 +122,11 @@ class ClaudeCLIClient: ObservableObject {
 
         args.append(message)
 
+        // Use script(1) to force line-buffered output via a PTY,
+        // otherwise pipe buffering delays streaming until process exits.
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: claudePath)
-        process.arguments = args
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
+        process.arguments = ["-q", "/dev/null", claudePath] + args
         process.currentDirectoryURL = URL(fileURLWithPath: NSHomeDirectory())
 
         // Must unset CLAUDECODE to avoid nested session detection
@@ -166,8 +168,16 @@ class ClaudeCLIClient: ObservableObject {
                     let lineData = buffer.subdata(in: buffer.startIndex..<newlineRange.lowerBound)
                     buffer.removeSubrange(buffer.startIndex...newlineRange.lowerBound)
 
-                    guard let line = String(data: lineData, encoding: .utf8),
+                    guard var line = String(data: lineData, encoding: .utf8),
                           !line.trimmingCharacters(in: .whitespaces).isEmpty else { continue }
+
+                    // Strip carriage returns injected by script(1) PTY
+                    line = line.replacingOccurrences(of: "\r", with: "")
+                    // Strip ANSI escape sequences (e.g. cursor/color codes from PTY)
+                    if let ansiRegex = try? NSRegularExpression(pattern: "\u{1B}\\[[0-9;]*[A-Za-z]") {
+                        let range = NSRange(line.startIndex..., in: line)
+                        line = ansiRegex.stringByReplacingMatches(in: line, range: range, withTemplate: "")
+                    }
 
                     let event = Self.parseStreamEvent(line)
 
