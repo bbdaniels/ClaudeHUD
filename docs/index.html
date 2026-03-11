@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClaudeHUD — Claude in Your Menu Bar</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #1a1a2e;
+            --bg-light: #16213e;
+            --accent: #e07a3a;
+            --accent-light: #f0a070;
+            --text: #e0e0e0;
+            --text-muted: #8899aa;
+            --card-bg: #0f1629;
+            --border: rgba(255,255,255,0.08);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Fira Sans', -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Hero */
+        .hero {
+            min-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 4rem 2rem;
+            background: radial-gradient(ellipse at 50% 30%, rgba(224,122,58,0.12) 0%, transparent 60%),
+                        var(--bg);
+        }
+
+        .hero-icon {
+            width: 96px;
+            height: 96px;
+            margin-bottom: 2rem;
+            filter: drop-shadow(0 0 30px rgba(224,122,58,0.3));
+        }
+
+        .hero h1 {
+            font-size: 3.5rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.5rem;
+        }
+
+        .hero h1 span {
+            color: var(--accent);
+        }
+
+        .hero .tagline {
+            font-size: 1.35rem;
+            font-weight: 300;
+            color: var(--text-muted);
+            max-width: 500px;
+            margin-bottom: 2.5rem;
+        }
+
+        .cta-group {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.8rem 1.8rem;
+            border-radius: 8px;
+            font-family: 'Fira Sans', sans-serif;
+            font-size: 1rem;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-light);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(224,122,58,0.3);
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.06);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.1);
+            transform: translateY(-1px);
+        }
+
+        .btn svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        /* Sections */
+        section {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 5rem 2rem;
+        }
+
+        .section-title {
+            font-size: 2rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .section-subtitle {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            margin-bottom: 3rem;
+        }
+
+        /* Feature Grid */
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .feature-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.8rem;
+            transition: border-color 0.2s;
+        }
+
+        .feature-card:hover {
+            border-color: rgba(224,122,58,0.3);
+        }
+
+        .feature-icon {
+            font-size: 1.6rem;
+            margin-bottom: 0.8rem;
+        }
+
+        .feature-card h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .feature-card p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        /* Permissions */
+        .perm-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 1.2rem;
+            margin-top: 2rem;
+        }
+
+        .perm-card {
+            background: var(--card-bg);
+            border-radius: 10px;
+            padding: 1.5rem;
+            border-left: 3px solid;
+        }
+
+        .perm-card.plan { border-color: #4ade80; }
+        .perm-card.safe { border-color: #f59e0b; }
+        .perm-card.unsafe { border-color: #ef4444; }
+
+        .perm-card h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 0.3rem;
+        }
+
+        .perm-card.plan h3 { color: #4ade80; }
+        .perm-card.safe h3 { color: #f59e0b; }
+        .perm-card.unsafe h3 { color: #ef4444; }
+
+        .perm-card p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        /* Code Block */
+        .install-block {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1.5rem 2rem;
+            margin-top: 2rem;
+            overflow-x: auto;
+        }
+
+        .install-block code {
+            font-family: 'Fira Code', monospace;
+            font-size: 0.9rem;
+            color: var(--accent-light);
+        }
+
+        .install-block .comment {
+            color: var(--text-muted);
+        }
+
+        /* Requirements */
+        .req-list {
+            list-style: none;
+            margin-top: 1.5rem;
+        }
+
+        .req-list li {
+            padding: 0.6rem 0;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+        }
+
+        .req-list li:last-child {
+            border-bottom: none;
+        }
+
+        .req-check {
+            color: #4ade80;
+            font-weight: bold;
+        }
+
+        .req-list a {
+            color: var(--accent-light);
+            text-decoration: none;
+        }
+
+        .req-list a:hover {
+            text-decoration: underline;
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            padding: 3rem 2rem;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            border-top: 1px solid var(--border);
+        }
+
+        footer a {
+            color: var(--accent-light);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* Responsive */
+        @media (max-width: 640px) {
+            .hero h1 { font-size: 2.5rem; }
+            .hero .tagline { font-size: 1.1rem; }
+            section { padding: 3rem 1.5rem; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="hero">
+    <svg class="hero-icon" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="50" cy="50" r="48" fill="none" stroke="rgba(224,122,58,0.2)" stroke-width="1"/>
+        <path d="M50 10 L53 40 L80 25 L57 45 L90 50 L57 55 L80 75 L53 60 L50 90 L47 60 L20 75 L43 55 L10 50 L43 45 L20 25 L47 40 Z" fill="#e07a3a"/>
+    </svg>
+    <h1>Claude<span>HUD</span></h1>
+    <p class="tagline">A macOS menu bar app that puts Claude at your fingertips. Chat, run tools, render math -- without leaving your workflow.</p>
+    <div class="cta-group">
+        <a href="https://github.com/bbdaniels/ClaudeHUD" class="btn btn-primary">
+            <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+            View on GitHub
+        </a>
+        <a href="https://github.com/bbdaniels/ClaudeHUD/releases" class="btn btn-secondary">
+            Download
+        </a>
+    </div>
+</div>
+
+<section>
+    <h2 class="section-title">Features</h2>
+    <p class="section-subtitle">Everything you need from Claude, one click away.</p>
+
+    <div class="features">
+        <div class="feature-card">
+            <div class="feature-icon">&#9783;</div>
+            <h3>Multi-Tab Conversations</h3>
+            <p>Open multiple chats with Cmd+T. Each tab keeps its own history and session. AI-generated tab titles keep things organized.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">&#9881;</div>
+            <h3>Model Switching</h3>
+            <p>Switch between Sonnet, Haiku, and Opus on the fly. Pick the right model for the task at hand.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">&#8721;</div>
+            <h3>KaTeX Math Rendering</h3>
+            <p>Display math blocks rendered with KaTeX for publication-quality equations. Inline math uses Unicode conversion.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">&#9998;</div>
+            <h3>Full Markdown</h3>
+            <p>Headings, code blocks, tables, lists, task lists with checkboxes, blockquotes, and horizontal rules -- all rendered natively.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">&#128295;</div>
+            <h3>Tool Calls</h3>
+            <p>See what tools Claude is using in real time. Expandable cards show arguments, results, and status.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">&#9881;</div>
+            <h3>MCP Servers</h3>
+            <p>Connects to any MCP servers in your Claude environment. Use custom tools and integrations seamlessly.</p>
+        </div>
+    </div>
+</section>
+
+<section>
+    <h2 class="section-title">Permission Modes</h2>
+    <p class="section-subtitle">Control how much autonomy Claude has.</p>
+
+    <div class="perm-grid">
+        <div class="perm-card plan">
+            <h3>Plan</h3>
+            <p>Claude proposes a plan and asks before taking any action. Maximum oversight.</p>
+        </div>
+        <div class="perm-card safe">
+            <h3>Safe</h3>
+            <p>Claude reads freely but asks permission before running Bash commands. The default balance.</p>
+        </div>
+        <div class="perm-card unsafe">
+            <h3>Unsafe</h3>
+            <p>No permission checks. Claude runs any command without asking. Use at your own risk.</p>
+        </div>
+    </div>
+</section>
+
+<section>
+    <h2 class="section-title">Getting Started</h2>
+    <p class="section-subtitle">Up and running in under a minute.</p>
+
+    <ul class="req-list">
+        <li><span class="req-check">&#10003;</span> macOS 14.0 or later</li>
+        <li><span class="req-check">&#10003;</span> <a href="https://docs.anthropic.com/en/docs/claude-code">Claude CLI</a> installed</li>
+        <li><span class="req-check">&#10003;</span> <a href="https://fonts.google.com/specimen/Fira+Sans">Fira Sans</a> &amp; <a href="https://fonts.google.com/specimen/Fira+Code">Fira Code</a> fonts (optional, falls back gracefully)</li>
+    </ul>
+
+    <div class="install-block">
+        <code>
+            <span class="comment"># Clone and build</span><br>
+            git clone https://github.com/bbdaniels/ClaudeHUD.git<br>
+            cd ClaudeHUD<br>
+            xcodebuild -scheme ClaudeHUD -configuration Release build<br>
+            <br>
+            <span class="comment"># Or just open in Xcode</span><br>
+            open ClaudeHUD.xcodeproj
+        </code>
+    </div>
+</section>
+
+<footer>
+    <p>Built by <a href="https://github.com/bbdaniels">Benjamin Daniels</a> with help from Claude. Licensed under <a href="https://github.com/bbdaniels/ClaudeHUD/blob/main/LICENSE">MIT</a>.</p>
+</footer>
+
+</body>
+</html>
