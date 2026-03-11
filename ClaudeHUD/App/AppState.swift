@@ -10,6 +10,7 @@ class AppState: ObservableObject {
     let tabManager: TabManager
     let hotkeyService = HotkeyService()
     let pushManager = PushNotificationManager()
+    let terminalService = TerminalService()
 
     init() {
         self.tabManager = TabManager(cliClient: cliClient)

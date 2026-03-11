@@ -43,6 +43,7 @@ class HUDPanelController {
             .environmentObject(appState.tabManager)
             .environmentObject(appState.cliClient)
             .environmentObject(appState.pushManager)
+            .environmentObject(appState.terminalService)
 
         panel.contentView = NSHostingView(rootView: contentView)
 

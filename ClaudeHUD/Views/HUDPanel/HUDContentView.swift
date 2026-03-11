@@ -32,8 +32,10 @@ struct HUDContentView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var pushManager: PushNotificationManager
+    @EnvironmentObject var terminalService: TerminalService
     @State private var showPermissionPopover = false
     @State private var showPushPopover = false
+    @State private var showTerminalPopover = false
     @State private var fontScale: CGFloat = 1.0
 
     var body: some View {
@@ -73,6 +75,27 @@ struct HUDContentView: View {
                 }
 
                 Spacer()
+
+                Button(action: {
+                    if terminalService.installedTerminals.count == 1 || !terminalService.selectedPath.isEmpty {
+                        terminalService.launch()
+                    } else {
+                        showTerminalPopover = true
+                    }
+                }) {
+                    Text(">_")
+                        .font(.codeFont(fontScale))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Launch \(terminalService.selectedName)")
+                .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+                    showTerminalPopover = true
+                })
+                .popover(isPresented: $showTerminalPopover) {
+                    TerminalPopover()
+                        .environmentObject(terminalService)
+                }
 
                 Button(action: { showPushPopover.toggle() }) {
                     Image(systemName: pushManager.isEnabled ? "bell.fill" : "bell.slash")
@@ -407,5 +430,48 @@ struct PushPopover: View {
         }
         .padding(14)
         .frame(width: 290)
+    }
+}
+
+// MARK: - Terminal Popover
+
+struct TerminalPopover: View {
+    @EnvironmentObject var terminalService: TerminalService
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Launch Terminal")
+                .font(.custom("Fira Sans", size: 13).weight(.semibold))
+                .foregroundColor(.secondary)
+                .padding(.bottom, 2)
+
+            if terminalService.installedTerminals.isEmpty {
+                Text("No terminal apps found.")
+                    .font(.custom("Fira Sans", size: 13))
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(terminalService.installedTerminals, id: \.path) { terminal in
+                    Button(action: {
+                        terminalService.select(terminal.path)
+                        terminalService.launch()
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: terminalService.selectedPath == terminal.path
+                                  ? "checkmark.circle.fill" : "circle")
+                                .foregroundColor(terminalService.selectedPath == terminal.path
+                                                 ? .accentColor : .secondary)
+                                .frame(width: 16)
+                            Text(terminal.name)
+                                .font(.custom("Fira Sans", size: 13))
+                                .foregroundColor(.primary)
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(12)
+        .frame(width: 200)
     }
 }
