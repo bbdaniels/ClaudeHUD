@@ -17,6 +17,12 @@ A macOS menu bar app that puts Claude at your fingertips. ClaudeHUD is a lightwe
 - **Safe** -- Claude reads freely but asks before running commands
 - **Unsafe** -- No guardrails; Claude executes anything without asking
 
+**Push notifications** -- Get notified when Claude needs attention, even when you're away from your screen. Click the bell icon in the header to configure:
+- **Desktop** -- macOS notification banners via the system notification center
+- **Mobile** -- Push to iPhone and Apple Watch via [ntfy.sh](https://ntfy.sh) (free, no account required)
+
+Notifications fire on `AskUserQuestion` and `PermissionRequest` hooks, showing the actual question or command description as the body. ClaudeHUD automatically installs the hook script to `~/.claude/hooks/` and manages the entries in `~/.claude/settings.json` -- no manual setup needed.
+
 **Rich markdown rendering** -- Claude's responses render with full markdown support:
 - Headings, bold, italic, inline code
 - Fenced code blocks
@@ -81,8 +87,13 @@ ClaudeHUD/
       ToolCallView.swift   # Tool call display
     Settings/
       SettingsView.swift   # Settings UI
+  Services/
+    PushNotificationManager.swift  # Hook install, settings.json management
+    KeychainService.swift          # API key storage
+    HotkeyService.swift            # Global hotkey registration
   Resources/
     Assets.xcassets/       # App icons and images
+    ntfy-notify.sh         # Bundled hook script (copied to ~/.claude/hooks/ on enable)
     Info.plist
     ClaudeHUD.entitlements
 ```

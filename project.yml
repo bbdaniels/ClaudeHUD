@@ -14,6 +14,8 @@ targets:
       - path: ClaudeHUD
         excludes:
           - "**/*.entitlements"
+    resources:
+      - path: ClaudeHUD/Resources/ntfy-notify.sh
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.claudehud.app

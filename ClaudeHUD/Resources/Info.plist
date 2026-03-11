@@ -20,5 +20,7 @@
 	<string>14.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSUserNotificationUsageDescription</key>
+	<string>ClaudeHUD shows desktop notifications when Claude needs your attention.</string>
 </dict>
 </plist>

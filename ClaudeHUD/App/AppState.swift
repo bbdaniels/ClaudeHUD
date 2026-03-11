@@ -9,6 +9,7 @@ class AppState: ObservableObject {
     let serverManager = MCPServerManager()
     let tabManager: TabManager
     let hotkeyService = HotkeyService()
+    let pushManager = PushNotificationManager()
 
     init() {
         self.tabManager = TabManager(cliClient: cliClient)

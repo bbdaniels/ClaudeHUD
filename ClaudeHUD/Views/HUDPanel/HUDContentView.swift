@@ -31,7 +31,9 @@ extension Font {
 struct HUDContentView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var tabManager: TabManager
+    @EnvironmentObject var pushManager: PushNotificationManager
     @State private var showPermissionPopover = false
+    @State private var showPushPopover = false
     @State private var fontScale: CGFloat = 1.0
 
     var body: some View {
@@ -71,6 +73,18 @@ struct HUDContentView: View {
                 }
 
                 Spacer()
+
+                Button(action: { showPushPopover.toggle() }) {
+                    Image(systemName: pushManager.isEnabled ? "bell.fill" : "bell.slash")
+                        .font(.smallFont(fontScale))
+                        .foregroundColor(pushManager.isEnabled ? .blue : .secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Notifications")
+                .popover(isPresented: $showPushPopover) {
+                    PushPopover()
+                        .environmentObject(pushManager)
+                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -274,5 +288,124 @@ struct PermissionOption: View {
             }
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Push Notification Popover
+
+struct PushPopover: View {
+    @EnvironmentObject var pushManager: PushNotificationManager
+    @State private var topicDraft: String = ""
+    @State private var testSent = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // Enable toggle
+            HStack {
+                Image(systemName: "bell.fill")
+                    .foregroundColor(.blue)
+                Text("Notifications")
+                    .font(.custom("Fira Sans", size: 15).weight(.semibold))
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { pushManager.isEnabled },
+                    set: { val in Task { await pushManager.setEnabled(val) } }
+                ))
+                .labelsHidden()
+                .toggleStyle(.switch)
+            }
+
+            Divider()
+
+            // Desktop
+            HStack(spacing: 10) {
+                Image(systemName: "desktopcomputer")
+                    .frame(width: 18)
+                    .foregroundColor(.secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Desktop")
+                        .font(.custom("Fira Sans", size: 13).weight(.medium))
+                    Text("macOS notification banner")
+                        .font(.custom("Fira Sans", size: 11))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { pushManager.desktopEnabled },
+                    set: { val in Task { await pushManager.setDesktopEnabled(val) } }
+                ))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .disabled(!pushManager.isEnabled)
+            }
+
+            // Mobile (ntfy)
+            HStack(spacing: 10) {
+                Image(systemName: "iphone")
+                    .frame(width: 18)
+                    .foregroundColor(.secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Mobile (ntfy.sh)")
+                        .font(.custom("Fira Sans", size: 13).weight(.medium))
+                    Text("Push to iPhone / Apple Watch")
+                        .font(.custom("Fira Sans", size: 11))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { pushManager.mobileEnabled },
+                    set: { val in Task { await pushManager.setMobileEnabled(val) } }
+                ))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .disabled(!pushManager.isEnabled)
+            }
+
+            // Topic field (only when mobile enabled)
+            if pushManager.mobileEnabled && pushManager.isEnabled {
+                HStack(spacing: 6) {
+                    TextField("ntfy topic (e.g. claude-abc123)", text: $topicDraft)
+                        .font(.custom("Fira Code", size: 12))
+                        .textFieldStyle(.roundedBorder)
+                        .onAppear { topicDraft = pushManager.ntfyTopic }
+                        .onSubmit { Task { await pushManager.setNtfyTopic(topicDraft) } }
+                    Button("Set") {
+                        Task { await pushManager.setNtfyTopic(topicDraft) }
+                    }
+                    .font(.custom("Fira Sans", size: 12))
+                    .buttonStyle(.bordered)
+                }
+            }
+
+            Divider()
+
+            // Test button
+            HStack {
+                Button(action: {
+                    pushManager.sendTestNotification()
+                    testSent = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { testSent = false }
+                }) {
+                    Label(testSent ? "Sent!" : "Test notification", systemImage: testSent ? "checkmark" : "paperplane")
+                        .font(.custom("Fira Sans", size: 12))
+                }
+                .buttonStyle(.bordered)
+                .disabled(!pushManager.isEnabled || !pushManager.desktopEnabled)
+
+                Spacer()
+
+                if pushManager.scriptInstalled {
+                    Label("Hook installed", systemImage: "checkmark.circle.fill")
+                        .font(.custom("Fira Sans", size: 11))
+                        .foregroundColor(.green)
+                } else {
+                    Label("Not installed", systemImage: "xmark.circle")
+                        .font(.custom("Fira Sans", size: 11))
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(14)
+        .frame(width: 290)
     }
 }
