@@ -7,50 +7,56 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Messages scroll view
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(conversation.messages) { message in
-                            MessageBubble(message: message)
-                                .id(message.id)
-                        }
-
-                        if conversation.isProcessing {
-                            HStack {
-                                ProgressView()
-                                    .scaleEffect(0.7)
-                                Text("Thinking...")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding(.horizontal)
-                            .id("loading")
-                        }
-                    }
-                    .padding(.vertical, 8)
-                }
-                .onChange(of: conversation.messages.count) { _, _ in
-                    withAnimation {
-                        if let lastId = conversation.messages.last?.id {
-                            proxy.scrollTo(lastId, anchor: .bottom)
-                        }
-                    }
-                }
+            if conversation.messages.isEmpty {
+                WelcomeView()
+            } else {
+                messageList
             }
 
             Divider()
+                .opacity(0.5)
 
-            // Input bar
             InputBar(text: $inputText, isFocused: $isInputFocused) {
                 send()
             }
-
-            // Status bar
-            StatusBar()
         }
         .onAppear {
             isInputFocused = true
+        }
+    }
+
+    private var messageList: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(conversation.messages) { message in
+                        MessageBubble(message: message)
+                            .id(message.id)
+                    }
+
+                    if conversation.isProcessing {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .scaleEffect(0.6)
+                            Text("Thinking...")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .id("loading")
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+            .onChange(of: conversation.messages.count) { _, _ in
+                withAnimation(.easeOut(duration: 0.2)) {
+                    if let lastId = conversation.messages.last?.id {
+                        proxy.scrollTo(lastId, anchor: .bottom)
+                    }
+                }
+            }
         }
     }
 
@@ -64,34 +70,21 @@ struct ChatView: View {
     }
 }
 
-struct StatusBar: View {
-    @EnvironmentObject var conversation: ConversationManager
-
+struct WelcomeView: View {
     var body: some View {
-        HStack {
-            Button(action: { conversation.newConversation() }) {
-                Image(systemName: "plus.circle")
-            }
-            .buttonStyle(.borderless)
-            .help("New conversation")
-
+        VStack(spacing: 12) {
             Spacer()
 
-            if conversation.totalTokens > 0 {
-                Text("\(conversation.totalTokens) tokens")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
+            Image(systemName: "sparkle")
+                .font(.system(size: 32))
+                .foregroundColor(.orange.opacity(0.6))
 
-            // Model indicator
-            Text(conversation.selectedModel.contains("haiku") ? "Haiku" : "Sonnet")
-                .font(.caption2)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.orange.opacity(0.2))
-                .cornerRadius(4)
+            Text("What can I do for you today?")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(.secondary)
+
+            Spacer()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity)
     }
 }

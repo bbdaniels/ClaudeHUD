@@ -8,30 +8,25 @@ struct InputBar: View {
     @EnvironmentObject var conversation: ConversationManager
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            // Multi-line text editor
-            TextEditor(text: $text)
-                .font(.body)
-                .frame(minHeight: 36, maxHeight: 100)
-                .scrollContentBackground(.hidden)
-                .padding(4)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(.textBackgroundColor))
-                )
-                .focused($isFocused)
-
-            // Send button
-            Button(action: onSend) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.title2)
-                    .foregroundColor(text.isEmpty || conversation.isProcessing ? .secondary : .orange)
+        TextField("Ask anything...", text: $text)
+            .font(.system(size: 13))
+            .textFieldStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(.textBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+                    )
+            )
+            .focused($isFocused)
+            .disabled(conversation.isProcessing)
+            .onSubmit {
+                onSend()
             }
-            .buttonStyle(.borderless)
-            .disabled(text.isEmpty || conversation.isProcessing)
-            .keyboardShortcut(.return, modifiers: .command)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
     }
 }

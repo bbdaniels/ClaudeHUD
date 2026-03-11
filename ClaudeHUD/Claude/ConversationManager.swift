@@ -8,7 +8,7 @@ private let logger = Logger(subsystem: "com.claudehud", category: "Conversation"
 struct ChatMessage: Identifiable {
     let id = UUID()
     let role: MessageRole
-    let content: String
+    var content: String
     let timestamp = Date()
     var toolCalls: [ToolCallInfo] = []
 
@@ -20,7 +20,7 @@ struct ChatMessage: Identifiable {
 struct ToolCallInfo: Identifiable {
     let id = UUID()
     let toolName: String
-    let arguments: String // JSON string of the tool input
+    let arguments: String
     var result: String?
     var isError: Bool = false
     var isComplete: Bool = false
@@ -33,249 +33,154 @@ class ConversationManager: ObservableObject {
     @Published var messages: [ChatMessage] = []
     @Published var isProcessing = false
     @Published var totalTokens = 0
+    @Published var selectedModel: String = "opus"
+    @Published var permissionMode: String = "dangerously-skip"
+    @Published var costUSD: Double = 0
 
-    /// Full conversation history sent to the API.
-    private var conversationHistory: [ClaudeMessage] = []
+    let cliClient: ClaudeCLIClient
 
-    private let apiClient: ClaudeAPIClient
-    private let serverManager: MCPServerManager
+    private let systemPrompt = """
+        You are ClaudeHUD, a macOS command center. You can read files, search code, \
+        browse the web, and use MCP tools freely. You CANNOT edit files directly — \
+        Edit, Write, and NotebookEdit are disabled.
 
-    @Published var selectedModel: String = "claude-sonnet-4-20250514"
+        When the user wants code changes:
+        1. Read the relevant files and plan the changes.
+        2. Describe the changes clearly.
+        3. Offer to open the file in their editor. Use Bash to run:
+           - VS Code: code --goto "path/to/file:line"
+           - Ghostty/terminal: open -a Ghostty
+        4. Ask the user which editor they prefer if you don't know yet. Remember it.
 
-    var systemPrompt: String {
+        Session history: All past Claude Code sessions are stored as JSONL files under \
+        ~/.claude/projects/. Each project folder is named by its path (dashes for slashes), \
+        and contains .jsonl files per session. Each line is a JSON object with fields like \
+        type (user/assistant), message.content, timestamp, cwd, gitBranch. You can use \
+        Glob and Grep to search across sessions, and Read to inspect specific ones. \
+        Use this to help the user find past conversations, decisions, and code changes.
+
+        Keep responses concise — the user is reading in a compact floating panel.
         """
-        You are ClaudeHUD, a personal assistant running as a macOS menu bar app.
-        You have access to MCP tools for various services.
-        Keep responses concise -- the user is viewing them in a compact floating panel.
-        Use tools proactively when the user's request implies a lookup.
-        """
-    }
 
-    // MARK: - Init
-
-    init(apiClient: ClaudeAPIClient, serverManager: MCPServerManager) {
-        self.apiClient = apiClient
-        self.serverManager = serverManager
+    init(cliClient: ClaudeCLIClient) {
+        self.cliClient = cliClient
     }
 
     // MARK: - Public API
 
-    /// Send a user message and run the full conversation loop (including tool calls).
     func send(_ text: String) async {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         isProcessing = true
         defer { isProcessing = false }
 
-        // 1. Add user message to UI and history
-        let userMessage = ChatMessage(role: .user, content: text)
-        messages.append(userMessage)
-        conversationHistory.append(
-            ClaudeMessage(role: "user", content: .text(text))
-        )
+        // Add user message to UI
+        messages.append(ChatMessage(role: .user, content: text))
 
-        // 2. Run the conversation loop
-        await conversationLoop()
-    }
+        // Track the assistant message we're building up from stream events
+        var assistantText = ""
+        var pendingToolCalls: [ToolCallInfo] = []
+        var assistantMessageIndex: Int?
 
-    /// Clear conversation history and start fresh.
-    func newConversation() {
-        messages = []
-        conversationHistory = []
-        totalTokens = 0
-    }
+        do {
+            let result = try await cliClient.send(
+                message: text,
+                model: selectedModel,
+                permissionMode: permissionMode,
+                systemPrompt: systemPrompt
+            ) { [weak self] event in
+                guard let self else { return }
 
-    // MARK: - Conversation Loop
+                switch event {
+                case .system(let sys):
+                    logger.info("Session: \(sys.sessionId), MCP servers: \(sys.mcpServers.count)")
 
-    /// Repeatedly call the API until Claude stops requesting tool calls.
-    private func conversationLoop() {
-        // We use a Task here so we can loop with async/await.
-        // The caller already awaits send(), so this runs inline.
-        Task { @MainActor in
-            var continueLoop = true
+                case .assistant(let msg):
+                    if let text = msg.text {
+                        assistantText = text
 
-            while continueLoop {
-                do {
-                    let response = try await callAPI()
-
-                    // Accumulate token usage
-                    totalTokens += response.usage.inputTokens + response.usage.outputTokens
-
-                    // Parse the response content blocks
-                    let (textParts, toolUseParts) = parseResponse(response)
-
-                    // Display assistant text (if any)
-                    if !textParts.isEmpty {
-                        let combinedText = textParts.joined(separator: "\n")
-                        messages.append(
-                            ChatMessage(role: .assistant, content: combinedText)
-                        )
+                        // Create or update the assistant message
+                        if let idx = assistantMessageIndex {
+                            self.messages[idx].content = assistantText
+                        } else {
+                            self.messages.append(ChatMessage(role: .assistant, content: assistantText))
+                            assistantMessageIndex = self.messages.count - 1
+                        }
                     }
 
-                    // Add the assistant's full response to history
-                    let assistantBlocks = response.content
-                    conversationHistory.append(
-                        ClaudeMessage(role: "assistant", content: .blocks(assistantBlocks))
+                case .toolUse(let tool):
+                    let info = ToolCallInfo(
+                        toolName: tool.toolName,
+                        arguments: tool.input
                     )
+                    pendingToolCalls.append(info)
 
-                    // If there are tool calls, execute them
-                    if !toolUseParts.isEmpty {
-                        let toolResultBlocks = await executeToolCalls(toolUseParts)
-
-                        // Add tool results to history as a user message
-                        conversationHistory.append(
-                            ClaudeMessage(role: "user", content: .blocks(toolResultBlocks))
-                        )
-
-                        // Continue the loop so Claude can process tool results
-                        continueLoop = true
+                    // Ensure we have an assistant message to attach tool calls to
+                    if let idx = assistantMessageIndex {
+                        self.messages[idx].toolCalls.append(info)
                     } else {
-                        // No tool calls -- conversation turn is complete
-                        continueLoop = false
+                        var msg = ChatMessage(role: .assistant, content: "")
+                        msg.toolCalls.append(info)
+                        self.messages.append(msg)
+                        assistantMessageIndex = self.messages.count - 1
                     }
 
-                } catch {
-                    logger.error("Conversation loop error: \(error.localizedDescription)")
-                    messages.append(
-                        ChatMessage(role: .system, content: "Error: \(error.localizedDescription)")
-                    )
-                    continueLoop = false
+                case .toolResult(let toolResult):
+                    // Update the matching tool call with its result
+                    if let msgIdx = assistantMessageIndex {
+                        if let tcIdx = self.messages[msgIdx].toolCalls.lastIndex(where: { $0.toolName != "" && !$0.isComplete }) {
+                            self.messages[msgIdx].toolCalls[tcIdx].result = toolResult.content
+                            self.messages[msgIdx].toolCalls[tcIdx].isComplete = true
+                        }
+                    }
+
+                case .result:
+                    break // handled below
+
+                case .unknown:
+                    break
                 }
             }
+
+            // Update totals from the final result
+            totalTokens += result.inputTokens + result.outputTokens
+            costUSD += result.costUSD
+
+            // If the final result text differs from what we streamed, update
+            if let idx = assistantMessageIndex, !result.result.isEmpty {
+                messages[idx].content = result.result
+            } else if assistantMessageIndex == nil && !result.result.isEmpty {
+                messages.append(ChatMessage(role: .assistant, content: result.result))
+            }
+
+            if result.isError {
+                messages.append(ChatMessage(role: .system, content: "Error: \(result.result)"))
+            }
+
+        } catch {
+            logger.error("Send failed: \(error.localizedDescription)")
+            messages.append(ChatMessage(role: .system, content: "Error: \(error.localizedDescription)"))
         }
     }
 
-    // MARK: - API Call
-
-    private func callAPI() async throws -> ClaudeResponse {
-        // Build the tools array from all connected MCP servers
-        let tools = buildToolsArray()
-
-        let request = ClaudeRequest(
-            model: selectedModel,
-            maxTokens: 4096,
-            system: systemPrompt,
-            tools: tools.isEmpty ? nil : tools,
-            messages: conversationHistory
-        )
-
-        return try await apiClient.sendMessage(request: request)
+    func newConversation() {
+        messages = []
+        totalTokens = 0
+        costUSD = 0
+        cliClient.newSession()
     }
 
-    // MARK: - Tool Handling
-
-    /// Convert all MCP tools into the Claude API tool format.
-    private func buildToolsArray() -> [ClaudeTool] {
-        return serverManager.allTools.map { mcpTool in
-            ClaudeTool(
-                name: mcpTool.name,
-                description: mcpTool.description,
-                inputSchema: JSONValue.from(mcpTool.inputSchema)
-            )
-        }
+    func cancel() {
+        cliClient.cancel()
+        isProcessing = false
     }
 
-    /// Extract text and tool_use blocks from a response.
-    private func parseResponse(_ response: ClaudeResponse) -> (texts: [String], toolUses: [ToolUseBlock]) {
-        var texts: [String] = []
-        var toolUses: [ToolUseBlock] = []
-
-        for block in response.content {
-            switch block {
-            case .text(let textBlock):
-                texts.append(textBlock.text)
-            case .toolUse(let toolUseBlock):
-                toolUses.append(toolUseBlock)
-            case .toolResult:
-                // Should not appear in assistant responses, but handle gracefully
-                break
-            }
+    var costString: String {
+        if costUSD >= 0.01 {
+            return String(format: "$%.2f", costUSD)
+        } else if costUSD > 0 {
+            return String(format: "$%.3f", costUSD)
         }
-
-        return (texts, toolUses)
-    }
-
-    /// Execute tool calls and return content blocks with the results.
-    private func executeToolCalls(_ toolUses: [ToolUseBlock]) async -> [ContentBlock] {
-        var resultBlocks: [ContentBlock] = []
-
-        for toolUse in toolUses {
-            // Convert input JSONValue to [String: Any] for the MCP call
-            let arguments: [String: Any]
-            if case .object(let dict) = toolUse.input {
-                arguments = dict.mapValues { $0.toAny() }
-            } else {
-                arguments = [:]
-            }
-
-            // Format arguments as JSON string for UI display
-            let argsString: String
-            if let data = try? JSONSerialization.data(
-                withJSONObject: arguments,
-                options: [.prettyPrinted, .sortedKeys]
-            ), let s = String(data: data, encoding: .utf8) {
-                argsString = s
-            } else {
-                argsString = "{}"
-            }
-
-            // Create a tool call info for the UI
-            var toolCallInfo = ToolCallInfo(
-                toolName: toolUse.name,
-                arguments: argsString
-            )
-
-            logger.info("Calling tool: \(toolUse.name)")
-
-            do {
-                let result = try await serverManager.callTool(
-                    name: toolUse.name,
-                    arguments: arguments
-                )
-
-                toolCallInfo.result = result.content
-                toolCallInfo.isError = result.isError
-                toolCallInfo.isComplete = true
-
-                resultBlocks.append(
-                    .toolResult(ToolResultBlock(
-                        toolUseId: toolUse.id,
-                        content: result.content,
-                        isError: result.isError ? true : nil
-                    ))
-                )
-
-                logger.info("Tool \(toolUse.name) completed (error=\(result.isError))")
-
-            } catch {
-                let errorMessage = "Tool execution failed: \(error.localizedDescription)"
-                toolCallInfo.result = errorMessage
-                toolCallInfo.isError = true
-                toolCallInfo.isComplete = true
-
-                resultBlocks.append(
-                    .toolResult(ToolResultBlock(
-                        toolUseId: toolUse.id,
-                        content: errorMessage,
-                        isError: true
-                    ))
-                )
-
-                logger.error("Tool \(toolUse.name) failed: \(error.localizedDescription)")
-            }
-
-            // Append tool call info to the most recent assistant message in the UI
-            if let lastIndex = messages.indices.last,
-               messages[lastIndex].role == .assistant {
-                messages[lastIndex].toolCalls.append(toolCallInfo)
-            } else {
-                // If no assistant message yet, create a placeholder
-                var msg = ChatMessage(role: .assistant, content: "")
-                msg.toolCalls.append(toolCallInfo)
-                messages.append(msg)
-            }
-        }
-
-        return resultBlocks
+        return ""
     }
 }

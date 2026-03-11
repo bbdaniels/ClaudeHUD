@@ -27,7 +27,7 @@ class HUDPanelController {
         panel.titlebarAppearsTransparent = true
         panel.titleVisibility = .hidden
         panel.isMovableByWindowBackground = true
-        panel.minSize = NSSize(width: 360, height: 400)
+        panel.minSize = NSSize(width: 380, height: 420)
         panel.setFrameAutosaveName("ClaudeHUDPanel")
 
         // If no saved frame, position in top-right
@@ -42,17 +42,17 @@ class HUDPanelController {
         let contentView = HUDContentView()
             .environmentObject(appState)
             .environmentObject(appState.conversationManager)
-            .environmentObject(appState.serverManager)
+            .environmentObject(appState.cliClient)
 
         panel.contentView = NSHostingView(rootView: contentView)
 
-        // Close notification
+        // Cancel any running request when window closes
         NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: panel,
             queue: .main
         ) { [weak self] _ in
-            self?.appState.isHUDVisible = false
+            self?.appState.conversationManager.cancel()
         }
 
         self.panel = panel

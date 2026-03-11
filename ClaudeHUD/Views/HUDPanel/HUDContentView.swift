@@ -2,103 +2,59 @@ import SwiftUI
 
 struct HUDContentView: View {
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var conversation: ConversationManager
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header bar with mode toggle and status
-            HeaderBar()
+            // Header
+            HStack(spacing: 8) {
+                Image(systemName: "sparkle")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.orange)
+
+                Picker("", selection: $conversation.selectedModel) {
+                    Text("Sonnet").tag("sonnet")
+                    Text("Haiku").tag("haiku")
+                    Text("Opus").tag("opus")
+                }
+                .labelsHidden()
+                .fixedSize()
+
+                Picker("", selection: $conversation.permissionMode) {
+                    Image(systemName: "lock.open").tag("dangerously-skip")
+                    Image(systemName: "lock").tag("default")
+                    Image(systemName: "list.clipboard").tag("plan")
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 90)
+                .help(permissionHelp)
+
+                Spacer()
+
+                Button(action: { conversation.newConversation() }) {
+                    Image(systemName: "plus.circle")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("New conversation")
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
 
             Divider()
+                .opacity(0.5)
 
-            // Main content
-            if !appState.hasAPIKey {
-                APIKeyPromptView()
-            } else {
-                switch appState.mode {
-                case .dashboard:
-                    DashboardPlaceholderView()  // Phase 4
-                case .chat:
-                    ChatView()
-                }
-            }
+            ChatView()
         }
-        .frame(minWidth: 360, minHeight: 400)
-    }
-}
-
-struct HeaderBar: View {
-    @EnvironmentObject var appState: AppState
-    @EnvironmentObject var serverManager: MCPServerManager
-
-    var body: some View {
-        HStack {
-            // Mode toggle
-            Picker("Mode", selection: $appState.mode) {
-                Image(systemName: "rectangle.grid.1x2").tag(HUDMode.dashboard)
-                Image(systemName: "bubble.left.and.bubble.right").tag(HUDMode.chat)
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 80)
-
-            Spacer()
-
-            // Server status indicator
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(serverManager.isReady ? Color.green : Color.orange)
-                    .frame(width: 8, height: 8)
-                Text("\(serverManager.clients.count) servers")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            // Settings button
-            Button(action: { appState.showSettings = true }) {
-                Image(systemName: "gear")
-            }
-            .buttonStyle(.borderless)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-    }
-}
-
-struct APIKeyPromptView: View {
-    @EnvironmentObject var appState: AppState
-    @State private var apiKey = ""
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            Image(systemName: "key.fill")
-                .font(.largeTitle)
-                .foregroundColor(.orange)
-            Text("Enter your Anthropic API Key")
-                .font(.headline)
-            SecureField("sk-ant-...", text: $apiKey)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 300)
-                .onSubmit { save() }
-            Button("Save") { save() }
-                .buttonStyle(.borderedProminent)
-                .disabled(apiKey.isEmpty)
-            Spacer()
-        }
-        .padding()
+        .frame(minWidth: 380, minHeight: 420)
     }
 
-    private func save() {
-        appState.saveAPIKey(apiKey)
-    }
-}
-
-struct DashboardPlaceholderView: View {
-    var body: some View {
-        VStack {
-            Spacer()
-            Text("Dashboard coming in Phase 4")
-                .foregroundColor(.secondary)
-            Spacer()
+    private var permissionHelp: String {
+        switch conversation.permissionMode {
+        case "dangerously-skip": return "Skip all permissions"
+        case "plan": return "Plan mode"
+        default: return "Default permissions"
         }
     }
 }
