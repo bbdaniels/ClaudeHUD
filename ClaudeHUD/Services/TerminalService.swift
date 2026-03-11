@@ -42,7 +42,13 @@ class TerminalService: ObservableObject {
 
     func launch() {
         guard !selectedPath.isEmpty else { return }
-        NSWorkspace.shared.open(URL(fileURLWithPath: selectedPath))
+        let url = URL(fileURLWithPath: selectedPath)
+        if let bundleID = Bundle(url: url)?.bundleIdentifier,
+           let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
+            running.activate()
+        } else {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     var selectedName: String {
