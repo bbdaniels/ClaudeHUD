@@ -531,9 +531,21 @@ struct ProjectRow: View {
     @EnvironmentObject var terminalService: TerminalService
     @State private var expanded = false
     @State private var feedback: String?
+    @State private var unsafeMode: Bool
     @Environment(\.fontScale) private var scale
 
     private var latest: SessionInfo { sessions.first! }
+
+    private var unsafeFlag: String { unsafeMode ? " --dangerously-skip-permissions" : "" }
+
+    private var defaultsKey: String { "history.unsafe.\(projectPath)" }
+
+    init(projectName: String, projectPath: String, sessions: [SessionInfo]) {
+        self.projectName = projectName
+        self.projectPath = projectPath
+        self.sessions = sessions
+        self._unsafeMode = State(initialValue: UserDefaults.standard.bool(forKey: "history.unsafe.\(projectPath)"))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -541,27 +553,40 @@ struct ProjectRow: View {
             HStack(spacing: 6) {
                 if sessions.count > 1 {
                     Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9 * scale, weight: .semibold))
+                        .font(.system(size: 10 * scale, weight: .semibold))
                         .foregroundColor(.secondary)
-                        .frame(width: 12)
+                        .frame(width: 14)
                         .contentShape(Rectangle())
                         .onTapGesture { withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() } }
                 } else {
-                    Spacer().frame(width: 12)
+                    Spacer().frame(width: 14)
                 }
 
+                // Unsafe toggle (per-project, persistent)
+                Button(action: {
+                    unsafeMode.toggle()
+                    UserDefaults.standard.set(unsafeMode, forKey: defaultsKey)
+                }) {
+                    Image(systemName: unsafeMode ? "lock.open.fill" : "lock.fill")
+                        .font(.system(size: 11 * scale))
+                        .foregroundColor(unsafeMode ? .red : .green)
+                        .frame(width: 16)
+                }
+                .buttonStyle(.borderless)
+                .help(unsafeMode ? "Unsafe mode (click to toggle)" : "Safe mode (click to toggle)")
+
                 Text(projectName)
-                    .font(.custom("Fira Sans", size: 12.5 * scale).weight(.semibold))
+                    .font(.custom("Fira Sans", size: 14 * scale).weight(.semibold))
                     .foregroundColor(.primary)
                     .lineLimit(1)
 
                 Text(latest.timestamp.relativeString)
-                    .font(.custom("Fira Sans", size: 10 * scale))
+                    .font(.custom("Fira Sans", size: 11.5 * scale))
                     .foregroundColor(.secondary)
 
                 if sessions.count > 1 {
                     Text("\(sessions.count)")
-                        .font(.custom("Fira Code", size: 9 * scale))
+                        .font(.custom("Fira Code", size: 10 * scale))
                         .foregroundColor(.secondary.opacity(0.6))
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
@@ -572,19 +597,19 @@ struct ProjectRow: View {
 
                 if let feedback {
                     Text(feedback)
-                        .font(.custom("Fira Sans", size: 10 * scale))
+                        .font(.custom("Fira Sans", size: 11 * scale))
                         .foregroundColor(.green)
                 } else {
-                    Button(action: { resumeSession(latest) }) {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 10 * scale))
+                    Button(action: { newSession() }) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 12 * scale))
                             .foregroundColor(.accentColor)
                     }
                     .buttonStyle(.borderless)
-                    .help("Resume latest session")
+                    .help("New session in \(projectName)")
                 }
             }
-            .padding(.vertical, 7)
+            .padding(.vertical, 8)
             .contentShape(Rectangle())
             .onTapGesture {
                 if sessions.count > 1 {
@@ -595,17 +620,17 @@ struct ProjectRow: View {
             if expanded {
                 VStack(spacing: 0) {
                     ForEach(sessions) { session in
-                        SessionDetailRow(session: session)
+                        SessionDetailRow(session: session, unsafeMode: unsafeMode)
                     }
                 }
-                .padding(.leading, 18)
+                .padding(.leading, 20)
             }
         }
     }
 
-    private func resumeSession(_ session: SessionInfo) {
-        let command = "claude --resume \(session.id)"
-        let auto = terminalService.launchWithCommand(command, inDirectory: session.projectPath)
+    private func newSession() {
+        let command = "claude\(unsafeFlag)"
+        let auto = terminalService.launchWithCommand(command, inDirectory: projectPath)
         feedback = auto ? "Opened!" : "Cmd+V"
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
     }
@@ -615,20 +640,23 @@ struct ProjectRow: View {
 
 struct SessionDetailRow: View {
     let session: SessionInfo
+    let unsafeMode: Bool
     @EnvironmentObject var terminalService: TerminalService
     @State private var feedback: String?
     @Environment(\.fontScale) private var scale
 
+    private var unsafeFlag: String { unsafeMode ? " --dangerously-skip-permissions" : "" }
+
     var body: some View {
         HStack(spacing: 6) {
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(session.preview)
-                    .font(.custom("Fira Sans", size: 11 * scale))
+                    .font(.custom("Fira Sans", size: 12.5 * scale))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
 
                 Text("\(session.id.prefix(8)) · \(session.timestamp.relativeString)")
-                    .font(.custom("Fira Code", size: 9 * scale))
+                    .font(.custom("Fira Code", size: 10 * scale))
                     .foregroundColor(.secondary.opacity(0.5))
             }
 
@@ -636,23 +664,23 @@ struct SessionDetailRow: View {
 
             if let feedback {
                 Text(feedback)
-                    .font(.custom("Fira Sans", size: 9 * scale))
+                    .font(.custom("Fira Sans", size: 10 * scale))
                     .foregroundColor(.green)
             } else {
                 Button(action: resume) {
                     Image(systemName: "play.fill")
-                        .font(.system(size: 9 * scale))
+                        .font(.system(size: 10 * scale))
                         .foregroundColor(.accentColor)
                 }
                 .buttonStyle(.borderless)
                 .help("Resume this session")
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 5)
     }
 
     private func resume() {
-        let command = "claude --resume \(session.id)"
+        let command = "claude --resume \(session.id)\(unsafeFlag)"
         let auto = terminalService.launchWithCommand(command, inDirectory: session.projectPath)
         feedback = auto ? "Opened!" : "Cmd+V"
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
