@@ -33,9 +33,11 @@ struct HUDContentView: View {
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var pushManager: PushNotificationManager
     @EnvironmentObject var terminalService: TerminalService
+    @EnvironmentObject var sessionHistory: SessionHistoryService
     @State private var showPermissionPopover = false
     @State private var showPushPopover = false
     @State private var showTerminalPopover = false
+    @State private var showingHistory = false
     @State private var fontScale: CGFloat = 1.0
 
     var body: some View {
@@ -113,15 +115,21 @@ struct HUDContentView: View {
             .padding(.vertical, 8)
 
             // Tab bar
-            TabBar()
+            TabBar(showingHistory: $showingHistory)
 
             Divider()
                 .opacity(0.5)
 
-            // Current conversation
-            ChatView()
-                .id(tabManager.selectedTabId)
-                .environmentObject(tabManager.currentConversation)
+            // Main content: history or conversation
+            if showingHistory {
+                SessionHistoryView()
+                    .environmentObject(sessionHistory)
+                    .environmentObject(terminalService)
+            } else {
+                ChatView()
+                    .id(tabManager.selectedTabId)
+                    .environmentObject(tabManager.currentConversation)
+            }
         }
         .frame(minWidth: 380, minHeight: 420)
         .environment(\.fontScale, fontScale)
@@ -179,18 +187,40 @@ struct HUDContentView: View {
 // MARK: - Tab Bar
 
 struct TabBar: View {
+    @Binding var showingHistory: Bool
     @EnvironmentObject var tabManager: TabManager
     @Environment(\.fontScale) private var scale
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
+                // History tab (fixed, far left)
+                Button(action: { showingHistory = true }) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.captionFont(scale))
+                        .foregroundColor(showingHistory ? .primary : .secondary)
+                        .frame(width: 28, height: 24)
+                }
+                .buttonStyle(.borderless)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(showingHistory ? Color.accentColor.opacity(0.12) : Color.clear)
+                )
+                .help("Session history")
+
+                Divider()
+                    .frame(height: 16)
+                    .padding(.horizontal, 4)
+
                 ForEach(tabManager.tabs) { tab in
-                    TabButton(tab: tab)
+                    TabButton(tab: tab, showingHistory: $showingHistory)
                 }
 
                 // Add tab button
-                Button(action: { tabManager.addTab() }) {
+                Button(action: {
+                    tabManager.addTab()
+                    showingHistory = false
+                }) {
                     Image(systemName: "plus")
                         .font(.captionFont(scale))
                         .foregroundColor(.secondary)
@@ -208,11 +238,12 @@ struct TabBar: View {
 
 struct TabButton: View {
     let tab: ConversationTab
+    @Binding var showingHistory: Bool
     @EnvironmentObject var tabManager: TabManager
     @Environment(\.fontScale) private var scale
 
     private var isSelected: Bool {
-        tabManager.selectedTabId == tab.id
+        !showingHistory && tabManager.selectedTabId == tab.id
     }
 
     var body: some View {
@@ -239,6 +270,7 @@ struct TabButton: View {
         )
         .contentShape(Rectangle())
         .onTapGesture {
+            showingHistory = false
             tabManager.selectedTabId = tab.id
         }
     }
@@ -430,6 +462,200 @@ struct PushPopover: View {
         }
         .padding(14)
         .frame(width: 290)
+    }
+}
+
+// MARK: - Session History View
+
+struct SessionHistoryView: View {
+    @EnvironmentObject var sessionHistory: SessionHistoryService
+    @EnvironmentObject var terminalService: TerminalService
+    @Environment(\.fontScale) private var scale
+
+    /// Sessions grouped by project, sorted by most recent session in each group.
+    private var projectGroups: [(name: String, path: String, sessions: [SessionInfo])] {
+        let grouped = Dictionary(grouping: sessionHistory.sessions) { $0.projectName }
+        return grouped.map { (name: $0.key, path: $0.value.first!.projectPath, sessions: $0.value) }
+            .sorted { $0.sessions.first!.timestamp > $1.sessions.first!.timestamp }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if sessionHistory.isLoading && sessionHistory.sessions.isEmpty {
+                Spacer()
+                ProgressView().controlSize(.small)
+                Text("Loading sessions...")
+                    .font(.smallFont(scale))
+                    .foregroundColor(.secondary)
+                    .padding(.top, 8)
+                Spacer()
+            } else if sessionHistory.sessions.isEmpty {
+                Spacer()
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 28))
+                    .foregroundColor(.secondary.opacity(0.5))
+                Text("No sessions found")
+                    .font(.smallFont(scale))
+                    .foregroundColor(.secondary)
+                    .padding(.top, 6)
+                Spacer()
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(projectGroups, id: \.name) { group in
+                            ProjectRow(
+                                projectName: group.name,
+                                projectPath: group.path,
+                                sessions: group.sessions
+                            )
+                            Divider().opacity(0.3)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            Task { await sessionHistory.refresh() }
+        }
+    }
+}
+
+// MARK: - Project Row (collapsible)
+
+struct ProjectRow: View {
+    let projectName: String
+    let projectPath: String
+    let sessions: [SessionInfo]
+    @EnvironmentObject var terminalService: TerminalService
+    @State private var expanded = false
+    @State private var feedback: String?
+    @Environment(\.fontScale) private var scale
+
+    private var latest: SessionInfo { sessions.first! }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Compact project line
+            HStack(spacing: 6) {
+                if sessions.count > 1 {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9 * scale, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .frame(width: 12)
+                        .contentShape(Rectangle())
+                        .onTapGesture { withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() } }
+                } else {
+                    Spacer().frame(width: 12)
+                }
+
+                Text(projectName)
+                    .font(.custom("Fira Sans", size: 12.5 * scale).weight(.semibold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+
+                Text(latest.timestamp.relativeString)
+                    .font(.custom("Fira Sans", size: 10 * scale))
+                    .foregroundColor(.secondary)
+
+                if sessions.count > 1 {
+                    Text("\(sessions.count)")
+                        .font(.custom("Fira Code", size: 9 * scale))
+                        .foregroundColor(.secondary.opacity(0.6))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
+                }
+
+                Spacer()
+
+                if let feedback {
+                    Text(feedback)
+                        .font(.custom("Fira Sans", size: 10 * scale))
+                        .foregroundColor(.green)
+                } else {
+                    Button(action: { resumeSession(latest) }) {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 10 * scale))
+                            .foregroundColor(.accentColor)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Resume latest session")
+                }
+            }
+            .padding(.vertical, 7)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if sessions.count > 1 {
+                    withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+                }
+            }
+
+            if expanded {
+                VStack(spacing: 0) {
+                    ForEach(sessions) { session in
+                        SessionDetailRow(session: session)
+                    }
+                }
+                .padding(.leading, 18)
+            }
+        }
+    }
+
+    private func resumeSession(_ session: SessionInfo) {
+        let command = "claude --resume \(session.id)"
+        let auto = terminalService.launchWithCommand(command, inDirectory: session.projectPath)
+        feedback = auto ? "Opened!" : "Cmd+V"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
+    }
+}
+
+// MARK: - Session Detail Row (inside expanded project)
+
+struct SessionDetailRow: View {
+    let session: SessionInfo
+    @EnvironmentObject var terminalService: TerminalService
+    @State private var feedback: String?
+    @Environment(\.fontScale) private var scale
+
+    var body: some View {
+        HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(session.preview)
+                    .font(.custom("Fira Sans", size: 11 * scale))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+
+                Text("\(session.id.prefix(8)) · \(session.timestamp.relativeString)")
+                    .font(.custom("Fira Code", size: 9 * scale))
+                    .foregroundColor(.secondary.opacity(0.5))
+            }
+
+            Spacer()
+
+            if let feedback {
+                Text(feedback)
+                    .font(.custom("Fira Sans", size: 9 * scale))
+                    .foregroundColor(.green)
+            } else {
+                Button(action: resume) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 9 * scale))
+                        .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.borderless)
+                .help("Resume this session")
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func resume() {
+        let command = "claude --resume \(session.id)"
+        let auto = terminalService.launchWithCommand(command, inDirectory: session.projectPath)
+        feedback = auto ? "Opened!" : "Cmd+V"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
     }
 }
 

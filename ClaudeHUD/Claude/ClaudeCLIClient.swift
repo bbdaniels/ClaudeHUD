@@ -96,19 +96,22 @@ class ClaudeCLIClient: ObservableObject {
         isProcessing = true
         defer { isProcessing = false }
 
+        // HUD cannot display interactive permission dialogs (non-interactive subprocess),
+        // so we always use dangerously-skip-permissions and control safety via disallowed tools.
+        var disallowedTools = ["Edit", "Write", "NotebookEdit"]
+        if permissionMode == "default" {
+            // "Safe" mode: block Bash execution but allow MCP tools freely
+            disallowedTools.append("Bash")
+        }
+
         var args = [
             "-p",
             "--output-format", "stream-json",
             "--verbose",
             "--model", model,
-            "--disallowed-tools", "Edit,Write,NotebookEdit"
+            "--dangerously-skip-permissions",
+            "--disallowed-tools", disallowedTools.joined(separator: ",")
         ]
-
-        if permissionMode == "dangerously-skip" {
-            args.append("--dangerously-skip-permissions")
-        } else {
-            args += ["--permission-mode", permissionMode]
-        }
 
         if let systemPrompt {
             args += ["--append-system-prompt", systemPrompt]

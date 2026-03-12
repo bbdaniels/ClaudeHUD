@@ -7,13 +7,15 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		EEFF112233445566007788AA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AABB1122CCDDEEFF00112233 /* Assets.xcassets */; };
-		0A1B2C3D4E5F6A7B8C9D0E1F /* ClaudeCLIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7A8B9C0D1E2F /* ClaudeCLIClient.swift */; };
 		100D1AE5FEA20720849E25EE /* HUDContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A8692269C30DC7C435CE107 /* HUDContentView.swift */; };
+		10839D1BC618E406833B95CC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C53EC70F3DA9CDD0CC4EA24F /* Assets.xcassets */; };
 		11D068D60F1FBC84E1D988EA /* ClaudeHUDApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E611364C25404DC27D5D60B /* ClaudeHUDApp.swift */; };
 		2C29DFF9CEB92A300E5B2FE0 /* MCPServerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F610738B5C598F62048D6D9 /* MCPServerManager.swift */; };
+		2DC1704ACE2F286704A1DF5C /* TerminalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */; };
+		B3D12E87F4A5C90612E8D7F3 /* SessionHistoryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C34F91E8B2D60543F1A8E9 /* SessionHistoryService.swift */; };
 		3AC79C0378BBFE5D3C197E09 /* InputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A6ED39AD22EDDA61258DC0F /* InputBar.swift */; };
 		3D1E8016AF772DEC464B2404 /* ClaudeTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9537964108C725A1208851B5 /* ClaudeTypes.swift */; };
+		5E6501CEBB9899408CB2A50E /* PushNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2801C79D6EE1B4B43ED6B5A4 /* PushNotificationManager.swift */; };
 		5E8249E75BC7071A42BD394B /* MCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5CC94E94375F63C3B1C6D3 /* MCPClient.swift */; };
 		6849853A4E6B85FB19E3A411 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FD67A81EBE058854F735069 /* ChatView.swift */; };
 		716AF768A9028A0E83E447BD /* SSEMCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B9601851634E06856B4D47D /* SSEMCPClient.swift */; };
@@ -23,19 +25,23 @@
 		8A26FC7995D0630EB4CC2293 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EF50C40A513492539053988 /* SettingsView.swift */; };
 		8C46A3A5A8F635DA6316E52D /* HUDPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39C7242E2783A2815CB305E2 /* HUDPanelController.swift */; };
 		9A10C6567AB89D52BB2F6DFC /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BF6467BABED6305C19A0C5C /* MessageBubble.swift */; };
+		9D1751A3FD807556940D4438 /* ntfy-notify.sh in Resources */ = {isa = PBXBuildFile; fileRef = C6D82DD1759F543B48C98E52 /* ntfy-notify.sh */; };
 		9DA0FDBD089DA3477830FAE4 /* MCPConfigLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBEE4757D18F462A43F672AB /* MCPConfigLoader.swift */; };
 		A6CE6F13DE90FD2DB48C69A2 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CFD163F5056F20A18D23477 /* AppState.swift */; };
 		AA1830B8C3DD8D346BBF9895 /* KeychainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE31FD7228157DC53CDE8B9E /* KeychainService.swift */; };
 		AB52E8B15A0B2E94FDCFEAF0 /* ToolCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 502D6FDFD2A08657B013ED9B /* ToolCallView.swift */; };
 		AF44EBFA0AB87F2490D412F9 /* StdioMCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19A889B1D9FE0780BB3042FA /* StdioMCPClient.swift */; };
+		BAC3A285D736D01662A6A794 /* ClaudeCLIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 369134DB1B8B42279EB5E1D8 /* ClaudeCLIClient.swift */; };
 		EEC5054A3B33EBA08F1A8D24 /* JSONRPCTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 620FB4690A1A9D7786A56696 /* JSONRPCTypes.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		AABB1122CCDDEEFF00112233 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		1A2B3C4D5E6F7A8B9C0D1E2F /* ClaudeCLIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCLIClient.swift; sourceTree = "<group>"; };
 		19A889B1D9FE0780BB3042FA /* StdioMCPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StdioMCPClient.swift; sourceTree = "<group>"; };
+		2801C79D6EE1B4B43ED6B5A4 /* PushNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationManager.swift; sourceTree = "<group>"; };
+		2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalService.swift; sourceTree = "<group>"; };
+		A7C34F91E8B2D60543F1A8E9 /* SessionHistoryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionHistoryService.swift; sourceTree = "<group>"; };
 		3256754C76CCAD0FA8F83274 /* ConversationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationManager.swift; sourceTree = "<group>"; };
+		369134DB1B8B42279EB5E1D8 /* ClaudeCLIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCLIClient.swift; sourceTree = "<group>"; };
 		39C7242E2783A2815CB305E2 /* HUDPanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUDPanelController.swift; sourceTree = "<group>"; };
 		3B9601851634E06856B4D47D /* SSEMCPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEMCPClient.swift; sourceTree = "<group>"; };
 		4A6ED39AD22EDDA61258DC0F /* InputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputBar.swift; sourceTree = "<group>"; };
@@ -54,6 +60,8 @@
 		8F610738B5C598F62048D6D9 /* MCPServerManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPServerManager.swift; sourceTree = "<group>"; };
 		9537964108C725A1208851B5 /* ClaudeTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeTypes.swift; sourceTree = "<group>"; };
 		BBEE4757D18F462A43F672AB /* MCPConfigLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPConfigLoader.swift; sourceTree = "<group>"; };
+		C53EC70F3DA9CDD0CC4EA24F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		C6D82DD1759F543B48C98E52 /* ntfy-notify.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "ntfy-notify.sh"; sourceTree = "<group>"; };
 		CE31FD7228157DC53CDE8B9E /* KeychainService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainService.swift; sourceTree = "<group>"; };
 		D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -64,6 +72,9 @@
 			children = (
 				D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */,
 				CE31FD7228157DC53CDE8B9E /* KeychainService.swift */,
+				2801C79D6EE1B4B43ED6B5A4 /* PushNotificationManager.swift */,
+				A7C34F91E8B2D60543F1A8E9 /* SessionHistoryService.swift */,
+				2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -106,7 +117,7 @@
 			isa = PBXGroup;
 			children = (
 				4CE87221F1993D02C27C5E1B /* ClaudeAPIClient.swift */,
-				1A2B3C4D5E6F7A8B9C0D1E2F /* ClaudeCLIClient.swift */,
+				369134DB1B8B42279EB5E1D8 /* ClaudeCLIClient.swift */,
 				9537964108C725A1208851B5 /* ClaudeTypes.swift */,
 				3256754C76CCAD0FA8F83274 /* ConversationManager.swift */,
 			);
@@ -147,8 +158,9 @@
 		C3795CBD22C5472AD3B2CD01 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				AABB1122CCDDEEFF00112233 /* Assets.xcassets */,
+				C53EC70F3DA9CDD0CC4EA24F /* Assets.xcassets */,
 				68D028D91836CDCCAD3E5DFF /* Info.plist */,
+				C6D82DD1759F543B48C98E52 /* ntfy-notify.sh */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -185,7 +197,7 @@
 			buildConfigurationList = 8B05D3CF710CC09C3C5C630C /* Build configuration list for PBXNativeTarget "ClaudeHUD" */;
 			buildPhases = (
 				C6D9067576944BDC7C6E9B8F /* Sources */,
-				CCDD1122EEFF334400556677 /* Resources */,
+				FFD4933A9A5CB66400072958 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -229,11 +241,12 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		CCDD1122EEFF334400556677 /* Resources */ = {
+		FFD4933A9A5CB66400072958 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				EEFF112233445566007788AA /* Assets.xcassets in Resources */,
+				10839D1BC618E406833B95CC /* Assets.xcassets in Resources */,
+				9D1751A3FD807556940D4438 /* ntfy-notify.sh in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -247,7 +260,7 @@
 				A6CE6F13DE90FD2DB48C69A2 /* AppState.swift in Sources */,
 				6849853A4E6B85FB19E3A411 /* ChatView.swift in Sources */,
 				73EADD2BE245DD1BB284422A /* ClaudeAPIClient.swift in Sources */,
-				0A1B2C3D4E5F6A7B8C9D0E1F /* ClaudeCLIClient.swift in Sources */,
+				BAC3A285D736D01662A6A794 /* ClaudeCLIClient.swift in Sources */,
 				11D068D60F1FBC84E1D988EA /* ClaudeHUDApp.swift in Sources */,
 				3D1E8016AF772DEC464B2404 /* ClaudeTypes.swift in Sources */,
 				7DC1D28210D31B38F3B6C51A /* ConversationManager.swift in Sources */,
@@ -261,9 +274,12 @@
 				9DA0FDBD089DA3477830FAE4 /* MCPConfigLoader.swift in Sources */,
 				2C29DFF9CEB92A300E5B2FE0 /* MCPServerManager.swift in Sources */,
 				9A10C6567AB89D52BB2F6DFC /* MessageBubble.swift in Sources */,
+				5E6501CEBB9899408CB2A50E /* PushNotificationManager.swift in Sources */,
 				716AF768A9028A0E83E447BD /* SSEMCPClient.swift in Sources */,
+				B3D12E87F4A5C90612E8D7F3 /* SessionHistoryService.swift in Sources */,
 				8A26FC7995D0630EB4CC2293 /* SettingsView.swift in Sources */,
 				AF44EBFA0AB87F2490D412F9 /* StdioMCPClient.swift in Sources */,
+				2DC1704ACE2F286704A1DF5C /* TerminalService.swift in Sources */,
 				AB52E8B15A0B2E94FDCFEAF0 /* ToolCallView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
