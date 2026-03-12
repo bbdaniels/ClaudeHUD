@@ -314,9 +314,9 @@
     <div class="subtitle">Claude in Your Menu Bar</div>
     <p class="lead">
       A macOS menu bar app that puts Claude at your fingertips.
-      Multi-tab conversations, tool execution, markdown rendering,
-      and KaTeX math &mdash; all in a lightweight floating panel
-      without leaving your workflow.
+      Multi-tab conversations, session history, terminal integration,
+      push notifications, markdown rendering, and KaTeX math &mdash;
+      all in a lightweight floating panel without leaving your workflow.
     </p>
     <div class="cta-row">
       <a class="btn" href="https://github.com/bbdaniels/ClaudeHUD">
@@ -339,8 +339,20 @@
           <span class="feature-desc">Open multiple chats with Cmd+T. Each tab maintains its own history and session state. Tab titles are auto-generated from your first message.</span>
         </li>
         <li>
+          <span class="feature-label">Session history</span>
+          <span class="feature-desc">Browse all past Claude Code sessions across every project. Launch new sessions or resume old ones with one click. Per-project safe/unsafe toggle remembered across launches.</span>
+        </li>
+        <li>
+          <span class="feature-label">Terminal integration</span>
+          <span class="feature-desc">Launch your preferred terminal from the header. Ghostty, iTerm2, and Terminal.app auto-execute commands; others copy to clipboard. Long-press to switch terminals.</span>
+        </li>
+        <li>
           <span class="feature-label">Model switching</span>
           <span class="feature-desc">Switch between Sonnet, Haiku, and Opus on the fly via the header picker. Choose the right model for the task.</span>
+        </li>
+        <li>
+          <span class="feature-label">Push notifications</span>
+          <span class="feature-desc">Desktop banners and mobile push via ntfy.sh. Get notified on iPhone and Apple Watch when Claude needs attention. Auto-installs hook scripts.</span>
         </li>
         <li>
           <span class="feature-label">KaTeX math</span>
@@ -411,12 +423,16 @@
   Views/
     HUDPanel/
       HUDPanelController.swift  <span class="cmt"># NSPanel floating window</span>
-      HUDContentView.swift      <span class="cmt"># Main layout, tabs, permissions</span>
+      HUDContentView.swift      <span class="cmt"># Main layout, tabs, history, permissions</span>
     Chat/
       ChatView.swift            <span class="cmt"># Message list + input</span>
       MessageBubble.swift       <span class="cmt"># Markdown parser + renderers</span>
       InputBar.swift            <span class="cmt"># Text input</span>
-      ToolCallView.swift        <span class="cmt"># Tool call display</span></pre>
+      ToolCallView.swift        <span class="cmt"># Tool call display</span>
+  Services/
+    SessionHistoryService.swift <span class="cmt"># Scan past sessions across projects</span>
+    TerminalService.swift       <span class="cmt"># Terminal detection + command launch</span>
+    PushNotificationManager.swift <span class="cmt"># Desktop + mobile notifications</span></pre>
       </div>
     </section>
 

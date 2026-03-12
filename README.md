@@ -17,6 +17,10 @@ A macOS menu bar app that puts Claude at your fingertips. ClaudeHUD is a lightwe
 - **Safe** -- Claude reads freely but asks before running commands
 - **Unsafe** -- No guardrails; Claude executes anything without asking
 
+**Session history** -- Browse all past Claude Code sessions across every project on your machine. Sessions are grouped by project with collapsible dropdowns. Launch a new session in any project with one click, or expand to resume a specific past session. Each project has a persistent safe/unsafe toggle (stored per-project) that controls whether sessions launch with `--dangerously-skip-permissions`.
+
+**Terminal integration** -- Launch your preferred terminal directly from the header. Supports Ghostty, iTerm2, Terminal.app, Warp, Alacritty, kitty, and Hyper. Ghostty and Terminal.app/iTerm2 auto-execute commands; others copy to clipboard. Long-press the terminal button to switch terminals.
+
 **Push notifications** -- Get notified when Claude needs attention, even when you're away from your screen. Click the bell icon in the header to configure:
 - **Desktop** -- macOS notification banners via the system notification center
 - **Mobile** -- Push to iPhone and Apple Watch via [ntfy.sh](https://ntfy.sh) (free, no account required)
@@ -89,6 +93,8 @@ ClaudeHUD/
       SettingsView.swift   # Settings UI
   Services/
     PushNotificationManager.swift  # Hook install, settings.json management
+    SessionHistoryService.swift    # Scan ~/.claude/projects/ for past sessions
+    TerminalService.swift          # Terminal app detection, selection, command launch
     KeychainService.swift          # API key storage
     HotkeyService.swift            # Global hotkey registration
   Resources/
