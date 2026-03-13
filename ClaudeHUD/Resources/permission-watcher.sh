@@ -18,20 +18,6 @@ DECISION_DIR="$HUD_DIR/decisions"
 # Read tool info from stdin
 INPUT=$(cat)
 
-TOOL_NAME=$(echo "$INPUT" | python3 -c "
-import json, sys
-try:
-    print(json.load(sys.stdin).get('tool_name', ''))
-except:
-    print('')
-" 2>/dev/null)
-
-# Only block for tools that commonly require permission
-case "$TOOL_NAME" in
-    Bash|Edit|Write|NotebookEdit) ;;
-    *) exit 0 ;;
-esac
-
 # Check if HUD is alive (heartbeat within last 15 seconds)
 if [ ! -f "$HEARTBEAT" ]; then
     exit 0
