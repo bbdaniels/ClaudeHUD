@@ -191,25 +191,26 @@ class PermissionWatcherService: ObservableObject {
 
         var hooks = settings["hooks"] as? [String: Any] ?? [:]
 
-        // Clean up any old PreToolUse registration
-        if var preToolUse = hooks["PreToolUse"] as? [[String: Any]] {
-            preToolUse.removeAll { entry in
+        // Clean up any old PermissionRequest registration
+        if var permReq = hooks["PermissionRequest"] as? [[String: Any]] {
+            permReq.removeAll { entry in
                 guard let innerHooks = entry["hooks"] as? [[String: Any]] else { return false }
                 return innerHooks.contains { ($0["command"] as? String)?.contains("permission-watcher.sh") == true }
             }
-            hooks["PreToolUse"] = preToolUse.isEmpty ? nil : preToolUse
+            hooks["PermissionRequest"] = permReq.isEmpty ? nil : permReq
         }
 
-        // Register as PermissionRequest hook — only fires when permission is actually needed
-        var permReq = hooks["PermissionRequest"] as? [[String: Any]] ?? []
-        permReq.removeAll { entry in
+        // Register as PreToolUse hook (can return allow/deny decisions)
+        // Hook script detects bypass mode and exits immediately for those sessions
+        var preToolUse = hooks["PreToolUse"] as? [[String: Any]] ?? []
+        preToolUse.removeAll { entry in
             guard let innerHooks = entry["hooks"] as? [[String: Any]] else { return false }
             return innerHooks.contains { ($0["command"] as? String)?.contains("permission-watcher.sh") == true }
         }
-        permReq.append([
+        preToolUse.append([
             "hooks": [["type": "command", "command": hookScriptPath]]
         ])
-        hooks["PermissionRequest"] = permReq
+        hooks["PreToolUse"] = preToolUse
 
         settings["hooks"] = hooks
 
