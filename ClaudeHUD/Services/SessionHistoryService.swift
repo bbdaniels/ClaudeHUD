@@ -76,40 +76,76 @@ class SessionHistoryService: ObservableObject {
     // MARK: - Project Path Decoding
 
     /// Decode a directory name like `-Users-bbdaniels-GitHub-ClaudeHUD` back to `/Users/bbdaniels/GitHub/ClaudeHUD`.
-    /// Handles project names containing dashes by probing the filesystem.
+    ///
+    /// Claude Code encodes project paths by replacing `/`, `_`, and `.` with `-`.
+    /// Decoding is ambiguous, so we probe the filesystem greedily: at each `-`,
+    /// try treating it as a path separator (checking dash, underscore, and dot
+    /// variants of the accumulated component). If no directory matches, keep the
+    /// dash as a literal character in the current component.
     nonisolated private static func decodeProjectDir(_ dirName: String) -> (path: String, name: String) {
         let fm = FileManager.default
         let home = NSHomeDirectory()
         // "/Users/bbdaniels" → "-Users-bbdaniels"
         let homeEncoded = home.replacingOccurrences(of: "/", with: "-")
 
+        let basePath: String
+        let remainder: String
+
         if dirName.hasPrefix(homeEncoded + "-") {
-            let remainder = String(dirName.dropFirst(homeEncoded.count + 1))
-            let parts = remainder.split(separator: "-").map(String.init)
-
-            // Try joining rightmost segments with dashes to handle names like "claude-push"
-            for i in stride(from: parts.count - 1, through: 1, by: -1) {
-                let prefix = parts[0..<i].joined(separator: "/")
-                let suffix = parts[i...].joined(separator: "-")
-                let candidate = "\(home)/\(prefix)/\(suffix)"
-                if fm.fileExists(atPath: candidate) {
-                    return (candidate, suffix)
-                }
-            }
-
-            // Simple case: all dashes are slashes
-            let simplePath = "\(home)/\(remainder.replacingOccurrences(of: "-", with: "/"))"
-            if fm.fileExists(atPath: simplePath) {
-                return (simplePath, URL(fileURLWithPath: simplePath).lastPathComponent)
-            }
-
-            // Fallback
-            return (simplePath, parts.last ?? remainder)
+            basePath = home
+            remainder = String(dirName.dropFirst(homeEncoded.count + 1))
+        } else {
+            basePath = ""
+            remainder = String(dirName.dropFirst(1))
         }
 
-        // Non-home path (e.g. /tmp)
-        let path = "/" + String(dirName.dropFirst()).replacingOccurrences(of: "-", with: "/")
-        return (path, URL(fileURLWithPath: path).lastPathComponent)
+        var resolved = basePath
+        var component = ""
+
+        for c in remainder {
+            if c == "-" {
+                if !component.isEmpty {
+                    // Try treating this dash as a path separator
+                    for variant in componentVariants(component) {
+                        let candidate = resolved + "/" + variant
+                        var isDir: ObjCBool = false
+                        if fm.fileExists(atPath: candidate, isDirectory: &isDir), isDir.boolValue {
+                            resolved = candidate
+                            component = ""
+                            break
+                        }
+                    }
+                    if component.isEmpty { continue }
+                }
+                // Not a separator — keep as literal dash (may represent '-', '_', or '.')
+                component.append("-")
+            } else {
+                component.append(c)
+            }
+        }
+
+        // Resolve the final component (file or directory)
+        if !component.isEmpty {
+            for variant in componentVariants(component) {
+                let candidate = resolved + "/" + variant
+                if fm.fileExists(atPath: candidate) {
+                    return (candidate, variant)
+                }
+            }
+        }
+
+        let fallbackPath = component.isEmpty ? resolved : resolved + "/" + component
+        return (fallbackPath, URL(fileURLWithPath: fallbackPath).lastPathComponent)
+    }
+
+    /// Returns variants of a path component with dashes replaced by underscore / dot.
+    nonisolated private static func componentVariants(_ component: String) -> [String] {
+        guard component.contains("-") else { return [component] }
+        return [
+            component,
+            component.replacingOccurrences(of: "-", with: "_"),
+            component.replacingOccurrences(of: "-", with: "."),
+        ]
     }
 
     // MARK: - Preview Extraction
