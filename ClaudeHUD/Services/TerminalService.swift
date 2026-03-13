@@ -17,10 +17,27 @@ class TerminalService: ObservableObject {
         ("Terminal", "/System/Applications/Utilities/Terminal.app"),
     ]
 
+    static let knownLaunchers: [(name: String, path: String)] = [
+        ("Ghostty",  "/Applications/Ghostty.app"),
+        ("VS Code",  "/Applications/Visual Studio Code.app"),
+    ]
+
     var installedTerminals: [(name: String, path: String)] {
         TerminalService.knownTerminals.filter {
             FileManager.default.fileExists(atPath: $0.path)
         }
+    }
+
+    var installedLaunchers: [(name: String, path: String)] {
+        TerminalService.knownLaunchers.filter {
+            FileManager.default.fileExists(atPath: $0.path)
+        }
+    }
+
+    static func nameForPath(_ path: String) -> String {
+        let all = knownTerminals + knownLaunchers
+        return all.first { $0.path == path }?.name
+            ?? URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
     }
 
     init() {
@@ -53,17 +70,21 @@ class TerminalService: ObservableObject {
             ?? URL(fileURLWithPath: selectedPath).deletingPathExtension().lastPathComponent
     }
 
-    /// Launch the selected terminal with a command.
-    /// Returns `true` if auto-executed (Terminal.app/iTerm2), `false` if copied to clipboard.
+    /// Launch an app with a command.
+    /// When `usingApp` is provided, that app is used instead of the global selection.
+    /// Returns `true` if auto-executed, `false` if copied to clipboard.
     @discardableResult
-    func launchWithCommand(_ command: String, inDirectory: String? = nil) -> Bool {
+    func launchWithCommand(_ command: String, inDirectory: String? = nil, usingApp overridePath: String? = nil) -> Bool {
+        let appPath = overridePath ?? selectedPath
+        guard !appPath.isEmpty else { return false }
+
         var fullCommand = command
         if let dir = inDirectory {
             let quoted = dir.replacingOccurrences(of: "'", with: "'\\''")
             fullCommand = "cd '\(quoted)' && \(command)"
         }
 
-        let name = selectedName
+        let name = Self.nameForPath(appPath)
 
         // Terminal.app: AppleScript `do script` (auto-executes in new window)
         if name == "Terminal" {
@@ -103,7 +124,7 @@ class TerminalService: ObservableObject {
             else {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(fullCommand, forType: .string)
-                launch()
+                launchApp(at: appPath)
                 return false
             }
 
@@ -111,16 +132,38 @@ class TerminalService: ObservableObject {
             // Opens a new Ghostty window running the resume command.
             let open = Process()
             open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            open.arguments = ["-na", selectedPath, "--args", "--command=\(tmpScript)"]
+            open.arguments = ["-na", appPath, "--args", "--command=\(tmpScript)"]
             try? open.run()
             return true
+        }
+
+        // VS Code: open the project folder, copy command to clipboard for integrated terminal.
+        if name == "VS Code" {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(fullCommand, forType: .string)
+            if let dir = inDirectory {
+                let open = Process()
+                open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+                open.arguments = ["-a", appPath, dir]
+                try? open.run()
+            } else {
+                launchApp(at: appPath)
+            }
+            return false
         }
 
         // Others: copy command to clipboard, bring terminal to front.
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(fullCommand, forType: .string)
-        launch()
+        launchApp(at: appPath)
         return false
+    }
+
+    private func launchApp(at path: String) {
+        let url = URL(fileURLWithPath: path)
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = true
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { _, _ in }
     }
 
     private func appleScriptEscape(_ s: String) -> String {

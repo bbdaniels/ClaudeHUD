@@ -37,7 +37,7 @@ struct HUDContentView: View {
     @State private var showPermissionPopover = false
     @State private var showPushPopover = false
     @State private var showTerminalPopover = false
-    @State private var showingHistory = false
+    @State private var showingHistory = true
     @State private var fontScale: CGFloat = 1.0
 
     var body: some View {
@@ -471,12 +471,52 @@ struct SessionHistoryView: View {
     @EnvironmentObject var sessionHistory: SessionHistoryService
     @EnvironmentObject var terminalService: TerminalService
     @Environment(\.fontScale) private var scale
+    @State private var searchText = ""
+    @State private var starredPaths: Set<String> = {
+        Set(UserDefaults.standard.stringArray(forKey: "history.starredProjects") ?? [])
+    }()
 
-    /// Sessions grouped by project, sorted by most recent session in each group.
-    private var projectGroups: [(name: String, path: String, sessions: [SessionInfo])] {
-        let grouped = Dictionary(grouping: sessionHistory.sessions) { $0.projectName }
+    private typealias ProjectGroup = (name: String, path: String, sessions: [SessionInfo])
+
+    /// Sessions grouped by project, filtered by search, sorted by most recent.
+    private var projectGroups: [ProjectGroup] {
+        let filtered: [SessionInfo]
+        if searchText.isEmpty {
+            filtered = sessionHistory.sessions
+        } else {
+            let q = searchText.lowercased()
+            filtered = sessionHistory.sessions.filter {
+                $0.projectName.lowercased().contains(q) || $0.preview.lowercased().contains(q)
+            }
+        }
+
+        let grouped = Dictionary(grouping: filtered) { $0.projectName }
         return grouped.map { (name: $0.key, path: $0.value.first!.projectPath, sessions: $0.value) }
             .sorted { $0.sessions.first!.timestamp > $1.sessions.first!.timestamp }
+    }
+
+    /// Partition groups into time-based sections.
+    private var sections: [(title: String, groups: [ProjectGroup])] {
+        let cal = Calendar.current
+        let now = Date()
+        let startOfToday = cal.startOfDay(for: now)
+        let startOfWeek = cal.date(byAdding: .day, value: -7, to: startOfToday)!
+
+        let starred = projectGroups.filter { starredPaths.contains($0.path) }
+        let unstarred = projectGroups.filter { !starredPaths.contains($0.path) }
+
+        let today = unstarred.filter { $0.sessions.first!.timestamp >= startOfToday }
+        let thisWeek = unstarred.filter {
+            $0.sessions.first!.timestamp >= startOfWeek && $0.sessions.first!.timestamp < startOfToday
+        }
+        let older = unstarred.filter { $0.sessions.first!.timestamp < startOfWeek }
+
+        var result: [(title: String, groups: [ProjectGroup])] = []
+        if !starred.isEmpty { result.append(("Starred", starred)) }
+        if !today.isEmpty { result.append(("Today", today)) }
+        if !thisWeek.isEmpty { result.append(("This Week", thisWeek)) }
+        if !older.isEmpty { result.append(("Older", older)) }
+        return result
     }
 
     var body: some View {
@@ -500,24 +540,123 @@ struct SessionHistoryView: View {
                     .padding(.top, 6)
                 Spacer()
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(projectGroups, id: \.name) { group in
-                            ProjectRow(
-                                projectName: group.name,
-                                projectPath: group.path,
-                                sessions: group.sessions
-                            )
-                            Divider().opacity(0.3)
+                // Search bar
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 11 * scale))
+                        .foregroundColor(.secondary)
+                    TextField("Filter projects and sessions...", text: $searchText)
+                        .font(.smallFont(scale))
+                        .textFieldStyle(.plain)
+                    if !searchText.isEmpty {
+                        Button(action: { searchText = "" }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 11 * scale))
+                                .foregroundColor(.secondary)
                         }
+                        .buttonStyle(.borderless)
                     }
-                    .padding(.horizontal, 10)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .background(Color(.textBackgroundColor).opacity(0.3))
+
+                Divider().opacity(0.3)
+
+                if projectGroups.isEmpty {
+                    Spacer()
+                    Text("No matches")
+                        .font(.smallFont(scale))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(sections, id: \.title) { section in
+                                TimeSectionView(
+                                    title: section.title,
+                                    groups: section.groups,
+                                    starredPaths: starredPaths,
+                                    onToggleStar: { toggleStar($0) },
+                                    onDeleteSession: { deleteSession($0, projectPath: $1) }
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                    }
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             Task { await sessionHistory.refresh() }
+        }
+    }
+
+    private func toggleStar(_ path: String) {
+        if starredPaths.contains(path) {
+            starredPaths.remove(path)
+        } else {
+            starredPaths.insert(path)
+        }
+        UserDefaults.standard.set(Array(starredPaths), forKey: "history.starredProjects")
+    }
+
+    private func deleteSession(_ sessionId: String, projectPath: String) {
+        sessionHistory.deleteSession(id: sessionId)
+    }
+}
+
+// MARK: - Collapsible Time Section
+
+struct TimeSectionView: View {
+    let title: String
+    let groups: [(name: String, path: String, sessions: [SessionInfo])]
+    let starredPaths: Set<String>
+    let onToggleStar: (String) -> Void
+    let onDeleteSession: (String, String) -> Void
+    @State private var collapsed = false
+    @Environment(\.fontScale) private var scale
+
+    var body: some View {
+        // Section header
+        HStack(spacing: 4) {
+            Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+                .font(.system(size: 8 * scale, weight: .bold))
+                .foregroundColor(.secondary.opacity(0.5))
+            Text(title)
+                .font(.captionFont(scale).weight(.semibold))
+                .foregroundColor(.secondary.opacity(0.7))
+                .textCase(.uppercase)
+            if collapsed {
+                Text("\(groups.count)")
+                    .font(.custom("Fira Code", size: 9 * scale))
+                    .foregroundColor(.secondary.opacity(0.4))
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 4)
+        .padding(.top, 10)
+        .padding(.bottom, 4)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.15)) { collapsed.toggle() }
+        }
+
+        if !collapsed {
+            ForEach(groups, id: \.path) { group in
+                ProjectRow(
+                    projectName: group.name,
+                    projectPath: group.path,
+                    sessions: group.sessions,
+                    isStarred: starredPaths.contains(group.path),
+                    onToggleStar: { onToggleStar(group.path) },
+                    onDeleteSession: { sessionId in
+                        onDeleteSession(sessionId, group.path)
+                    }
+                )
+                Divider().opacity(0.3)
+            }
         }
     }
 }
@@ -528,23 +667,70 @@ struct ProjectRow: View {
     let projectName: String
     let projectPath: String
     let sessions: [SessionInfo]
+    let isStarred: Bool
+    let onToggleStar: () -> Void
+    let onDeleteSession: (String) -> Void
     @EnvironmentObject var terminalService: TerminalService
     @State private var expanded = false
+    @State private var showAll = false
     @State private var feedback: String?
     @State private var unsafeMode: Bool
+    @State private var effort: String
     @Environment(\.fontScale) private var scale
+
+    private let sessionCap = 5
+    private static let effortLevels = ["default", "low", "medium", "high", "max"]
 
     private var latest: SessionInfo { sessions.first! }
 
-    private var unsafeFlag: String { unsafeMode ? " --dangerously-skip-permissions" : "" }
+    private var launchFlags: String {
+        var flags = ""
+        if unsafeMode { flags += " --dangerously-skip-permissions" }
+        if effort != "default" { flags += " --effort \(effort)" }
+        return flags
+    }
 
     private var defaultsKey: String { "history.unsafe.\(projectPath)" }
+    private var effortKey: String { "history.effort.\(projectPath)" }
 
-    init(projectName: String, projectPath: String, sessions: [SessionInfo]) {
+    private var visibleSessions: [SessionInfo] {
+        if showAll || sessions.count <= sessionCap {
+            return sessions
+        }
+        return Array(sessions.prefix(sessionCap))
+    }
+
+    private var effortIcon: String {
+        switch effort {
+        case "low": return "gauge.with.dots.needle.0percent"
+        case "medium": return "gauge.with.dots.needle.33percent"
+        case "high": return "gauge.with.dots.needle.67percent"
+        case "max": return "gauge.with.dots.needle.100percent"
+        default: return "gauge.with.dots.needle.50percent"
+        }
+    }
+
+    private var effortColor: Color {
+        switch effort {
+        case "low": return .green
+        case "medium": return .yellow
+        case "high": return .orange
+        case "max": return .red
+        default: return .secondary
+        }
+    }
+
+    init(projectName: String, projectPath: String, sessions: [SessionInfo],
+         isStarred: Bool, onToggleStar: @escaping () -> Void,
+         onDeleteSession: @escaping (String) -> Void) {
         self.projectName = projectName
         self.projectPath = projectPath
         self.sessions = sessions
+        self.isStarred = isStarred
+        self.onToggleStar = onToggleStar
+        self.onDeleteSession = onDeleteSession
         self._unsafeMode = State(initialValue: UserDefaults.standard.bool(forKey: "history.unsafe.\(projectPath)"))
+        self._effort = State(initialValue: UserDefaults.standard.string(forKey: "history.effort.\(projectPath)") ?? "default")
     }
 
     var body: some View {
@@ -562,6 +748,16 @@ struct ProjectRow: View {
                     Spacer().frame(width: 14)
                 }
 
+                // Star toggle
+                Button(action: onToggleStar) {
+                    Image(systemName: isStarred ? "star.fill" : "star")
+                        .font(.system(size: 11 * scale))
+                        .foregroundColor(isStarred ? .yellow : .secondary.opacity(0.4))
+                        .frame(width: 14)
+                }
+                .buttonStyle(.borderless)
+                .help(isStarred ? "Unstar project" : "Star project")
+
                 // Unsafe toggle (per-project, persistent)
                 Button(action: {
                     unsafeMode.toggle()
@@ -574,6 +770,16 @@ struct ProjectRow: View {
                 }
                 .buttonStyle(.borderless)
                 .help(unsafeMode ? "Unsafe mode (click to toggle)" : "Safe mode (click to toggle)")
+
+                // Effort toggle (per-project, persistent)
+                Button(action: { cycleEffort() }) {
+                    Image(systemName: effortIcon)
+                        .font(.system(size: 11 * scale))
+                        .foregroundColor(effortColor)
+                        .frame(width: 16)
+                }
+                .buttonStyle(.borderless)
+                .help("Effort: \(effort) (click to cycle)")
 
                 Text(projectName)
                     .font(.custom("Fira Sans", size: 14 * scale).weight(.semibold))
@@ -600,13 +806,15 @@ struct ProjectRow: View {
                         .font(.custom("Fira Sans", size: 11 * scale))
                         .foregroundColor(.green)
                 } else {
-                    Button(action: { newSession() }) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 12 * scale))
-                            .foregroundColor(.accentColor)
+                    ForEach(terminalService.installedLaunchers, id: \.path) { launcher in
+                        Button(action: { newSession(usingApp: launcher.path) }) {
+                            Text(launcher.name == "VS Code" ? "VS" : ">_")
+                                .font(.custom("Fira Code", size: 10 * scale).weight(.semibold))
+                                .foregroundColor(.accentColor)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("New session in \(launcher.name)")
                     }
-                    .buttonStyle(.borderless)
-                    .help("New session in \(projectName)")
                 }
             }
             .padding(.vertical, 8)
@@ -619,8 +827,23 @@ struct ProjectRow: View {
 
             if expanded {
                 VStack(spacing: 0) {
-                    ForEach(sessions) { session in
-                        SessionDetailRow(session: session, unsafeMode: unsafeMode)
+                    ForEach(visibleSessions) { session in
+                        SessionDetailRow(
+                            session: session,
+                            launchFlags: launchFlags,
+                            onDelete: { onDeleteSession(session.id) }
+                        )
+                    }
+
+                    // "Show more" / "Show less" toggle
+                    if sessions.count > sessionCap {
+                        Button(action: { withAnimation(.easeInOut(duration: 0.15)) { showAll.toggle() } }) {
+                            Text(showAll ? "Show less" : "Show all \(sessions.count) sessions")
+                                .font(.custom("Fira Sans", size: 11 * scale))
+                                .foregroundColor(.accentColor)
+                        }
+                        .buttonStyle(.borderless)
+                        .padding(.vertical, 4)
                     }
                 }
                 .padding(.leading, 20)
@@ -628,9 +851,15 @@ struct ProjectRow: View {
         }
     }
 
-    private func newSession() {
-        let command = "claude\(unsafeFlag)"
-        let auto = terminalService.launchWithCommand(command, inDirectory: projectPath)
+    private func cycleEffort() {
+        guard let idx = Self.effortLevels.firstIndex(of: effort) else { effort = "default"; return }
+        effort = Self.effortLevels[(idx + 1) % Self.effortLevels.count]
+        UserDefaults.standard.set(effort, forKey: effortKey)
+    }
+
+    private func newSession(usingApp appPath: String) {
+        let command = "claude\(launchFlags)"
+        let auto = terminalService.launchWithCommand(command, inDirectory: projectPath, usingApp: appPath)
         feedback = auto ? "Opened!" : "Cmd+V"
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
     }
@@ -640,12 +869,12 @@ struct ProjectRow: View {
 
 struct SessionDetailRow: View {
     let session: SessionInfo
-    let unsafeMode: Bool
+    let launchFlags: String
+    let onDelete: () -> Void
     @EnvironmentObject var terminalService: TerminalService
     @State private var feedback: String?
+    @State private var confirmDelete = false
     @Environment(\.fontScale) private var scale
-
-    private var unsafeFlag: String { unsafeMode ? " --dangerously-skip-permissions" : "" }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -667,21 +896,50 @@ struct SessionDetailRow: View {
                     .font(.custom("Fira Sans", size: 10 * scale))
                     .foregroundColor(.green)
             } else {
-                Button(action: resume) {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 10 * scale))
-                        .foregroundColor(.accentColor)
+                if confirmDelete {
+                    Button(action: {
+                        onDelete()
+                        confirmDelete = false
+                    }) {
+                        Text("Delete")
+                            .font(.custom("Fira Sans", size: 10 * scale))
+                            .foregroundColor(.red)
+                    }
+                    .buttonStyle(.borderless)
+
+                    Button(action: { confirmDelete = false }) {
+                        Text("Cancel")
+                            .font(.custom("Fira Sans", size: 10 * scale))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                } else {
+                    Button(action: { confirmDelete = true }) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 9 * scale))
+                            .foregroundColor(.secondary.opacity(0.4))
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Delete this session")
+
+                    ForEach(terminalService.installedLaunchers, id: \.path) { launcher in
+                        Button(action: { resume(usingApp: launcher.path) }) {
+                            Text(launcher.name == "VS Code" ? "VS" : ">_")
+                                .font(.custom("Fira Code", size: 9 * scale).weight(.semibold))
+                                .foregroundColor(.accentColor)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Resume in \(launcher.name)")
+                    }
                 }
-                .buttonStyle(.borderless)
-                .help("Resume this session")
             }
         }
         .padding(.vertical, 5)
     }
 
-    private func resume() {
-        let command = "claude --resume \(session.id)\(unsafeFlag)"
-        let auto = terminalService.launchWithCommand(command, inDirectory: session.projectPath)
+    private func resume(usingApp appPath: String) {
+        let command = "claude --resume \(session.id)\(launchFlags)"
+        let auto = terminalService.launchWithCommand(command, inDirectory: session.projectPath, usingApp: appPath)
         feedback = auto ? "Opened!" : "Cmd+V"
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
     }

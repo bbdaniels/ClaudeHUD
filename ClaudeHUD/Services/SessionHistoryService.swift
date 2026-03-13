@@ -34,6 +34,24 @@ class SessionHistoryService: ObservableObject {
         sessions = result
     }
 
+    /// Delete a session's JSONL file and remove it from the list.
+    func deleteSession(id: String) {
+        guard sessions.contains(where: { $0.id == id }) else { return }
+
+        // Find and delete the JSONL file
+        let fm = FileManager.default
+        let projectDirs = (try? fm.contentsOfDirectory(atPath: claudeProjectsDir)) ?? []
+        for dir in projectDirs {
+            let filePath = "\(claudeProjectsDir)/\(dir)/\(id).jsonl"
+            if fm.fileExists(atPath: filePath) {
+                try? fm.removeItem(atPath: filePath)
+                break
+            }
+        }
+
+        sessions.removeAll { $0.id == id }
+    }
+
     // MARK: - Scanning (off main thread)
 
     nonisolated private static func scanSessions(in baseDir: String) -> [SessionInfo] {
