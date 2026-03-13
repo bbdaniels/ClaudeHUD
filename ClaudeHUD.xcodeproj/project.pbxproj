@@ -33,6 +33,8 @@
 		AF44EBFA0AB87F2490D412F9 /* StdioMCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19A889B1D9FE0780BB3042FA /* StdioMCPClient.swift */; };
 		BAC3A285D736D01662A6A794 /* ClaudeCLIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 369134DB1B8B42279EB5E1D8 /* ClaudeCLIClient.swift */; };
 		EEC5054A3B33EBA08F1A8D24 /* JSONRPCTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 620FB4690A1A9D7786A56696 /* JSONRPCTypes.swift */; };
+		F1A2B3C4D5E6F708A1B2C3D4 /* PermissionWatcherService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F708A1B2C3D5 /* PermissionWatcherService.swift */; };
+		F1A2B3C4D5E6F708A1B2C3D6 /* permission-watcher.sh in Resources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F708A1B2C3D7 /* permission-watcher.sh */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -64,6 +66,8 @@
 		C6D82DD1759F543B48C98E52 /* ntfy-notify.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "ntfy-notify.sh"; sourceTree = "<group>"; };
 		CE31FD7228157DC53CDE8B9E /* KeychainService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainService.swift; sourceTree = "<group>"; };
 		D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyService.swift; sourceTree = "<group>"; };
+		F1A2B3C4D5E6F708A1B2C3D5 /* PermissionWatcherService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionWatcherService.swift; sourceTree = "<group>"; };
+		F1A2B3C4D5E6F708A1B2C3D7 /* permission-watcher.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "permission-watcher.sh"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -72,6 +76,7 @@
 			children = (
 				D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */,
 				CE31FD7228157DC53CDE8B9E /* KeychainService.swift */,
+				F1A2B3C4D5E6F708A1B2C3D5 /* PermissionWatcherService.swift */,
 				2801C79D6EE1B4B43ED6B5A4 /* PushNotificationManager.swift */,
 				A7C34F91E8B2D60543F1A8E9 /* SessionHistoryService.swift */,
 				2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */,
@@ -161,6 +166,7 @@
 				C53EC70F3DA9CDD0CC4EA24F /* Assets.xcassets */,
 				68D028D91836CDCCAD3E5DFF /* Info.plist */,
 				C6D82DD1759F543B48C98E52 /* ntfy-notify.sh */,
+				F1A2B3C4D5E6F708A1B2C3D7 /* permission-watcher.sh */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -247,6 +253,7 @@
 			files = (
 				10839D1BC618E406833B95CC /* Assets.xcassets in Resources */,
 				9D1751A3FD807556940D4438 /* ntfy-notify.sh in Resources */,
+				F1A2B3C4D5E6F708A1B2C3D6 /* permission-watcher.sh in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -274,6 +281,7 @@
 				9DA0FDBD089DA3477830FAE4 /* MCPConfigLoader.swift in Sources */,
 				2C29DFF9CEB92A300E5B2FE0 /* MCPServerManager.swift in Sources */,
 				9A10C6567AB89D52BB2F6DFC /* MessageBubble.swift in Sources */,
+				F1A2B3C4D5E6F708A1B2C3D4 /* PermissionWatcherService.swift in Sources */,
 				5E6501CEBB9899408CB2A50E /* PushNotificationManager.swift in Sources */,
 				716AF768A9028A0E83E447BD /* SSEMCPClient.swift in Sources */,
 				B3D12E87F4A5C90612E8D7F3 /* SessionHistoryService.swift in Sources */,

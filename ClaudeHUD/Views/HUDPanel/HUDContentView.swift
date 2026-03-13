@@ -34,6 +34,7 @@ struct HUDContentView: View {
     @EnvironmentObject var pushManager: PushNotificationManager
     @EnvironmentObject var terminalService: TerminalService
     @EnvironmentObject var sessionHistory: SessionHistoryService
+    @EnvironmentObject var permissionWatcher: PermissionWatcherService
     @State private var showPermissionPopover = false
     @State private var showPushPopover = false
     @State private var showTerminalPopover = false
@@ -119,6 +120,12 @@ struct HUDContentView: View {
 
             Divider()
                 .opacity(0.5)
+
+            // Permission approval banner
+            if !permissionWatcher.pending.isEmpty {
+                PermissionBannerView()
+                    .environmentObject(permissionWatcher)
+            }
 
             // Main content: history or conversation
             if showingHistory {
@@ -873,7 +880,6 @@ struct SessionDetailRow: View {
     let onDelete: () -> Void
     @EnvironmentObject var terminalService: TerminalService
     @State private var feedback: String?
-    @State private var confirmDelete = false
     @Environment(\.fontScale) private var scale
 
     var body: some View {
@@ -896,45 +902,23 @@ struct SessionDetailRow: View {
                     .font(.custom("Fira Sans", size: 10 * scale))
                     .foregroundColor(.green)
             } else {
-                if confirmDelete {
-                    Button(action: {
-                        onDelete()
-                        confirmDelete = false
-                    }) {
-                        Text("Delete")
-                            .font(.custom("Fira Sans", size: 10 * scale))
+                ForEach(terminalService.installedLaunchers, id: \.path) { launcher in
+                    Button(action: { resume(usingApp: launcher.path) }) {
+                        Text(launcher.name == "VS Code" ? "VS" : ">_")
+                            .font(.custom("Fira Code", size: 9 * scale).weight(.semibold))
                             .foregroundColor(.white)
                     }
                     .buttonStyle(.borderless)
-
-                    Button(action: { confirmDelete = false }) {
-                        Text("Cancel")
-                            .font(.custom("Fira Sans", size: 10 * scale))
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.borderless)
-                } else {
-                    Button(action: { confirmDelete = true }) {
-                        Image(systemName: "trash")
-                            .font(.system(size: 9 * scale))
-                            .foregroundColor(.secondary.opacity(0.4))
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Delete this session")
-
-                    ForEach(terminalService.installedLaunchers, id: \.path) { launcher in
-                        Button(action: { resume(usingApp: launcher.path) }) {
-                            Text(launcher.name == "VS Code" ? "VS" : ">_")
-                                .font(.custom("Fira Code", size: 9 * scale).weight(.semibold))
-                                .foregroundColor(.white)
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Resume in \(launcher.name)")
-                    }
+                    .help("Resume in \(launcher.name)")
                 }
             }
         }
         .padding(.vertical, 5)
+        .contextMenu {
+            Button(role: .destructive, action: onDelete) {
+                Label("Delete Session", systemImage: "trash")
+            }
+        }
     }
 
     private func resume(usingApp appPath: String) {
@@ -985,5 +969,64 @@ struct TerminalPopover: View {
         }
         .padding(12)
         .frame(width: 200)
+    }
+}
+
+// MARK: - Permission Approval Banner
+
+struct PermissionBannerView: View {
+    @EnvironmentObject var permissionWatcher: PermissionWatcherService
+    @Environment(\.fontScale) private var scale
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(permissionWatcher.pending) { request in
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12 * scale))
+                        .foregroundColor(.yellow)
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 4) {
+                            Text(request.toolName)
+                                .font(.custom("Fira Code", size: 11 * scale).weight(.semibold))
+                                .foregroundColor(.white)
+                            Text("· \(request.project)")
+                                .font(.custom("Fira Sans", size: 11 * scale))
+                                .foregroundColor(.secondary)
+                        }
+                        Text(request.summary)
+                            .font(.custom("Fira Code", size: 10 * scale))
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                    }
+
+                    Spacer()
+
+                    Button(action: { permissionWatcher.deny(request.id) }) {
+                        Text("Deny")
+                            .font(.custom("Fira Sans", size: 11 * scale).weight(.medium))
+                            .foregroundColor(.white.opacity(0.8))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.3)))
+                    }
+                    .buttonStyle(.borderless)
+
+                    Button(action: { permissionWatcher.approve(request.id) }) {
+                        Text("Allow")
+                            .font(.custom("Fira Sans", size: 11 * scale).weight(.semibold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(Color.green.opacity(0.7)))
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+            }
+        }
+        .background(Color.orange.opacity(0.12))
     }
 }
