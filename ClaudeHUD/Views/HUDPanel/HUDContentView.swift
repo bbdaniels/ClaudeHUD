@@ -177,7 +177,7 @@ struct HUDContentView: View {
 
     private var permissionColor: Color {
         switch tabManager.permissionMode {
-        case "dangerously-skip": return .red
+        case "dangerously-skip": return .white
         case "default": return .orange
         default: return .green
         }
@@ -304,7 +304,7 @@ struct PermissionPopover: View {
                 title: "Unsafe",
                 description: "No permission checks. Claude runs any Bash command without asking.",
                 icon: "lock.open",
-                color: .red,
+                color: .white,
                 tag: "dangerously-skip",
                 selection: $selection
             )
@@ -715,7 +715,7 @@ struct ProjectRow: View {
         case "low": return .green
         case "medium": return .yellow
         case "high": return .orange
-        case "max": return .red
+        case "max": return .white
         default: return .secondary
         }
     }
@@ -765,7 +765,7 @@ struct ProjectRow: View {
                 }) {
                     Image(systemName: unsafeMode ? "lock.open.fill" : "lock.fill")
                         .font(.system(size: 11 * scale))
-                        .foregroundColor(unsafeMode ? .red : .green)
+                        .foregroundColor(unsafeMode ? .white : .green)
                         .frame(width: 16)
                 }
                 .buttonStyle(.borderless)
@@ -810,7 +810,7 @@ struct ProjectRow: View {
                         Button(action: { newSession(usingApp: launcher.path) }) {
                             Text(launcher.name == "VS Code" ? "VS" : ">_")
                                 .font(.custom("Fira Code", size: 10 * scale).weight(.semibold))
-                                .foregroundColor(.accentColor)
+                                .foregroundColor(.white)
                         }
                         .buttonStyle(.borderless)
                         .help("New session in \(launcher.name)")
@@ -903,7 +903,7 @@ struct SessionDetailRow: View {
                     }) {
                         Text("Delete")
                             .font(.custom("Fira Sans", size: 10 * scale))
-                            .foregroundColor(.red)
+                            .foregroundColor(.white)
                     }
                     .buttonStyle(.borderless)
 
@@ -926,7 +926,7 @@ struct SessionDetailRow: View {
                         Button(action: { resume(usingApp: launcher.path) }) {
                             Text(launcher.name == "VS Code" ? "VS" : ">_")
                                 .font(.custom("Fira Code", size: 9 * scale).weight(.semibold))
-                                .foregroundColor(.accentColor)
+                                .foregroundColor(.white)
                         }
                         .buttonStyle(.borderless)
                         .help("Resume in \(launcher.name)")
