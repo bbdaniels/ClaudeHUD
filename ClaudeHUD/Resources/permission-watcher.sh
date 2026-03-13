@@ -1,14 +1,14 @@
 #!/bin/zsh
 # Permission approval hook for ClaudeHUD
-# Installed as a PreToolUse hook in ~/.claude/settings.json
+# Installed as a PermissionRequest hook in ~/.claude/settings.json
 #
 # Flow:
-#   1. Claude Code calls this hook before running a tool
-#   2. Script checks: HUD alive? Not bypass mode? Permission-requiring tool?
+#   1. Claude Code fires this hook when a permission dialog is about to show
+#   2. Script checks: HUD alive?
 #   3. Writes pending request and blocks waiting for HUD decision
 #   4. ClaudeHUD shows Approve/Deny buttons
 #   5. Script reads the decision and outputs it to stdout
-#   6. If timeout or HUD not running, exits with no output (normal flow)
+#   6. If timeout or HUD not running, exits with no output (normal terminal prompt)
 
 HUD_DIR="$HOME/.claude/hud"
 HEARTBEAT="$HUD_DIR/heartbeat"
@@ -17,34 +17,6 @@ DECISION_DIR="$HUD_DIR/decisions"
 
 # Read tool info from stdin
 INPUT=$(cat)
-
-# Only handle tools that commonly require permission
-TOOL_NAME=$(echo "$INPUT" | python3 -c "
-import json, sys
-try:
-    print(json.load(sys.stdin).get('tool_name', ''))
-except:
-    print('')
-" 2>/dev/null)
-
-case "$TOOL_NAME" in
-    Bash|Edit|Write|NotebookEdit) ;;
-    *) exit 0 ;;
-esac
-
-# Detect bypass mode: check only the direct Claude parent (PPID → PPID)
-# The hook is spawned by a shell, which is spawned by Claude Code.
-# Only check the first Claude process found — not arbitrary ancestors,
-# since other Claude instances (like the HUD) may also be in the tree.
-PARENT=$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' ')
-GRANDPARENT=$(ps -o ppid= -p $PARENT 2>/dev/null | tr -d ' ')
-for PID in $PARENT $GRANDPARENT; do
-    ARGS=$(ps -o args= -p $PID 2>/dev/null)
-    if echo "$ARGS" | grep -q "^claude\|/claude "; then
-        echo "$ARGS" | grep -q "dangerously-skip" && exit 0
-        break
-    fi
-done
 
 # Check if HUD is alive (heartbeat within last 15 seconds)
 if [ ! -f "$HEARTBEAT" ]; then
