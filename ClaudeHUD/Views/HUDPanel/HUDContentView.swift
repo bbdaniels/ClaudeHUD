@@ -184,7 +184,7 @@ struct HUDContentView: View {
 
     private var permissionColor: Color {
         switch tabManager.permissionMode {
-        case "dangerously-skip": return .white
+        case "dangerously-skip": return .red
         case "default": return .orange
         default: return .green
         }
@@ -719,10 +719,10 @@ struct ProjectRow: View {
 
     private var effortColor: Color {
         switch effort {
-        case "low": return .green
-        case "medium": return .yellow
-        case "high": return .orange
-        case "max": return .white
+        case "low": return .red
+        case "medium": return .orange
+        case "high": return .white
+        case "max": return .green
         default: return .secondary
         }
     }
@@ -772,7 +772,7 @@ struct ProjectRow: View {
                 }) {
                     Image(systemName: unsafeMode ? "lock.open.fill" : "lock.fill")
                         .font(.system(size: 11 * scale))
-                        .foregroundColor(unsafeMode ? .white : .green)
+                        .foregroundColor(unsafeMode ? .red : .green)
                         .frame(width: 16)
                 }
                 .buttonStyle(.borderless)
