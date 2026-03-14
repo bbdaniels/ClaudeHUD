@@ -5,6 +5,7 @@ struct PeopleView: View {
     @Environment(\.fontScale) private var scale
     @State private var searchText = ""
     @State private var inboxEmails: [SparkEmailResult] = []
+    @State private var inboxBriefings: [String: String] = [:] // pk -> briefing
 
     private var displayedContacts: [Contact] {
         if searchText.isEmpty {
@@ -59,7 +60,7 @@ struct PeopleView: View {
                     LazyVStack(spacing: 0) {
                         // Inbox section
                         if !inboxEmails.isEmpty && searchText.isEmpty {
-                            InboxSection(emails: inboxEmails, scale: scale)
+                            InboxSection(emails: inboxEmails, briefings: $inboxBriefings, scale: scale)
                             Divider().opacity(0.3)
                         }
 
@@ -79,6 +80,13 @@ struct PeopleView: View {
             Task.detached {
                 let emails = SparkService.fetchInboxEmails(limit: 10)
                 await MainActor.run { inboxEmails = emails }
+                // Pre-generate briefings for all inbox emails
+                for email in emails {
+                    let briefing = await InboxEmailRow.generateBriefingStatic(email: email)
+                    await MainActor.run {
+                        if let b = briefing { inboxBriefings[email.pk] = b }
+                    }
+                }
             }
         }
     }
@@ -88,6 +96,7 @@ struct PeopleView: View {
 
 private struct InboxSection: View {
     let emails: [SparkEmailResult]
+    @Binding var briefings: [String: String]
     let scale: CGFloat
     @State private var expanded = true
 
@@ -117,7 +126,7 @@ private struct InboxSection: View {
 
             if expanded {
                 ForEach(Array(emails.enumerated()), id: \.element.pk) { _, email in
-                    InboxEmailRow(email: email, scale: scale)
+                    InboxEmailRow(email: email, briefings: $briefings, scale: scale)
                 }
             }
         }
@@ -129,10 +138,12 @@ private struct InboxSection: View {
 
 private struct InboxEmailRow: View {
     let email: SparkEmailResult
+    @Binding var briefings: [String: String]
     let scale: CGFloat
     @State private var expanded = false
-    @State private var briefing: String?
-    @State private var isLoading = false
+
+    private var briefing: String? { briefings[email.pk] }
+    private var isLoading: Bool { briefing == nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -153,7 +164,7 @@ private struct InboxEmailRow: View {
                             .font(.custom("Fira Code", size: 9.5 * scale))
                             .foregroundColor(.secondary.opacity(0.5))
                             .lineLimit(1)
-                        Text(email.date)
+                        Text("[\(email.date)]")
                             .font(.custom("Fira Code", size: 9.5 * scale))
                             .foregroundColor(.secondary.opacity(0.4))
                     }
@@ -166,9 +177,6 @@ private struct InboxEmailRow: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
-                if expanded && briefing == nil && !isLoading {
-                    generateBriefing()
-                }
             }
 
             if expanded {
@@ -179,7 +187,7 @@ private struct InboxEmailRow: View {
                             .foregroundColor(.secondary.opacity(0.8))
                             .lineSpacing(3)
                             .textSelection(.enabled)
-                    } else if isLoading {
+                    } else {
                         HStack(spacing: 6) {
                             ProgressView().controlSize(.small)
                             Text("Analyzing...")
@@ -195,54 +203,41 @@ private struct InboxEmailRow: View {
         }
     }
 
-    private func generateBriefing() {
-        isLoading = true
+    /// Static method for pre-generating briefings from PeopleView.onAppear
+    static func generateBriefingStatic(email: SparkEmailResult) async -> String? {
+        let priorEmails = SparkService.searchEmails(
+            terms: [email.from.split(separator: " ").first.map(String.init) ?? email.from],
+            limit: 5,
+            includeBody: true
+        )
 
-        let senderEmail = email.from
-        let subject = email.subject
-        let body = email.body
+        var context = "Current email:\nFrom: \(email.from)\nSubject: \(email.subject)\n"
+        if !email.body.isEmpty { context += "Body: \(String(email.body.prefix(500)))\n" }
 
-        Task.detached(priority: .userInitiated) {
-            // Gather context: prior emails from/about this sender
-            let priorEmails = SparkService.searchEmails(
-                terms: [senderEmail.split(separator: " ").first.map(String.init) ?? senderEmail],
-                limit: 5,
-                includeBody: true
-            )
-
-            var context = "Current email:\nFrom: \(senderEmail)\nSubject: \(subject)\n"
-            if !body.isEmpty { context += "Body: \(String(body.prefix(500)))\n" }
-
-            if !priorEmails.isEmpty {
-                context += "\nRecent email history with this person:\n"
-                for prior in priorEmails where prior.pk != email.pk {
-                    context += "- \(prior.date): \(prior.subject)"
-                    if !prior.body.isEmpty { context += " — \(String(prior.body.prefix(200)))" }
-                    context += "\n"
-                }
-            }
-
-            let prompt = """
-            You're a sharp executive assistant. Based on this email and prior history, write 2-3 sentences covering:
-            1. What this email is about and what's being asked/shared
-            2. Relevant context from prior emails if any
-            3. Suggested action (reply, follow up, archive, etc.)
-
-            Be specific and concise. No headers or bullets — flowing sentences.
-
-            \(context)
-            """
-
-            let result = await runClaudeInline(prompt: prompt)
-
-            await MainActor.run {
-                briefing = result
-                isLoading = false
+        if !priorEmails.isEmpty {
+            context += "\nRecent email history with this person:\n"
+            for prior in priorEmails where prior.pk != email.pk {
+                context += "- \(prior.date): \(prior.subject)"
+                if !prior.body.isEmpty { context += " — \(String(prior.body.prefix(200)))" }
+                context += "\n"
             }
         }
+
+        let prompt = """
+        You're a sharp executive assistant. Based on this email and prior history, write 2-3 sentences covering:
+        1. What this email is about and what's being asked/shared
+        2. Relevant context from prior emails if any
+        3. Suggested action (reply, follow up, archive, etc.)
+
+        Be specific and concise. No headers or bullets — flowing sentences.
+
+        \(context)
+        """
+
+        return await runClaudeInline(prompt: prompt)
     }
 
-    private func runClaudeInline(prompt: String) async -> String? {
+    private static func runClaudeInline(prompt: String) async -> String? {
         await withCheckedContinuation { continuation in
             let claudePaths = [
                 "\(NSHomeDirectory())/.local/bin/claude",
