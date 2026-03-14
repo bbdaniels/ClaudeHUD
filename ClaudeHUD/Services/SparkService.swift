@@ -140,6 +140,51 @@ enum SparkService {
             .map(\.result)
     }
 
+    // MARK: - Inbox Emails
+
+    /// Fetch recent inbox emails (not sent by user), newest first
+    static func fetchInboxEmails(limit: Int = 15) -> [SparkEmailResult] {
+        guard let msgPath = msgPath else { return [] }
+
+        let fmt = DateFormatter()
+        fmt.dateFormat = "MMM d"
+
+        let sql = """
+        SELECT pk, subject, messageFrom, shortBody, receivedDate
+        FROM messages
+        WHERE inInbox=1 AND inSent=0 AND inDrafts=0
+        ORDER BY receivedDate DESC
+        LIMIT \(limit)
+        """
+
+        guard let rows = runSQLite(dbPath: msgPath, sql: sql) else { return [] }
+
+        var seen: Set<String> = []
+        var results: [SparkEmailResult] = []
+
+        for row in rows {
+            let cols = row.split(separator: "|", maxSplits: 4, omittingEmptySubsequences: false).map(String.init)
+            guard cols.count >= 5, let epoch = Double(cols[4]) else { continue }
+
+            let subjectKey = cols[1].lowercased()
+                .replacingOccurrences(of: "re: ", with: "")
+                .replacingOccurrences(of: "fwd: ", with: "")
+            guard !seen.contains(subjectKey) else { continue }
+            seen.insert(subjectKey)
+
+            results.append(SparkEmailResult(
+                pk: cols[0],
+                from: extractDisplayName(from: cols[2]),
+                subject: cols[1],
+                body: cols[3],
+                date: fmt.string(from: Date(timeIntervalSince1970: epoch)),
+                epoch: epoch
+            ))
+        }
+
+        return results
+    }
+
     // MARK: - Helpers
 
     static func runSQLite(dbPath: String, sql: String) -> [String]? {
