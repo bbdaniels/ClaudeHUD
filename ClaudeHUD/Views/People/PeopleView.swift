@@ -117,31 +117,161 @@ private struct InboxSection: View {
 
             if expanded {
                 ForEach(Array(emails.enumerated()), id: \.element.pk) { _, email in
-                    HStack(alignment: .top, spacing: 6) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(email.subject)
-                                .font(.captionFont(scale))
-                                .foregroundColor(.primary)
-                                .lineLimit(1)
-                            HStack(spacing: 4) {
-                                Text(email.from)
-                                    .font(.custom("Fira Code", size: 9.5 * scale))
-                                    .foregroundColor(.secondary.opacity(0.5))
-                                    .lineLimit(1)
-                                Text(email.date)
-                                    .font(.custom("Fira Code", size: 9.5 * scale))
-                                    .foregroundColor(.secondary.opacity(0.4))
-                            }
-                        }
-                        Spacer()
-                    }
-                    .padding(.vertical, 4)
-                    .padding(.horizontal, 4)
-                    .padding(.leading, 14)
+                    InboxEmailRow(email: email, scale: scale)
                 }
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Inbox Email Row (expandable with AI briefing)
+
+private struct InboxEmailRow: View {
+    let email: SparkEmailResult
+    let scale: CGFloat
+    @State private var expanded = false
+    @State private var briefing: String?
+    @State private var isLoading = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 9 * scale, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.4))
+                    .frame(width: 10)
+                    .padding(.top, 2)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(email.subject)
+                        .font(.captionFont(scale))
+                        .foregroundColor(.primary)
+                        .lineLimit(expanded ? nil : 1)
+                    HStack(spacing: 4) {
+                        Text(email.from)
+                            .font(.custom("Fira Code", size: 9.5 * scale))
+                            .foregroundColor(.secondary.opacity(0.5))
+                            .lineLimit(1)
+                        Text(email.date)
+                            .font(.custom("Fira Code", size: 9.5 * scale))
+                            .foregroundColor(.secondary.opacity(0.4))
+                    }
+                }
+                Spacer()
+            }
+            .padding(.vertical, 4)
+            .padding(.horizontal, 4)
+            .padding(.leading, 14)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+                if expanded && briefing == nil && !isLoading {
+                    generateBriefing()
+                }
+            }
+
+            if expanded {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let briefing = briefing {
+                        Text(briefing)
+                            .font(.custom("Fira Sans", size: 11.5 * scale))
+                            .foregroundColor(.secondary.opacity(0.8))
+                            .lineSpacing(3)
+                            .textSelection(.enabled)
+                    } else if isLoading {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Analyzing...")
+                                .font(.captionFont(scale))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .padding(.leading, 28)
+                .padding(.trailing, 4)
+                .padding(.bottom, 8)
+            }
+        }
+    }
+
+    private func generateBriefing() {
+        isLoading = true
+
+        let senderEmail = email.from
+        let subject = email.subject
+        let body = email.body
+
+        Task.detached(priority: .userInitiated) {
+            // Gather context: prior emails from/about this sender
+            let priorEmails = SparkService.searchEmails(
+                terms: [senderEmail.split(separator: " ").first.map(String.init) ?? senderEmail],
+                limit: 5,
+                includeBody: true
+            )
+
+            var context = "Current email:\nFrom: \(senderEmail)\nSubject: \(subject)\n"
+            if !body.isEmpty { context += "Body: \(String(body.prefix(500)))\n" }
+
+            if !priorEmails.isEmpty {
+                context += "\nRecent email history with this person:\n"
+                for prior in priorEmails where prior.pk != email.pk {
+                    context += "- \(prior.date): \(prior.subject)"
+                    if !prior.body.isEmpty { context += " — \(String(prior.body.prefix(200)))" }
+                    context += "\n"
+                }
+            }
+
+            let prompt = """
+            You're a sharp executive assistant. Based on this email and prior history, write 2-3 sentences covering:
+            1. What this email is about and what's being asked/shared
+            2. Relevant context from prior emails if any
+            3. Suggested action (reply, follow up, archive, etc.)
+
+            Be specific and concise. No headers or bullets — flowing sentences.
+
+            \(context)
+            """
+
+            let result = await runClaudeInline(prompt: prompt)
+
+            await MainActor.run {
+                briefing = result
+                isLoading = false
+            }
+        }
+    }
+
+    private func runClaudeInline(prompt: String) async -> String? {
+        await withCheckedContinuation { continuation in
+            let claudePaths = [
+                "\(NSHomeDirectory())/.local/bin/claude",
+                "/usr/local/bin/claude",
+                "/opt/homebrew/bin/claude",
+                "\(NSHomeDirectory())/.npm-global/bin/claude",
+                "\(NSHomeDirectory())/.claude/local/claude",
+            ]
+            let claudePath = claudePaths.first { FileManager.default.fileExists(atPath: $0) } ?? "claude"
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: claudePath)
+            process.arguments = ["-p", prompt, "--model", "haiku", "--max-turns", "1"]
+
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = Pipe()
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: data, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                continuation.resume(returning: output?.isEmpty == false ? output : nil)
+            } catch {
+                continuation.resume(returning: nil)
+            }
+        }
     }
 }
 
