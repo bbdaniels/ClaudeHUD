@@ -1187,22 +1187,33 @@ struct InfoPopover: View {
 
             Divider()
 
-            // Quick guide
+            // Tabs
             VStack(alignment: .leading, spacing: 8) {
-                Text("Quick Guide")
+                Text("Tabs")
                     .font(.custom("Fira Sans", size: 12).weight(.semibold))
                     .foregroundColor(.secondary)
 
-                InfoRow(icon: "calendar", text: "**Today:** AI-powered daily briefing with date navigation. Claude summarizes your schedule and preps each meeting")
-                InfoRow(icon: "folder", text: "**Projects:** Cross-references Obsidian, sessions, calendar, and email for project-level intelligence")
-                InfoRow(icon: "clock.arrow.circlepath", text: "**History:** Browse and resume past Claude sessions across all projects")
-                InfoRow(icon: "lock.fill", text: "**Safe/Unsafe:** Per-project toggle in history. Controls whether sessions launch with --dangerously-skip-permissions")
-                InfoRow(icon: "gauge.with.dots.needle.50percent", text: "**Effort:** Per-project effort level in history. Click the gauge icon to cycle through default/low/medium/high/max")
-                InfoRow(icon: "star.fill", text: "**Star:** Pin frequently used projects to a Starred section at the top of history")
-                InfoRow(icon: "archivebox", text: "**Obsidian:** Browse vault notes. Click to preview, pencil icon to edit. Select vault from dropdown")
+                InfoRow(icon: "clock.arrow.circlepath", text: "**History:** Browse and resume past Claude Code sessions across all projects")
+                InfoRow(icon: "archivebox", text: "**Obsidian:** Browse vault notes. Click to preview, pencil to edit. Multi-vault support")
+                InfoRow(icon: "calendar", text: "**Today:** AI daily briefing with date navigation. Claude summarizes your schedule and preps each meeting")
+                InfoRow(icon: "briefcase", text: "**Projects:** Cross-references Obsidian, sessions, calendar, and email for project intelligence")
+                InfoRow(icon: "person.2", text: "**People:** Contact directory resolved from calendar, email, and macOS Contacts")
+            }
+
+            Divider()
+
+            // Features
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Features")
+                    .font(.custom("Fira Sans", size: 12).weight(.semibold))
+                    .foregroundColor(.secondary)
+
+                InfoRow(icon: "lock.fill", text: "**Safe/Unsafe:** Per-project toggle in history. Controls --dangerously-skip-permissions")
+                InfoRow(icon: "gauge.with.dots.needle.50percent", text: "**Effort:** Click gauge icon in history to cycle default/low/medium/high/max")
+                InfoRow(icon: "star.fill", text: "**Star:** Pin projects to a Starred section at the top of history")
                 InfoRow(icon: "shield", text: "**Permissions:** Plan/Safe/Unsafe controls how much Claude can do without asking")
-                InfoRow(icon: "terminal", text: "**Terminal:** Click to launch, long-press to switch. Supports Ghostty, iTerm2, Terminal, and more")
-                InfoRow(icon: "bell.fill", text: "**Notifications:** Desktop alerts via macOS. Mobile via [ntfy.sh](https://ntfy.sh): install the app, pick a topic name, paste it in the bell menu")
+                InfoRow(icon: "terminal", text: "**Terminal:** Click to launch, long-press to switch. Ghostty, iTerm2, Terminal, and more")
+                InfoRow(icon: "bell.fill", text: "**Notifications:** Desktop via macOS, mobile via [ntfy.sh](https://ntfy.sh)")
             }
 
             Divider()
