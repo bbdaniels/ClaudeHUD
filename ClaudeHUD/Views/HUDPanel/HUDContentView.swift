@@ -22,7 +22,7 @@ extension Font {
     static func bodyMedium(_ s: CGFloat) -> Font { .custom(bodyFamily, size: 17 * s).weight(.medium) }
     static func bodySemibold(_ s: CGFloat) -> Font { .custom(bodyFamily, size: 17 * s).weight(.semibold) }
     static func smallFont(_ s: CGFloat) -> Font { .custom(bodyFamily, size: 14 * s) }
-    static func smallMedium(_ s: CGFloat) -> Font { .custom(bodyFamily, size: 14 * s).weight(.medium) }
+    static func smallMedium(_ s: CGFloat) -> Font { .custom(bodyFamily, size: 14 * s).weight(.semibold) }
     static func captionFont(_ s: CGFloat) -> Font { .custom(bodyFamily, size: 12.5 * s) }
     static func codeFont(_ s: CGFloat) -> Font { .custom(codeFamily, size: 15.5 * s) }
     static func codeLarge(_ s: CGFloat) -> Font { .custom(codeFamily, size: 16.5 * s) }
@@ -272,7 +272,7 @@ struct TabBar: View {
                     RoundedRectangle(cornerRadius: 5)
                         .fill(activeFixedTab == .obsidian ? Color.accentColor.opacity(0.12) : Color.clear)
                 )
-                .help("Obsidian notes")
+                .help("Notes")
 
                 // Today tab (fixed)
                 Button(action: { activeFixedTab = .today }) {
@@ -657,6 +657,19 @@ struct SessionHistoryView: View {
                     .padding(.top, 6)
                 Spacer()
             } else {
+                // Header
+                HStack {
+                    Text("History")
+                        .font(.smallMedium(scale))
+                        .foregroundColor(.primary)
+                    Spacer()
+                    Text("\(sessionHistory.sessions.count)")
+                        .font(.captionFont(scale))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+
                 // Search bar
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
@@ -958,7 +971,7 @@ struct ProjectRow: View {
                 .help("Effort: \(effort) (click to cycle)")
 
                 Text(projectName)
-                    .font(.custom("Fira Sans", size: 14 * scale).weight(.semibold))
+                    .font(.smallMedium(scale))
                     .foregroundColor(.primary)
                     .lineLimit(1)
 
@@ -1195,9 +1208,9 @@ struct InfoPopover: View {
                     .foregroundColor(.secondary)
 
                 InfoRow(icon: "clock.arrow.circlepath", text: "**History:** Browse and resume past Claude Code sessions across all projects")
-                InfoRow(icon: "archivebox", text: "**Obsidian:** Browse vault notes. Click to preview, pencil to edit. Multi-vault support")
+                InfoRow(icon: "archivebox", text: "**Notes:** Browse vault notes. Click to preview, pencil to edit. Multi-vault support")
                 InfoRow(icon: "calendar", text: "**Today:** AI daily briefing with date navigation. Claude summarizes your schedule and preps each meeting")
-                InfoRow(icon: "briefcase", text: "**Projects:** Cross-references Obsidian, sessions, calendar, and email for project intelligence")
+                InfoRow(icon: "briefcase", text: "**Projects:** Cross-references notes, sessions, calendar, and email for project intelligence")
                 InfoRow(icon: "person.2", text: "**People:** Contact directory resolved from calendar, email, and macOS Contacts")
             }
 

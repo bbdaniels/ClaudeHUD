@@ -109,7 +109,7 @@ private struct ContactRow: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(contact.name.isEmpty ? contact.email : contact.name)
-                        .font(.smallFont(scale))
+                        .font(.smallMedium(scale))
                         .foregroundColor(.primary)
                         .lineLimit(1)
 
