@@ -139,7 +139,7 @@ actor SSETransport {
                     currentData += data
                 } else if line.isEmpty {
                     // End of event -- dispatch.
-                    await handleSSEEvent(event: currentEvent, data: currentData)
+                    handleSSEEvent(event: currentEvent, data: currentData)
                     currentEvent = nil
                     currentData = ""
                 }

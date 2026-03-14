@@ -10,7 +10,7 @@
 [ "$1" = "notification" ] && exit 0
 
 TITLE="Claude ($(basename "$PWD"))"
-STAMPFILE="/tmp/ntfy-last-sent"
+STAMPFILE="${TMPDIR:-/tmp}/ntfy-last-sent"
 
 # Dedup: skip if sent within last 3 seconds
 if [ -f "$STAMPFILE" ]; then

@@ -55,10 +55,12 @@ class FloatingNoteWindowManager: ObservableObject {
             object: window,
             queue: .main
         ) { [weak self] notification in
-            if let closingWindow = notification.object as? NSWindow,
-               let id = self?.openWindows.first(where: { $0.value === closingWindow })?.key {
-                self?.openWindows.removeValue(forKey: id)
-                self?.windowFilePaths.removeValue(forKey: id)
+            Task { @MainActor in
+                if let closingWindow = notification.object as? NSWindow,
+                   let id = self?.openWindows.first(where: { $0.value === closingWindow })?.key {
+                    self?.openWindows.removeValue(forKey: id)
+                    self?.windowFilePaths.removeValue(forKey: id)
+                }
             }
         }
 

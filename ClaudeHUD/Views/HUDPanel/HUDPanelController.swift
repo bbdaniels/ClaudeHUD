@@ -56,7 +56,9 @@ class HUDPanelController {
             object: panel,
             queue: .main
         ) { [weak self] _ in
-            self?.appState.tabManager.cancelAll()
+            Task { @MainActor in
+                self?.appState.tabManager.cancelAll()
+            }
         }
 
         self.panel = panel
