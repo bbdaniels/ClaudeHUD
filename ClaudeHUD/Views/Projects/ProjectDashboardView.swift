@@ -516,11 +516,13 @@ private struct BriefingListSection: View {
                                 expandedItem = expandedItem == idx ? nil : idx
                             }
                         },
-                        onPush: { pushToObsidian(item, idx: idx) },
+                        onPush: { pushToObsidian(item, idx: idx, checked: false) },
                         onDismiss: {
+                            pushToObsidian(item, idx: idx, checked: true)
                             withAnimation(.easeOut(duration: 0.2)) { _ = dismissed.insert(idx) }
                         },
                         onDone: {
+                            pushToObsidian(item, idx: idx, checked: true)
                             withAnimation(.easeOut(duration: 0.2)) { _ = dismissed.insert(idx) }
                         }
                     )
@@ -529,22 +531,31 @@ private struct BriefingListSection: View {
         }
     }
 
-    private func pushToObsidian(_ item: String, idx: Int) {
+    private func pushToObsidian(_ item: String, idx: Int, checked: Bool = false) {
         let actionItemsPath = (projectPath as NSString).appendingPathComponent("Action Items.md")
         let fm = FileManager.default
+        let checkbox = checked ? "[x]" : "[ ]"
 
         if fm.fileExists(atPath: actionItemsPath) {
             if var content = try? String(contentsOfFile: actionItemsPath, encoding: .utf8) {
-                content += "\n- [ ] \(item)"
+                // Don't add if already present
+                guard !content.contains(item) else {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        if !checked { _ = pushed.insert(idx) }
+                        expandedItem = nil
+                    }
+                    return
+                }
+                content += "\n- \(checkbox) \(item)"
                 try? content.write(toFile: actionItemsPath, atomically: true, encoding: .utf8)
             }
         } else {
-            let content = "# Action Items\n\n- [ ] \(item)"
+            let content = "# Action Items\n\n- \(checkbox) \(item)"
             try? content.write(toFile: actionItemsPath, atomically: true, encoding: .utf8)
         }
 
         withAnimation(.easeOut(duration: 0.2)) {
-            _ = pushed.insert(idx)
+            if !checked { _ = pushed.insert(idx) }
             expandedItem = nil
         }
     }

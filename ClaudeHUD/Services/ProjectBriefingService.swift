@@ -207,7 +207,9 @@ class ProjectBriefingService: ObservableObject {
 
         {"summary":"1-2 sentence overview of current project state","status":"one of: active, stalled, wrapping-up, starting","priorities":["priority 1","priority 2"],"blockers":["blocker 1"],"nextActions":["action 1","action 2"]}
 
-        If a field has no items, use an empty array []. Be concise — each string should be one short sentence max.
+        If a field has no items, use an empty array []. Be concise — each string should be one short sentence max. \
+        If the context includes an "Action Items" note, do NOT re-suggest items that are already checked off \
+        (marked [x]). Unchecked items ([ ]) are still active and may appear as priorities or next actions.
 
         PROJECT CONTEXT:
         \(context)
