@@ -44,6 +44,7 @@ struct HUDContentView: View {
     @State private var showPermissionPopover = false
     @State private var showPushPopover = false
     @State private var showTerminalPopover = false
+    @State private var showInfoPopover = false
     @State private var activeFixedTab: FixedTab? = .history
     @State private var fontScale: CGFloat = 1.0
 
@@ -116,6 +117,17 @@ struct HUDContentView: View {
                 .popover(isPresented: $showPushPopover) {
                     PushPopover()
                         .environmentObject(pushManager)
+                }
+
+                Button(action: { showInfoPopover.toggle() }) {
+                    Image(systemName: "info.circle")
+                        .font(.smallFont(fontScale))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Setup & Info")
+                .popover(isPresented: $showInfoPopover) {
+                    InfoPopover()
                 }
             }
             .padding(.horizontal, 14)
@@ -674,6 +686,7 @@ struct TimeSectionView: View {
     let onToggleStar: (String) -> Void
     let onDeleteSession: (String, String) -> Void
     @State private var collapsed = false
+    @State private var hoveredFolder: String?
     @Environment(\.fontScale) private var scale
 
     /// Projects sub-grouped by parent folder, sorted by most recent activity.
@@ -725,12 +738,21 @@ struct TimeSectionView: View {
                         Text(folder.displayName)
                             .font(.custom("Fira Code", size: 10 * scale))
                             .foregroundColor(.secondary.opacity(0.7))
+                        if hoveredFolder == folder.path {
+                            Text(folder.fullPath)
+                                .font(.custom("Fira Code", size: 9 * scale))
+                                .foregroundColor(.secondary.opacity(0.4))
+                                .lineLimit(1)
+                                .truncationMode(.head)
+                        }
                         Spacer()
                     }
                     .padding(.horizontal, 4)
                     .padding(.top, 4)
                     .padding(.bottom, 1)
-                    .help(folder.fullPath)
+                    .contentShape(Rectangle())
+                    .onHover { hoveredFolder = $0 ? folder.path : nil }
+                    .onTapGesture { NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: folder.path) }
 
                     ForEach(folder.projects, id: \.path) { group in
                         ProjectRow(
@@ -1052,6 +1074,128 @@ struct TerminalPopover: View {
         }
         .padding(12)
         .frame(width: 200)
+    }
+}
+
+// MARK: - Info Popover
+
+struct InfoPopover: View {
+    private let cliFound: Bool = {
+        let paths = [
+            "\(NSHomeDirectory())/.local/bin/claude",
+            "/usr/local/bin/claude",
+            "/opt/homebrew/bin/claude",
+            "\(NSHomeDirectory())/.npm-global/bin/claude",
+            "\(NSHomeDirectory())/.claude/local/claude",
+        ]
+        return paths.contains { FileManager.default.fileExists(atPath: $0) }
+    }()
+
+    private let python3Found: Bool = {
+        FileManager.default.fileExists(atPath: "/usr/bin/python3")
+            || FileManager.default.fileExists(atPath: "/opt/homebrew/bin/python3")
+            || FileManager.default.fileExists(atPath: "/usr/local/bin/python3")
+    }()
+
+    private let firaFound: Bool = {
+        NSFontManager.shared.availableFontFamilies.contains("Fira Sans")
+    }()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("ClaudeHUD")
+                .font(.custom("Fira Sans", size: 15).weight(.semibold))
+
+            Divider()
+
+            // Status checks
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Requirements")
+                    .font(.custom("Fira Sans", size: 12).weight(.semibold))
+                    .foregroundColor(.secondary)
+
+                StatusRow(ok: cliFound, label: "Claude CLI",
+                          detail: cliFound ? "Installed" : "Not found -- install from claude.ai")
+                StatusRow(ok: python3Found, label: "Python 3",
+                          detail: python3Found ? "Installed" : "Needed for permission hooks")
+                StatusRow(ok: firaFound, label: "Fira Sans / Code",
+                          detail: firaFound ? "Installed" : "Optional -- using system fonts")
+            }
+
+            Divider()
+
+            // Quick guide
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Quick Guide")
+                    .font(.custom("Fira Sans", size: 12).weight(.semibold))
+                    .foregroundColor(.secondary)
+
+                InfoRow(icon: "clock.arrow.circlepath", text: "**History:** Browse and resume past Claude sessions across all projects")
+                InfoRow(icon: "lock.fill", text: "**Safe/Unsafe:** Per-project toggle in history. Controls whether sessions launch with --dangerously-skip-permissions")
+                InfoRow(icon: "gauge.with.dots.needle.50percent", text: "**Effort:** Per-project effort level in history. Click the gauge icon to cycle through default/low/medium/high/max")
+                InfoRow(icon: "star.fill", text: "**Star:** Pin frequently used projects to a Starred section at the top of history")
+                InfoRow(icon: "archivebox", text: "**Obsidian:** Browse vault notes. Click to preview, pencil icon to edit. Select vault from dropdown")
+                InfoRow(icon: "shield", text: "**Permissions:** Plan/Safe/Unsafe controls how much Claude can do without asking")
+                InfoRow(icon: "terminal", text: "**Terminal:** Click to launch, long-press to switch. Supports Ghostty, iTerm2, Terminal, and more")
+                InfoRow(icon: "bell.fill", text: "**Notifications:** Desktop alerts via macOS. Mobile via [ntfy.sh](https://ntfy.sh): install the app, pick a topic name, paste it in the bell menu")
+            }
+
+            Divider()
+
+            // Links
+            HStack(spacing: 12) {
+                Link(destination: URL(string: "https://github.com/bbdaniels/ClaudeHUD")!) {
+                    Label("GitHub", systemImage: "link")
+                        .font(.custom("Fira Sans", size: 11))
+                }
+                Link(destination: URL(string: "https://ntfy.sh")!) {
+                    Label("ntfy.sh", systemImage: "antenna.radiowaves.left.and.right")
+                        .font(.custom("Fira Sans", size: 11))
+                }
+                Spacer()
+            }
+        }
+        .padding(14)
+        .frame(width: 320)
+    }
+}
+
+private struct StatusRow: View {
+    let ok: Bool
+    let label: String
+    let detail: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: ok ? "checkmark.circle.fill" : "xmark.circle")
+                .font(.system(size: 12))
+                .foregroundColor(ok ? .green : .orange)
+                .frame(width: 14)
+            Text(label)
+                .font(.custom("Fira Sans", size: 12).weight(.medium))
+                .frame(width: 90, alignment: .leading)
+            Text(detail)
+                .font(.custom("Fira Sans", size: 11))
+                .foregroundColor(.secondary)
+        }
+    }
+}
+
+private struct InfoRow: View {
+    let icon: String
+    let text: LocalizedStringKey
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .frame(width: 14, alignment: .center)
+                .padding(.top, 2)
+            Text(text)
+                .font(.custom("Fira Sans", size: 12))
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
