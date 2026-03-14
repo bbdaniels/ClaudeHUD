@@ -206,15 +206,80 @@ private struct InboxEmailRow: View {
         }
     }
 
+    /// Run sqlite3 using temp files (safe from GCD queues, no pipe deadlock)
+    private static func runSqliteSafe(dbPath: String, sql: String) -> String? {
+        let tmpOut = NSTemporaryDirectory() + "claudehud-sql-\(UUID().uuidString).txt"
+        defer { try? FileManager.default.removeItem(atPath: tmpOut) }
+
+        let cmd = "/usr/bin/sqlite3 -separator '|' -readonly '\(dbPath)' \"\(sql.replacingOccurrences(of: "\"", with: "\\\""))\" > '\(tmpOut)' 2>/dev/null"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", cmd]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return try? String(contentsOfFile: tmpOut, encoding: .utf8)
+        } catch {
+            return nil
+        }
+    }
+
     /// Synchronous briefing generation (call from background queue only)
     nonisolated static func generateBriefingSync(email: SparkEmailResult) -> String? {
-        var context = "Email:\nFrom: \(email.from)\nSubject: \(email.subject)\n"
+        var context = "Current email:\nFrom: \(email.from)\nSubject: \(email.subject)\n"
         if !email.body.isEmpty { context += "Preview: \(String(email.body.prefix(500)))\n" }
 
+        // Fetch prior emails from this sender via temp-file sqlite3
+        if let msgPath = SparkService.msgPath {
+            let senderName = email.from.replacingOccurrences(of: "'", with: "''")
+            let sql = "SELECT subject, shortBody, datetime(receivedDate, 'unixepoch') FROM messages WHERE messageFrom LIKE '%\(senderName)%' AND inSent=0 ORDER BY receivedDate DESC LIMIT 5"
+            if let raw = runSqliteSafe(dbPath: msgPath, sql: sql), !raw.isEmpty {
+                context += "\nPrior emails from \(email.from):\n"
+                for line in raw.components(separatedBy: "\n") where !line.isEmpty {
+                    let cols = line.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false)
+                    if cols.count >= 2 {
+                        context += "- [\(cols.count > 2 ? String(cols[2]) : "")] \(cols[0]): \(String(cols[1]).prefix(150))\n"
+                    }
+                }
+            }
+        }
+
+        // Check for matching Obsidian project context
+        if let vaultPath = VaultSettings.loadFromDefaults().first?.path {
+            let fm = FileManager.default
+            let searchTerms = email.subject.lowercased()
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { $0.count > 3 }
+            if let folders = try? fm.contentsOfDirectory(atPath: vaultPath) {
+                for folder in folders {
+                    let folderLower = folder.lowercased()
+                    let matches = searchTerms.contains { folderLower.contains($0) }
+                    if matches {
+                        let folderPath = (vaultPath as NSString).appendingPathComponent(folder)
+                        var isDir: ObjCBool = false
+                        guard fm.fileExists(atPath: folderPath, isDirectory: &isDir), isDir.boolValue else { continue }
+                        // Read overview or first note
+                        let noteFiles = (try? fm.contentsOfDirectory(atPath: folderPath))?.filter { $0.hasSuffix(".md") }.sorted() ?? []
+                        if let first = noteFiles.first {
+                            let notePath = (folderPath as NSString).appendingPathComponent(first)
+                            if let noteContent = try? String(contentsOfFile: notePath, encoding: .utf8) {
+                                context += "\nRelated project (\(folder)) notes:\n\(String(noteContent.prefix(800)))\n"
+                            }
+                        }
+                        break
+                    }
+                }
+            }
+        }
+
         let prompt = """
-        You're a sharp executive assistant. Based ONLY on the information provided below, write 2-3 sentences covering:
-        1. What this email is about and what's being asked/shared
-        2. Suggested action (reply, follow up, archive, etc.)
+        You're a sharp executive assistant. Based ONLY on the information provided below, write 2-4 sentences covering:
+        1. What this email is about and what's being asked
+        2. Relevant context from prior emails or project notes if provided
+        3. Suggested action (reply, follow up, archive, etc.)
 
         Work with whatever information is available -- do not ask for more. \
         Be specific and concise. No bold, no headers, no markdown formatting. Bullets are OK for action items. Plain text only.
