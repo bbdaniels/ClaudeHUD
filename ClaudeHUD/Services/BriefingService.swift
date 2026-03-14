@@ -55,7 +55,7 @@ class BriefingService: ObservableObject {
     }
 
     /// Generate an intelligent day summary via Claude
-    func generateDaySummary(events: [CalendarEvent], date: Date) {
+    func generateDaySummary(events: [CalendarEvent], date: Date, todos: [TodoItem] = []) {
         let dateKey = Self.dateCacheKey(date)
         // Re-generate if date changed (e.g. midnight rollover)
         if daySummaryDateKey != dateKey {
@@ -64,8 +64,8 @@ class BriefingService: ObservableObject {
         }
         guard daySummary == nil else { return }
 
-        // Check disk cache
-        let cacheKey = "day-\(dateKey)"
+        // Check disk cache (include todo count so it regenerates if todos change)
+        let cacheKey = "day-\(dateKey)-t\(todos.count)"
         if let cached = Self.loadCachedSummary(eventId: cacheKey) {
             daySummary = DaySummary(text: cached, isLoading: false)
             return
@@ -74,7 +74,7 @@ class BriefingService: ObservableObject {
         daySummary = DaySummary(text: nil, isLoading: true)
 
         Task.detached(priority: .userInitiated) { [weak self] in
-            let summary = await Self.generateClaudeDaySummary(events: events, date: date)
+            let summary = await Self.generateClaudeDaySummary(events: events, date: date, todos: todos)
             if let s = summary {
                 Self.saveCachedSummary(eventId: cacheKey, summary: s)
             }
@@ -93,11 +93,12 @@ class BriefingService: ObservableObject {
     /// Claude call for day-level summary
     nonisolated private static func generateClaudeDaySummary(
         events: [CalendarEvent],
-        date: Date
+        date: Date,
+        todos: [TodoItem] = []
     ) async -> String? {
         let timedEvents = events.filter { !$0.isAllDay }
         let allDayEvents = events.filter { $0.isAllDay }
-        guard !events.isEmpty else { return nil }
+        guard !events.isEmpty || !todos.isEmpty else { return nil }
 
         let fmt = DateFormatter()
         fmt.dateFormat = "EEEE, MMMM d"
@@ -148,15 +149,38 @@ class BriefingService: ObservableObject {
             context += "No meetings scheduled.\n"
         }
 
+        // Add todos grouped by source
+        if !todos.isEmpty {
+            context += "\nOpen to-dos:\n"
+            var grouped: [(key: String, items: [String])] = []
+            var seen: Set<String> = []
+            for todo in todos {
+                let key = todo.sourceBadge
+                if seen.contains(key) {
+                    if let idx = grouped.firstIndex(where: { $0.key == key }) {
+                        grouped[idx].items.append(todo.title)
+                    }
+                } else {
+                    seen.insert(key)
+                    grouped.append((key, [todo.title]))
+                }
+            }
+            for group in grouped {
+                context += "[\(group.key)] \(group.items.prefix(4).joined(separator: "; "))"
+                if group.items.count > 4 { context += " (+\(group.items.count - 4) more)" }
+                context += "\n"
+            }
+        }
+
         let tense = isToday ? "today" : isTomorrow ? "tomorrow" : "that day"
         let prompt = """
         You're a sharp, warm executive assistant writing a day-at-a-glance briefing. \
-        Based on the schedule below, write 2-4 short sentences covering:
+        Based on the schedule and open to-dos below, write 2-4 short sentences covering:
         1. The shape and feel of \(tense) — is it packed, light, meeting-free, has open time?
-        2. What to be aware of — all-day events, things happening, or the freedom of an open schedule
-        3. A practical tip or encouraging note — what to do with free time, or just a good vibe
+        2. What to be aware of — meetings, all-day events, or open to-dos that could use attention
+        3. A practical tip or encouraging note — what to tackle in free time, or just a good vibe
 
-        Be specific. Reference actual event names. \
+        Be specific. Reference actual event names and to-do projects where relevant. \
         Keep it natural and conversational — like a friend who knows your calendar. \
         No headers, no bullet points, no markdown. Just flowing sentences. \
         \(isToday ? "Use present/future tense relative to the current time." : "")
