@@ -11,7 +11,7 @@ enum MCPClientStatus: Sendable {
 
 // MARK: - Tool Descriptor
 
-struct MCPTool: Sendable {
+struct MCPTool: @unchecked Sendable {
     let name: String
     let description: String
     let inputSchema: [String: Any]

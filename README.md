@@ -17,23 +17,44 @@ A macOS menu bar app that puts Claude at your fingertips. ClaudeHUD is a lightwe
 - **Safe** -- Claude reads freely but asks before running commands
 - **Unsafe** -- No guardrails; Claude executes anything without asking
 
-**Session history** -- Browse all past Claude Code sessions across every project on your machine. Sessions are grouped by project with collapsible dropdowns. Launch a new session in any project with one click, or expand to resume a specific past session. Each project has a persistent safe/unsafe toggle (stored per-project) that controls whether sessions launch with `--dangerously-skip-permissions`.
+**Session history** -- Browse all past Claude Code sessions across every project on your machine. Sessions are grouped by project and parent folder with collapsible dropdowns. Launch a new session in any project with one click, or expand to resume a specific past session. Per-project controls include:
+- **Safe/Unsafe toggle** -- Persistent per-project, controls `--dangerously-skip-permissions`
+- **Effort level** -- Cycle through default/low/medium/high/max per project
 
-**Terminal integration** -- Launch your preferred terminal directly from the header. Supports Ghostty, iTerm2, Terminal.app, Warp, Alacritty, kitty, and Hyper. Ghostty and Terminal.app/iTerm2 auto-execute commands; others copy to clipboard. Long-press the terminal button to switch terminals.
+**Terminal integration** -- Launch your preferred terminal directly from the header. Long-press the terminal button to switch. Supported terminals:
+- **Auto-execute:** Ghostty, iTerm2, Terminal.app
+- **Copy to clipboard:** Warp, Alacritty, kitty, Hyper, VS Code
 
-**Push notifications** -- Get notified when Claude needs attention, even when you're away from your screen. Click the bell icon in the header to configure:
+**Obsidian notes** -- Browse and preview your Obsidian vault directly in the app. Click the archive box icon in the tab bar to access:
+- Multi-vault support with persistent vault selection
+- Recursive folder browsing with collapsible tree
+- Multi-word search across all notes
+- Click a note to open it in a floating HUD-style window
+- Edit/preview toggle with auto-save
+- Rendered markdown with math, tables, code blocks, and interactive checkboxes
+- Wikilinks rendered as clickable Obsidian links
+- Vault-relative image rendering
+- Right-click any note to open in Obsidian
+
+**Push notifications** -- Get notified when Claude needs attention. Click the bell icon to configure:
 - **Desktop** -- macOS notification banners via the system notification center
-- **Mobile** -- Push to iPhone and Apple Watch via [ntfy.sh](https://ntfy.sh) (free, no account required)
+- **Mobile** -- Push to iPhone and Apple Watch via [ntfy.sh](https://ntfy.sh)
 
-Notifications fire on `AskUserQuestion` and `PermissionRequest` hooks, showing the actual question or command description as the body. ClaudeHUD automatically installs the hook script to `~/.claude/hooks/` and manages the entries in `~/.claude/settings.json` -- no manual setup needed.
+To set up mobile notifications:
+1. Install the [ntfy app](https://ntfy.sh) on your iPhone
+2. Subscribe to a topic name of your choice (e.g. `claude-myname`)
+3. In ClaudeHUD, click the bell icon, enable Mobile, and paste the same topic name
+4. Click "Test notification" to verify
+
+Notifications fire on `AskUserQuestion` and `PermissionRequest` hooks. ClaudeHUD automatically installs the hook script to `~/.claude/hooks/` -- no manual setup needed.
 
 **Rich markdown rendering** -- Claude's responses render with full markdown support:
-- Headings, bold, italic, inline code
+- Headings, bold, italic, inline code, strikethrough
 - Fenced code blocks
 - Tables with alternating row colors
 - Ordered and unordered lists with nesting
 - Task lists with checkboxes
-- Blockquotes
+- Blockquotes and GitHub-flavored alerts
 - Horizontal rules
 - LaTeX math via KaTeX (display blocks) and Unicode conversion (inline)
 
@@ -41,21 +62,28 @@ Notifications fire on `AskUserQuestion` and `PermissionRequest` hooks, showing t
 
 **MCP server support** -- Connects to any MCP servers configured in your Claude environment.
 
+**Info panel** -- Click the (i) icon in the header for a quick setup guide and dependency status checks.
+
 **Always available** -- Floating panel accessible from the menu bar on any Space or desktop. Click the menu bar icon to toggle, right-click for quick actions.
 
 ## Requirements
 
 - macOS 14.0+
 - [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) installed (`claude` command available in PATH)
-- [Fira Sans](https://fonts.google.com/specimen/Fira+Sans) and [Fira Code](https://fonts.google.com/specimen/Fira+Code) fonts (falls back gracefully if not installed)
+- Python 3 (required for permission approval hooks)
+- [Fira Sans](https://fonts.google.com/specimen/Fira+Sans) and [Fira Code](https://fonts.google.com/specimen/Fira+Code) fonts (optional -- falls back to system fonts)
 
 ## Building
 
-Open `ClaudeHUD.xcodeproj` in Xcode and build (Cmd+B), or from the command line:
+Clone and build with [XcodeGen](https://github.com/yonaskolb/XcodeGen):
 
 ```bash
+brew install xcodegen  # if not already installed
+xcodegen generate
 xcodebuild -scheme ClaudeHUD -configuration Debug build
 ```
+
+Or open `ClaudeHUD.xcodeproj` in Xcode and build with Cmd+B.
 
 The built app will be in `~/Library/Developer/Xcode/DerivedData/ClaudeHUD-*/Build/Products/Debug/ClaudeHUD.app`.
 
@@ -68,6 +96,7 @@ The app searches for the Claude CLI in common installation paths:
 - `/usr/local/bin/claude`
 - `/opt/homebrew/bin/claude`
 - `~/.npm-global/bin/claude`
+- `~/.claude/local/claude`
 - Falls back to PATH lookup
 
 ## Architecture
@@ -76,30 +105,41 @@ The app searches for the Claude CLI in common installation paths:
 ClaudeHUD/
   App/
     ClaudeHUDApp.swift     # App entry, menu bar setup
-    AppState.swift         # Global state, settings
+    AppState.swift         # Global state, services
   Claude/
     ClaudeCLIClient.swift  # CLI subprocess management
     ConversationManager.swift  # Conversations, tabs, messaging
+  Models/
+    NoteFile.swift         # Obsidian file tree model
+    VaultSettings.swift    # Vault config, security-scoped bookmarks
   Views/
     HUDPanel/
       HUDPanelController.swift  # NSPanel floating window
-      HUDContentView.swift      # Main layout, tabs, permissions
+      HUDContentView.swift      # Main layout, tabs, permissions, info
     Chat/
       ChatView.swift       # Message list + input
       MessageBubble.swift  # Markdown parser + renderers
       InputBar.swift       # Text input
       ToolCallView.swift   # Tool call display
+    Obsidian/
+      ObsidianBrowserView.swift       # Vault browser, search, file tree
+      ObsidianMarkdownView.swift      # Extended markdown with checkboxes, images, wikilinks
+      NoteContentView.swift           # Edit/preview note window content
+      FloatingNoteWindowManager.swift # Floating note window management
     Settings/
       SettingsView.swift   # Settings UI
   Services/
+    VaultManager.swift             # Obsidian vault state, file loading
     PushNotificationManager.swift  # Hook install, settings.json management
     SessionHistoryService.swift    # Scan ~/.claude/projects/ for past sessions
     TerminalService.swift          # Terminal app detection, selection, command launch
+    PermissionWatcherService.swift # Monitor pending permission requests
     KeychainService.swift          # API key storage
     HotkeyService.swift            # Global hotkey registration
   Resources/
     Assets.xcassets/       # App icons and images
-    ntfy-notify.sh         # Bundled hook script (copied to ~/.claude/hooks/ on enable)
+    ntfy-notify.sh         # Bundled notification hook script
+    permission-watcher.sh  # Bundled permission watcher hook script
     Info.plist
     ClaudeHUD.entitlements
 ```
