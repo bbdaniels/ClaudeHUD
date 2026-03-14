@@ -217,7 +217,7 @@ private struct InboxEmailRow: View {
         2. Relevant context from prior emails if any
         3. Suggested action (reply, follow up, archive, etc.)
 
-        Be specific and concise. No headers or bullets — flowing sentences.
+        Be specific and concise. No bold, no headers, no markdown formatting. Bullets are OK for action items. Plain text only.
 
         \(context)
         """
@@ -241,7 +241,7 @@ private struct InboxEmailRow: View {
         }
 
         // Use shell to handle piping properly
-        let shellCmd = "\(claudePath) -p \"$(cat \(tmpIn))\" --model haiku --max-turns 1 --output-format text > \(tmpOut) 2>/dev/null"
+        let shellCmd = "\(claudePath) -p \"$(cat \(tmpIn))\" --model haiku --max-turns 2 --output-format text > \(tmpOut) 2>/dev/null"
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
