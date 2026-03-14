@@ -140,37 +140,10 @@ private struct InboxEmailRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 6) {
-                Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9 * scale, weight: .semibold))
-                    .foregroundColor(.secondary.opacity(0.4))
-                    .frame(width: 10)
-                    .padding(.top, 2)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(email.subject)
-                        .font(.captionFont(scale))
-                        .foregroundColor(.primary)
-                        .lineLimit(expanded ? nil : 1)
-                    HStack(spacing: 4) {
-                        Text(email.from)
-                            .font(.custom("Fira Code", size: 9.5 * scale))
-                            .foregroundColor(.secondary.opacity(0.5))
-                            .lineLimit(1)
-                        Text("[\(email.date)]")
-                            .font(.custom("Fira Code", size: 9.5 * scale))
-                            .foregroundColor(.secondary.opacity(0.4))
-                    }
-                }
-                Spacer()
-            }
-            .padding(.vertical, 4)
-            .padding(.horizontal, 4)
-            .padding(.leading, 14)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
-                if expanded && briefing == nil {
+            Button(action: {
+                let willExpand = !expanded
+                withAnimation(.easeInOut(duration: 0.15)) { expanded = willExpand }
+                if willExpand && briefing == nil {
                     let pk = email.pk
                     let emailCopy = email
                     DispatchQueue.global(qos: .userInitiated).async {
@@ -180,7 +153,37 @@ private struct InboxEmailRow: View {
                         }
                     }
                 }
+            }) {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9 * scale, weight: .semibold))
+                        .foregroundColor(.secondary.opacity(0.4))
+                        .frame(width: 10)
+                        .padding(.top, 2)
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(email.subject)
+                            .font(.captionFont(scale))
+                            .foregroundColor(.primary)
+                            .lineLimit(expanded ? nil : 1)
+                        HStack(spacing: 4) {
+                            Text(email.from)
+                                .font(.custom("Fira Code", size: 9.5 * scale))
+                                .foregroundColor(.secondary.opacity(0.5))
+                                .lineLimit(1)
+                            Text("[\(email.date)]")
+                                .font(.custom("Fira Code", size: 9.5 * scale))
+                                .foregroundColor(.secondary.opacity(0.4))
+                        }
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 4)
+                .padding(.horizontal, 4)
+                .padding(.leading, 14)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
 
             if expanded {
                 VStack(alignment: .leading, spacing: 6) {
@@ -207,7 +210,7 @@ private struct InboxEmailRow: View {
     }
 
     /// Synchronous briefing generation (call from background queue only)
-    static func generateBriefingSync(email: SparkEmailResult) -> String? {
+    nonisolated static func generateBriefingSync(email: SparkEmailResult) -> String? {
         let priorEmails = SparkService.searchEmails(
             terms: [email.from.split(separator: " ").first.map(String.init) ?? email.from],
             limit: 5,
