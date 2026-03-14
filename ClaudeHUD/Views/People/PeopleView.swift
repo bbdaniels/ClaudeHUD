@@ -246,31 +246,35 @@ private struct InboxEmailRow: View {
         ]
         let claudePath = claudePaths.first { FileManager.default.fileExists(atPath: $0) } ?? "claude"
 
-        let args = ["-p", prompt, "--model", "haiku", "--max-turns", "1", "--output-format", "text"]
+        // Write prompt to temp file, redirect output to temp file
+        let tmpIn = NSTemporaryDirectory() + "claudehud-email-prompt-\(UUID().uuidString).txt"
+        let tmpOut = NSTemporaryDirectory() + "claudehud-email-out-\(UUID().uuidString).txt"
+        try? prompt.write(toFile: tmpIn, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(atPath: tmpIn)
+            try? FileManager.default.removeItem(atPath: tmpOut)
+        }
+
+        // Use shell to handle piping properly
+        let shellCmd = "\(claudePath) -p \"$(cat \(tmpIn))\" --model haiku --max-turns 1 --output-format text > \(tmpOut) 2>/dev/null"
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
-        process.arguments = ["-q", "/dev/null", claudePath] + args
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", shellCmd]
         process.currentDirectoryURL = URL(fileURLWithPath: NSHomeDirectory())
 
         var env = ProcessInfo.processInfo.environment
         env.removeValue(forKey: "CLAUDECODE")
         process.environment = env
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
+        process.standardOutput = Pipe()
         process.standardError = Pipe()
 
         do {
             try process.run()
-            // Read data BEFORE waitUntilExit to avoid pipe buffer deadlock
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
-            guard let raw = String(data: data, encoding: .utf8), !raw.isEmpty else { return nil }
-            let cleaned = raw
-                .replacingOccurrences(of: "\r", with: "")
-                .replacingOccurrences(of: "\\x1b\\[[0-9;]*[a-zA-Z]", with: "", options: .regularExpression)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let output = try? String(contentsOfFile: tmpOut, encoding: .utf8) else { return nil }
+            let cleaned = output.trimmingCharacters(in: .whitespacesAndNewlines)
             return cleaned.isEmpty ? nil : cleaned
         } catch {
             return nil
