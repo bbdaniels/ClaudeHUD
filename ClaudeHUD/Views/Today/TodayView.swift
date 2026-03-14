@@ -73,7 +73,7 @@ struct TodayView: View {
                         // Timed events
                         ForEach(timeEvents) { event in
                             EventRow(event: event)
-                            Divider().opacity(0.15)
+                            Divider().opacity(0.3)
                         }
                     }
                     .padding(.horizontal, 10)
@@ -119,7 +119,7 @@ private struct AllDayEventRow: View {
                 .foregroundColor(.secondary.opacity(0.5))
         }
         .padding(.horizontal, 6)
-        .padding(.vertical, 3)
+        .padding(.vertical, 4)
     }
 }
 
@@ -435,7 +435,7 @@ private struct CollapsibleSection<Content: View>: View {
             Button(action: { withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() } }) {
                 HStack(spacing: 4) {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 8 * scale, weight: .bold))
+                        .font(.system(size: 9 * scale, weight: .semibold))
                         .foregroundColor(.secondary.opacity(0.4))
                         .frame(width: 10)
                     Image(systemName: icon)
@@ -496,7 +496,7 @@ private struct EmailThreadRow: View {
                 }
                 Spacer()
                 Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 8 * scale))
+                    .font(.system(size: 9 * scale, weight: .semibold))
                     .foregroundColor(.secondary.opacity(0.3))
             }
             .padding(.leading, 2)
