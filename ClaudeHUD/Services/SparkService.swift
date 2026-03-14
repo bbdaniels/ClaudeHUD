@@ -152,7 +152,7 @@ enum SparkService {
         let sql = """
         SELECT pk, subject, messageFrom, shortBody, receivedDate
         FROM messages
-        WHERE inInbox=1 AND inSent=0 AND inDrafts=0
+        WHERE inInbox=1 AND inSent=0 AND inDrafts=0 AND category IN (1, 4)
         ORDER BY receivedDate DESC
         LIMIT \(limit)
         """
