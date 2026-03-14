@@ -195,15 +195,18 @@ private struct ProjectDetailView: View {
                 } else {
                     if !briefing.priorities.isEmpty {
                         BriefingListSection(icon: "arrow.up.circle", iconColor: .blue,
-                                            title: "Priorities", items: briefing.priorities, scale: scale)
+                                            title: "Priorities", items: briefing.priorities,
+                                            projectPath: project.obsidianPath, scale: scale)
                     }
                     if !briefing.blockers.isEmpty {
                         BriefingListSection(icon: "exclamationmark.triangle", iconColor: .orange,
-                                            title: "Blockers", items: briefing.blockers, scale: scale)
+                                            title: "Blockers", items: briefing.blockers,
+                                            projectPath: project.obsidianPath, scale: scale)
                     }
                     if !briefing.nextActions.isEmpty {
                         BriefingListSection(icon: "arrow.right.circle", iconColor: .green,
-                                            title: "Next", items: briefing.nextActions, scale: scale)
+                                            title: "Next", items: briefing.nextActions,
+                                            projectPath: project.obsidianPath, scale: scale)
                     }
 
                     Button(action: {
@@ -236,7 +239,7 @@ private struct ProjectDetailView: View {
                     }
                 } else {
                     if !intel.people.isEmpty {
-                        CollapsibleSection(icon: "person.2", iconColor: .purple,
+                        CollapsibleSection(icon: "person.2", iconColor: .secondary.opacity(0.5),
                                            title: "People", count: intel.people.count, scale: scale) {
                             ForEach(intel.people.prefix(6)) { contact in
                                 HStack(spacing: 4) {
@@ -260,7 +263,7 @@ private struct ProjectDetailView: View {
                     }
 
                     if !intel.emails.isEmpty {
-                        CollapsibleSection(icon: "envelope", iconColor: .blue,
+                        CollapsibleSection(icon: "envelope", iconColor: .secondary.opacity(0.5),
                                            title: "Emails", count: intel.emails.count, scale: scale) {
                             ForEach(intel.emails.prefix(4)) { email in
                                 ProjectEmailRow(email: email, scale: scale)
@@ -479,31 +482,87 @@ private struct BriefingListSection: View {
     let iconColor: Color
     let title: String
     let items: [String]
+    let projectPath: String
     let scale: CGFloat
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 9 * scale))
-                    .foregroundColor(iconColor)
-                Text(title)
-                    .font(.captionFont(scale).weight(.semibold))
-                    .foregroundColor(.secondary.opacity(0.6))
-            }
+    @State private var dismissed: Set<Int> = []
+    @State private var pushed: Set<Int> = []
 
-            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                HStack(alignment: .top, spacing: 4) {
-                    Text("·")
-                        .font(.captionFont(scale))
-                        .foregroundColor(.secondary.opacity(0.4))
-                    Text(item)
-                        .font(.captionFont(scale))
-                        .foregroundColor(.primary)
-                        .lineLimit(2)
+    private var visibleItems: [(offset: Int, element: String)] {
+        Array(items.enumerated()).filter { !dismissed.contains($0.offset) }
+    }
+
+    var body: some View {
+        if !visibleItems.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 4) {
+                    Image(systemName: icon)
+                        .font(.system(size: 9 * scale))
+                        .foregroundColor(iconColor)
+                    Text(title)
+                        .font(.captionFont(scale).weight(.semibold))
+                        .foregroundColor(.secondary.opacity(0.6))
                 }
-                .padding(.leading, 2)
+
+                ForEach(visibleItems, id: \.offset) { idx, item in
+                    HStack(alignment: .top, spacing: 4) {
+                        if pushed.contains(idx) {
+                            Image(systemName: "checkmark.square.fill")
+                                .font(.system(size: 11 * scale))
+                                .foregroundColor(.green)
+                                .frame(width: 14)
+                        } else {
+                            // Push to Obsidian
+                            Button(action: { pushToObsidian(item, idx: idx) }) {
+                                Image(systemName: "square.and.arrow.down")
+                                    .font(.system(size: 10 * scale))
+                                    .foregroundColor(.secondary.opacity(0.5))
+                                    .frame(width: 14)
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Add to project notes")
+                        }
+
+                        // Dismiss
+                        Button(action: {
+                            withAnimation(.easeOut(duration: 0.2)) { _ = dismissed.insert(idx) }
+                        }) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 8 * scale, weight: .semibold))
+                                .foregroundColor(.secondary.opacity(0.3))
+                                .frame(width: 12)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Dismiss")
+
+                        Text(item)
+                            .font(.captionFont(scale))
+                            .foregroundColor(pushed.contains(idx) ? .secondary : .primary)
+                            .strikethrough(pushed.contains(idx))
+                            .lineLimit(2)
+                    }
+                    .padding(.leading, 2)
+                }
             }
         }
+    }
+
+    private func pushToObsidian(_ item: String, idx: Int) {
+        let actionItemsPath = (projectPath as NSString).appendingPathComponent("Action Items.md")
+        let fm = FileManager.default
+
+        if fm.fileExists(atPath: actionItemsPath) {
+            // Append to existing
+            if var content = try? String(contentsOfFile: actionItemsPath, encoding: .utf8) {
+                content += "\n- [ ] \(item)"
+                try? content.write(toFile: actionItemsPath, atomically: true, encoding: .utf8)
+            }
+        } else {
+            // Create new
+            let content = "# Action Items\n\n- [ ] \(item)"
+            try? content.write(toFile: actionItemsPath, atomically: true, encoding: .utf8)
+        }
+
+        withAnimation(.easeOut(duration: 0.2)) { _ = pushed.insert(idx) }
     }
 }
