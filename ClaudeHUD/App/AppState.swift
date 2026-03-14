@@ -14,9 +14,14 @@ class AppState: ObservableObject {
     let sessionHistoryService = SessionHistoryService()
     let permissionWatcher = PermissionWatcherService()
     let vaultManager = VaultManager()
+    let calendarService = CalendarService()
+    let briefingService = BriefingService()
+    let projectService = ProjectService()
+    let projectBriefingService = ProjectBriefingService()
 
     init() {
         self.tabManager = TabManager(cliClient: cliClient)
+        projectService.configure(vault: vaultManager, sessions: sessionHistoryService, calendar: calendarService)
     }
 
     func setup() async {

@@ -31,6 +31,8 @@ extension Font {
 enum FixedTab: String {
     case history
     case obsidian
+    case today
+    case projects
 }
 
 struct HUDContentView: View {
@@ -41,6 +43,7 @@ struct HUDContentView: View {
     @EnvironmentObject var sessionHistory: SessionHistoryService
     @EnvironmentObject var permissionWatcher: PermissionWatcherService
     @EnvironmentObject var vaultManager: VaultManager
+    @EnvironmentObject var calendarService: CalendarService
     @State private var showPermissionPopover = false
     @State private var showPushPopover = false
     @State private var showTerminalPopover = false
@@ -155,6 +158,19 @@ struct HUDContentView: View {
                 case .obsidian:
                     ObsidianBrowserView()
                         .environmentObject(vaultManager)
+                case .today:
+                    TodayView()
+                        .environmentObject(calendarService)
+                        .environmentObject(appState.briefingService)
+                        .environmentObject(vaultManager)
+                        .environmentObject(appState.projectService)
+                case .projects:
+                    ProjectDashboardView()
+                        .environmentObject(appState.projectService)
+                        .environmentObject(appState.projectBriefingService)
+                        .environmentObject(sessionHistory)
+                        .environmentObject(vaultManager)
+                        .environmentObject(calendarService)
                 }
             } else {
                 ChatView()
@@ -252,6 +268,34 @@ struct TabBar: View {
                         .fill(activeFixedTab == .obsidian ? Color.accentColor.opacity(0.12) : Color.clear)
                 )
                 .help("Obsidian notes")
+
+                // Today tab (fixed)
+                Button(action: { activeFixedTab = .today }) {
+                    Image(systemName: "calendar")
+                        .font(.captionFont(scale))
+                        .foregroundColor(activeFixedTab == .today ? .primary : .secondary)
+                        .frame(width: 28, height: 24)
+                }
+                .buttonStyle(.borderless)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(activeFixedTab == .today ? Color.accentColor.opacity(0.12) : Color.clear)
+                )
+                .help("Today's schedule")
+
+                // Projects tab (fixed)
+                Button(action: { activeFixedTab = .projects }) {
+                    Image(systemName: "briefcase")
+                        .font(.captionFont(scale))
+                        .foregroundColor(activeFixedTab == .projects ? .primary : .secondary)
+                        .frame(width: 28, height: 24)
+                }
+                .buttonStyle(.borderless)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(activeFixedTab == .projects ? Color.accentColor.opacity(0.12) : Color.clear)
+                )
+                .help("Projects")
 
                 Divider()
                     .frame(height: 16)
