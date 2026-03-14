@@ -31,25 +31,12 @@ struct PeopleView: View {
                     .padding(.top, 4)
                 Spacer()
             } else {
-                // Header
-                HStack {
-                    Text("People")
-                        .font(.smallMedium(scale))
-                        .foregroundColor(.primary)
-                    Spacer()
-                    Text("\(contactService.allContacts.count)")
-                        .font(.captionFont(scale))
-                        .foregroundColor(.secondary)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-
                 // Search bar
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 11 * scale))
                         .foregroundColor(.secondary)
-                    TextField("Search contacts...", text: $searchText)
+                    TextField("Search people...", text: $searchText)
                         .font(.smallFont(scale))
                         .textFieldStyle(.plain)
                     if !searchText.isEmpty {

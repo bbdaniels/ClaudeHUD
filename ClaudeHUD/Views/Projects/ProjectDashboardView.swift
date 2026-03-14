@@ -27,23 +27,6 @@ struct ProjectDashboardView: View {
                     .padding(.top, 4)
                 Spacer()
             } else {
-                // Header
-                HStack {
-                    Text("Projects")
-                        .font(.smallMedium(scale))
-                        .foregroundColor(.primary)
-                    Spacer()
-                    if projectService.isLoading {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Text("\(projectService.projects.count)")
-                            .font(.captionFont(scale))
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-
                 // Search bar
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
