@@ -1,10 +1,16 @@
 import SwiftUI
 
+/// Static cache for inbox email briefings (survives view rebuilds)
+private enum InboxBriefingCache {
+    static var briefings: [String: String] = [:]  // pk -> briefing text
+    static var emails: [SparkEmailResult]?
+}
+
 struct PeopleView: View {
     @EnvironmentObject var contactService: ContactService
     @Environment(\.fontScale) private var scale
     @State private var searchText = ""
-    @State private var inboxEmails: [SparkEmailResult] = []
+    @State private var inboxEmails: [SparkEmailResult] = InboxBriefingCache.emails ?? []
 
     private var displayedContacts: [Contact] {
         if searchText.isEmpty {
@@ -76,9 +82,14 @@ struct PeopleView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             contactService.refreshPublished()
-            Task.detached {
-                let emails = SparkService.fetchInboxEmails(limit: 10)
-                await MainActor.run { inboxEmails = emails }
+            if InboxBriefingCache.emails == nil {
+                Task.detached {
+                    let emails = SparkService.fetchInboxEmails(limit: 10)
+                    await MainActor.run {
+                        inboxEmails = emails
+                        InboxBriefingCache.emails = emails
+                    }
+                }
             }
         }
     }
@@ -131,8 +142,14 @@ private struct InboxEmailRow: View {
     let email: SparkEmailResult
     let scale: CGFloat
     @State private var expanded = false
-    @State private var briefing: String?
+    @State private var briefing: String? = nil
     @State private var isLoading = false
+
+    private func loadCached() {
+        if briefing == nil, let cached = InboxBriefingCache.briefings[email.pk] {
+            briefing = cached
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -145,7 +162,9 @@ private struct InboxEmailRow: View {
                     DispatchQueue.global(qos: .utility).async {
                         let result = Self.generateBriefingSync(email: emailCopy)
                         DispatchQueue.main.async {
-                            briefing = result ?? "No summary available."
+                            let text = result ?? "No summary available."
+                            briefing = text
+                            InboxBriefingCache.briefings[emailCopy.pk] = text
                             isLoading = false
                         }
                     }
@@ -204,6 +223,7 @@ private struct InboxEmailRow: View {
                 .padding(.bottom, 8)
             }
         }
+        .onAppear { loadCached() }
     }
 
     /// Run sqlite3 using temp files (safe from GCD queues, no pipe deadlock)
