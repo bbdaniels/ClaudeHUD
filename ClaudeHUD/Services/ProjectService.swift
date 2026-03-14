@@ -19,7 +19,7 @@ struct Project: Identifiable {
 struct ProjectIntel: Identifiable {
     let id: String  // project id
     let emails: [ProjectEmail]
-    let people: [ProjectPerson]
+    let people: [Contact]
     var isLoading: Bool = false
 }
 
@@ -34,17 +34,11 @@ struct ProjectEmail: Identifiable {
     let id = UUID()
     let subject: String
     let from: String
+    let fromEmail: String
     let date: String
     let epoch: Double
     let body: String
     let messagePk: String
-}
-
-struct ProjectPerson: Identifiable, Hashable {
-    let id: String  // email address
-    let name: String
-    let email: String
-    let source: String  // "calendar", "email", or "both"
 }
 
 // MARK: - Project Service
@@ -105,9 +99,26 @@ class ProjectService: ObservableObject {
         Task.detached(priority: .userInitiated) {
             // Single batched query via SparkService
             let sparkResults = SparkService.searchEmails(terms: terms, limit: 5, includeBody: true)
+
+            // Look up actual sender email addresses from messages table
+            var senderEmails: [String: String] = [:]
+            if let msgPath = SparkService.msgPath, !sparkResults.isEmpty {
+                let pks = sparkResults.map(\.pk).joined(separator: ",")
+                let sql = "SELECT pk, messageFromMailbox, messageFromDomain FROM messages WHERE pk IN (\(pks))"
+                if let rows = SparkService.runSQLite(dbPath: msgPath, sql: sql) {
+                    for row in rows {
+                        let cols = row.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false)
+                        if cols.count >= 3 {
+                            senderEmails[String(cols[0])] = "\(cols[1])@\(cols[2])".lowercased()
+                        }
+                    }
+                }
+            }
+
             let emails = sparkResults.map { r in
-                ProjectEmail(subject: r.subject, from: r.from, date: r.date,
-                             epoch: r.epoch, body: r.body, messagePk: r.pk)
+                ProjectEmail(subject: r.subject, from: r.from,
+                             fromEmail: senderEmails[r.pk] ?? "",
+                             date: r.date, epoch: r.epoch, body: r.body, messagePk: r.pk)
             }
             let people = Self.aggregatePeople(events: events, emails: emails)
             await MainActor.run { [weak self] in
@@ -222,43 +233,61 @@ class ProjectService: ObservableObject {
 
     // MARK: - People Aggregation
 
-    nonisolated private static func aggregatePeople(events: [CalendarEvent], emails: [ProjectEmail]) -> [ProjectPerson] {
-        var peopleByEmail: [String: (name: String, email: String, cal: Bool, mail: Bool)] = [:]
+    nonisolated private static func aggregatePeople(events: [CalendarEvent], emails: [ProjectEmail]) -> [Contact] {
+        var contactsByEmail: [String: Contact] = [:]
+        let now = Date()
 
         // From calendar events
         for event in events {
             for attendee in event.attendees {
-                let email = attendee.email.lowercased()
-                if email.contains("bbdaniels") || email.contains("bdaniels") { continue }
+                let key = attendee.email.lowercased()
+                if ContactService.isCurrentUserEmail(key) { continue }
                 if attendee.name == "Unknown" { continue }
-                if let existing = peopleByEmail[email] {
-                    peopleByEmail[email] = (existing.name, email, true, existing.mail)
+
+                if var existing = contactsByEmail[key] {
+                    existing.sources.insert(.calendar)
+                    contactsByEmail[key] = existing
                 } else {
-                    peopleByEmail[email] = (attendee.name, email, true, false)
+                    let domain = attendee.email.split(separator: "@").last.map(String.init) ?? ""
+                    contactsByEmail[key] = Contact(
+                        id: key,
+                        name: ContactService.cleanName(attendee.name),
+                        email: attendee.email,
+                        org: ContactService.orgFromDomain(domain),
+                        lastSeen: now,
+                        sources: [.calendar],
+                        manualOverride: false
+                    )
                 }
             }
         }
 
-        // From emails
+        // From emails (using actual email address)
         for email in emails {
-            // email.from is a display name, not an email address — just track as name
-            let key = email.from.lowercased()
-            if key.contains("bbdaniels") || key.contains("bdaniels") { continue }
-            if peopleByEmail[key] == nil {
-                peopleByEmail[key] = (email.from, "", false, true)
+            let key = email.fromEmail.lowercased()
+            guard !key.isEmpty, key.contains("@") else { continue }
+            if ContactService.isCurrentUserEmail(key) { continue }
+
+            if var existing = contactsByEmail[key] {
+                existing.sources.insert(.email)
+                contactsByEmail[key] = existing
             } else {
-                peopleByEmail[key]?.mail = true
+                let domain = key.split(separator: "@").last.map(String.init) ?? ""
+                contactsByEmail[key] = Contact(
+                    id: key,
+                    name: ContactService.cleanName(email.from),
+                    email: email.fromEmail,
+                    org: ContactService.orgFromDomain(domain),
+                    lastSeen: now,
+                    sources: [.email],
+                    manualOverride: false
+                )
             }
         }
 
-        return peopleByEmail.map { (key, val) in
-            let source: String
-            if val.cal && val.mail { source = "both" }
-            else if val.cal { source = "calendar" }
-            else { source = "email" }
-            return ProjectPerson(id: key, name: val.name, email: val.email, source: source)
-        }
-        .sorted { $0.name < $1.name }
+        let result = Array(contactsByEmail.values)
+        ContactService.mergeContacts(result)
+        return result.sorted { $0.name < $1.name }
     }
 
 }

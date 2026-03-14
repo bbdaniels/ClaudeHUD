@@ -18,6 +18,7 @@ class AppState: ObservableObject {
     let briefingService = BriefingService()
     let projectService = ProjectService()
     let projectBriefingService = ProjectBriefingService()
+    let contactService = ContactService()
 
     init() {
         self.tabManager = TabManager(cliClient: cliClient)

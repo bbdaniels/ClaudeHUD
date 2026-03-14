@@ -49,6 +49,8 @@
 		AA1000000000000000000004 /* ProjectDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000003 /* ProjectDashboardView.swift */; };
 		AA2000000000000000000002 /* ProjectBriefingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000001 /* ProjectBriefingService.swift */; };
 		AA3000000000000000000002 /* SparkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA3000000000000000000001 /* SparkService.swift */; };
+		AA4000000000000000000002 /* ContactService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA4000000000000000000001 /* ContactService.swift */; };
+		AA5000000000000000000002 /* PeopleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5000000000000000000001 /* PeopleView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -96,6 +98,8 @@
 		AA1000000000000000000003 /* ProjectDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectDashboardView.swift; sourceTree = "<group>"; };
 		AA2000000000000000000001 /* ProjectBriefingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectBriefingService.swift; sourceTree = "<group>"; };
 		AA3000000000000000000001 /* SparkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkService.swift; sourceTree = "<group>"; };
+		AA4000000000000000000001 /* ContactService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactService.swift; sourceTree = "<group>"; };
+		AA5000000000000000000001 /* PeopleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeopleView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -107,6 +111,7 @@
 				AA1000000000000000000001 /* ProjectService.swift */,
 				AA2000000000000000000001 /* ProjectBriefingService.swift */,
 				AA3000000000000000000001 /* SparkService.swift */,
+				AA4000000000000000000001 /* ContactService.swift */,
 				D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */,
 				CE31FD7228157DC53CDE8B9E /* KeychainService.swift */,
 				BF91CF6EF11224D0DA07ECB9 /* PermissionWatcherService.swift */,
@@ -202,6 +207,7 @@
 				9B435E31995D5B29A482D8FA /* Settings */,
 				DB36E8D3AF61BCB4DB487E7A /* Today */,
 				AA1000000000000000000005 /* Projects */,
+				AA5000000000000000000003 /* People */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -267,6 +273,14 @@
 				AA1000000000000000000003 /* ProjectDashboardView.swift */,
 			);
 			path = Projects;
+			sourceTree = "<group>";
+		};
+		AA5000000000000000000003 /* People */ = {
+			isa = PBXGroup;
+			children = (
+				AA5000000000000000000001 /* PeopleView.swift */,
+			);
+			path = People;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -377,6 +391,8 @@
 				AB52E8B15A0B2E94FDCFEAF0 /* ToolCallView.swift in Sources */,
 				0525CFAB9F5770F3A9E10FBF /* VaultManager.swift in Sources */,
 				8992F9EEB5269203DC7AFD21 /* VaultSettings.swift in Sources */,
+				AA4000000000000000000002 /* ContactService.swift in Sources */,
+				AA5000000000000000000002 /* PeopleView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

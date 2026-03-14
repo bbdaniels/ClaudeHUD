@@ -8,6 +8,7 @@ struct ProjectDashboardView: View {
     @EnvironmentObject var vaultManager: VaultManager
     @EnvironmentObject var calendarService: CalendarService
     @Environment(\.fontScale) private var scale
+    @State private var searchText = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -43,11 +44,32 @@ struct ProjectDashboardView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
 
+                // Search bar
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 11 * scale))
+                        .foregroundColor(.secondary)
+                    TextField("Search projects...", text: $searchText)
+                        .font(.smallFont(scale))
+                        .textFieldStyle(.plain)
+                    if !searchText.isEmpty {
+                        Button(action: { searchText = "" }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 11 * scale))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .background(Color(.textBackgroundColor).opacity(0.3))
+
                 Divider().opacity(0.3)
 
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(projectService.projects) { project in
+                        ForEach(filteredProjects) { project in
                             ProjectCardView(project: project)
                                 .environmentObject(projectBriefing)
                                 .environmentObject(projectService)
@@ -61,6 +83,14 @@ struct ProjectDashboardView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             projectService.refresh()
+        }
+    }
+
+    private var filteredProjects: [Project] {
+        if searchText.isEmpty { return projectService.projects }
+        let q = searchText.lowercased()
+        return projectService.projects.filter {
+            $0.name.lowercased().contains(q)
         }
     }
 }
@@ -80,9 +110,10 @@ private struct ProjectCardView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Compact row
             HStack(spacing: 8) {
-                Circle()
-                    .fill(statusDotColor)
-                    .frame(width: 7, height: 7)
+                Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 9 * scale, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .frame(width: 10)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(project.name)
@@ -99,17 +130,17 @@ private struct ProjectCardView: View {
                         HStack(spacing: 6) {
                             if !project.recentSessions.isEmpty {
                                 Label("\(project.recentSessions.count)", systemImage: "terminal")
-                                    .font(.custom("Fira Code", size: 10 * scale))
+                                    .font(.codeFont(scale))
                                     .foregroundColor(.secondary.opacity(0.6))
                             }
                             if !project.upcomingEvents.isEmpty {
                                 Label("\(project.upcomingEvents.count)", systemImage: "calendar")
-                                    .font(.custom("Fira Code", size: 10 * scale))
+                                    .font(.codeFont(scale))
                                     .foregroundColor(.secondary.opacity(0.6))
                             }
                             if !project.recentNotes.isEmpty {
                                 Label("\(project.recentNotes.count)", systemImage: "doc.text")
-                                    .font(.custom("Fira Code", size: 10 * scale))
+                                    .font(.codeFont(scale))
                                     .foregroundColor(.secondary.opacity(0.6))
                             }
                         }
@@ -118,27 +149,13 @@ private struct ProjectCardView: View {
 
                 Spacer()
 
-                if let briefing = briefing, !briefing.isLoading, briefing.error == nil {
-                    Text(briefing.status)
-                        .font(.custom("Fira Code", size: 9 * scale).weight(.medium))
-                        .foregroundColor(statusColor(briefing.status))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(statusColor(briefing.status).opacity(0.12))
-                        )
-                } else if briefing?.isLoading == true {
+                if briefing?.isLoading == true {
                     ProgressView().controlSize(.mini)
                 } else {
                     Text(project.lastActivity.relativeString)
-                        .font(.custom("Fira Code", size: 10 * scale))
+                        .font(.codeFont(scale))
                         .foregroundColor(.secondary.opacity(0.5))
                 }
-
-                Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9 * scale, weight: .semibold))
-                    .foregroundColor(.secondary.opacity(0.4))
             }
             .padding(.vertical, 8)
             .padding(.horizontal, 4)
@@ -158,22 +175,6 @@ private struct ProjectCardView: View {
         }
     }
 
-    private var statusDotColor: Color {
-        guard let briefing = briefing, !briefing.isLoading, briefing.error == nil else {
-            return .secondary.opacity(0.3)
-        }
-        return statusColor(briefing.status)
-    }
-
-    private func statusColor(_ status: String) -> Color {
-        switch status.lowercased() {
-        case "active": return .green
-        case "stalled": return .orange
-        case "wrapping-up": return .blue
-        case "starting": return .purple
-        default: return .secondary
-        }
-    }
 }
 
 // MARK: - Project Detail (expanded)
@@ -254,16 +255,21 @@ private struct ProjectDetailView: View {
                     if !intel.people.isEmpty {
                         CollapsibleSection(icon: "person.2", iconColor: .purple,
                                            title: "People", count: intel.people.count, scale: scale) {
-                            ForEach(intel.people.prefix(6)) { person in
+                            ForEach(intel.people.prefix(6)) { contact in
                                 HStack(spacing: 4) {
-                                    Image(systemName: sourceIcon(person.source))
+                                    Image(systemName: contactSourceIcon(contact))
                                         .font(.system(size: 8 * scale))
                                         .foregroundColor(.secondary.opacity(0.5))
                                         .frame(width: 12)
-                                    Text(person.name)
+                                    Text(contact.name)
                                         .font(.captionFont(scale))
                                         .foregroundColor(.primary)
                                         .lineLimit(1)
+                                    if !contact.org.isEmpty {
+                                        Text("(\(contact.org))")
+                                            .font(.custom("Fira Code", size: 9 * scale))
+                                            .foregroundColor(.secondary.opacity(0.5))
+                                    }
                                 }
                                 .padding(.leading, 2)
                             }
@@ -374,13 +380,15 @@ private struct ProjectDetailView: View {
         return fmt.string(from: date).lowercased()
     }
 
-    private func sourceIcon(_ source: String) -> String {
-        switch source {
-        case "calendar": return "calendar"
-        case "email": return "envelope"
-        case "both": return "person.crop.circle.badge.checkmark"
-        default: return "person"
+    private func contactSourceIcon(_ contact: Contact) -> String {
+        if contact.sources.contains(.calendar) && contact.sources.contains(.email) {
+            return "person.crop.circle.badge.checkmark"
+        } else if contact.sources.contains(.calendar) {
+            return "calendar"
+        } else if contact.sources.contains(.email) {
+            return "envelope"
         }
+        return "person"
     }
 }
 
@@ -457,19 +465,17 @@ private struct CollapsibleSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 9 * scale, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.4))
+                    .frame(width: 10)
                 Image(systemName: icon)
                     .font(.system(size: 9 * scale))
                     .foregroundColor(iconColor)
                 Text(title)
                     .font(.captionFont(scale).weight(.semibold))
-                    .foregroundColor(.secondary.opacity(0.5))
-                Text("(\(count))")
-                    .font(.custom("Fira Code", size: 9.5 * scale))
-                    .foregroundColor(.secondary.opacity(0.3))
+                    .foregroundColor(.secondary.opacity(0.6))
                 Spacer()
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9 * scale, weight: .semibold))
-                    .foregroundColor(.secondary.opacity(0.3))
             }
             .contentShape(Rectangle())
             .onTapGesture {
