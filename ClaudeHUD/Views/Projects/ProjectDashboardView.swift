@@ -532,14 +532,18 @@ private struct BriefingListSection: View {
     }
 
     private func pushToObsidian(_ item: String, idx: Int, checked: Bool = false) {
+        // Guard against double-tap
+        if !checked && pushed.contains(idx) { return }
+        if checked && dismissed.contains(idx) { return }
+
         let actionItemsPath = (projectPath as NSString).appendingPathComponent("Action Items.md")
         let fm = FileManager.default
         let checkbox = checked ? "[x]" : "[ ]"
 
         if fm.fileExists(atPath: actionItemsPath) {
             if var content = try? String(contentsOfFile: actionItemsPath, encoding: .utf8) {
-                // Don't add if already present
-                guard !content.contains(item) else {
+                // Don't add if already present (check raw text)
+                guard !content.contains("] \(item)") else {
                     withAnimation(.easeOut(duration: 0.2)) {
                         if !checked { _ = pushed.insert(idx) }
                         expandedItem = nil
