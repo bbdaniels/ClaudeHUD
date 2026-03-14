@@ -224,7 +224,31 @@ class VaultManager: ObservableObject {
         let dailyNoteItems = extractTodos(from: dailyNotePath, noteName: noteName)
         items += dailyNoteItems
 
-        // Secondary (today only): recently modified .md files — but only if no daily note exists
+        // Scan Action Items.md from each project folder (today only)
+        if includeRecent {
+            let fm = FileManager.default
+            let skipFolders: Set<String> = ["Templates", "Daily Notes", "Attachments", "Assets", "Archive"]
+            if let folders = try? fm.contentsOfDirectory(atPath: vaultPath) {
+                // Collect titles already in daily note to avoid duplicates
+                let existingTitles = Set(dailyNoteItems.map(\.title))
+                for folder in folders {
+                    let folderPath = (vaultPath as NSString).appendingPathComponent(folder)
+                    var isDir: ObjCBool = false
+                    guard fm.fileExists(atPath: folderPath, isDirectory: &isDir), isDir.boolValue else { continue }
+                    guard !folder.hasPrefix("."), !skipFolders.contains(folder) else { continue }
+
+                    let actionPath = (folderPath as NSString).appendingPathComponent("Action Items.md")
+                    guard fm.fileExists(atPath: actionPath) else { continue }
+
+                    let actionItems = extractTodos(from: actionPath, noteName: folder)
+                    for item in actionItems where !existingTitles.contains(item.title) {
+                        items.append(item)
+                    }
+                }
+            }
+        }
+
+        // Tertiary (today only): recently modified .md files — but only if no daily note exists
         if includeRecent && dailyNoteItems.isEmpty {
             let fm = FileManager.default
             let cutoff = Date().addingTimeInterval(-86400)
