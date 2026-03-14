@@ -212,11 +212,11 @@ private struct InboxEmailRow: View {
         if !email.body.isEmpty { context += "Preview: \(String(email.body.prefix(500)))\n" }
 
         let prompt = """
-        You're a sharp executive assistant. Based on this email and prior history, write 2-3 sentences covering:
+        You're a sharp executive assistant. Based ONLY on the information provided below, write 2-3 sentences covering:
         1. What this email is about and what's being asked/shared
-        2. Relevant context from prior emails if any
-        3. Suggested action (reply, follow up, archive, etc.)
+        2. Suggested action (reply, follow up, archive, etc.)
 
+        Work with whatever information is available -- do not ask for more. \
         Be specific and concise. No bold, no headers, no markdown formatting. Bullets are OK for action items. Plain text only.
 
         \(context)
@@ -241,7 +241,7 @@ private struct InboxEmailRow: View {
         }
 
         // Use shell to handle piping properly
-        let shellCmd = "\(claudePath) -p \"$(cat \(tmpIn))\" --model haiku --max-turns 2 --output-format text > \(tmpOut) 2>/dev/null"
+        let shellCmd = "\(claudePath) -p \"$(cat \(tmpIn))\" --model haiku --max-turns 1 --output-format text --tools '' > \(tmpOut) 2>/dev/null"
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
