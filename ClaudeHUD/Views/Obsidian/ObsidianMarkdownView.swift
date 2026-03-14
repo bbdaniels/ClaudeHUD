@@ -115,14 +115,14 @@ struct ObsidianMarkdownView: View {
         case image(alt: String, path: String)
     }
 
-    private static let listPattern = try! NSRegularExpression(pattern: #"^(\s*)([-*•]|\d+[.)]) (\[[ xX]\] )?"#)
+    static let listPattern = try! NSRegularExpression(pattern: #"^(\s*)([-*•]|\d+[.)]) (\[[ xX]\] )?"#)
 
-    private static func isListLine(_ line: String) -> Bool {
+    static func isListLine(_ line: String) -> Bool {
         let range = NSRange(line.startIndex..., in: line)
         return listPattern.firstMatch(in: line, range: range) != nil
     }
 
-    private static func parseListItem(_ line: String, lineNumber: Int) -> ObsidianListItem {
+    static func parseListItem(_ line: String, lineNumber: Int) -> ObsidianListItem {
         let trimmed = line.replacingOccurrences(of: "^\t", with: "    ", options: .regularExpression)
         let stripped = trimmed.drop(while: { $0 == " " })
         let indent = trimmed.count - stripped.count

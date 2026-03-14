@@ -51,6 +51,9 @@
 		AA3000000000000000000002 /* SparkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA3000000000000000000001 /* SparkService.swift */; };
 		AA4000000000000000000002 /* ContactService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA4000000000000000000001 /* ContactService.swift */; };
 		AA5000000000000000000002 /* PeopleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5000000000000000000001 /* PeopleView.swift */; };
+		BB1000000000000000000002 /* TodoItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB1000000000000000000001 /* TodoItem.swift */; };
+		BB2000000000000000000002 /* RemindersService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2000000000000000000001 /* RemindersService.swift */; };
+		BB3000000000000000000002 /* WhatsNextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB3000000000000000000001 /* WhatsNextView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -100,6 +103,9 @@
 		AA3000000000000000000001 /* SparkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkService.swift; sourceTree = "<group>"; };
 		AA4000000000000000000001 /* ContactService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactService.swift; sourceTree = "<group>"; };
 		AA5000000000000000000001 /* PeopleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeopleView.swift; sourceTree = "<group>"; };
+		BB1000000000000000000001 /* TodoItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoItem.swift; sourceTree = "<group>"; };
+		BB2000000000000000000001 /* RemindersService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemindersService.swift; sourceTree = "<group>"; };
+		BB3000000000000000000001 /* WhatsNextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhatsNextView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -118,6 +124,7 @@
 				2801C79D6EE1B4B43ED6B5A4 /* PushNotificationManager.swift */,
 				C97BB9EE58B0DBF8AA04FDE7 /* SessionHistoryService.swift */,
 				2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */,
+				BB2000000000000000000001 /* RemindersService.swift */,
 				ECF4D0E046CD2AE96517B5AC /* VaultManager.swift */,
 			);
 			path = Services;
@@ -136,6 +143,7 @@
 			isa = PBXGroup;
 			children = (
 				94F002554690052369E931AE /* NoteFile.swift */,
+				BB1000000000000000000001 /* TodoItem.swift */,
 				644D06080D4C60BFCF2637FE /* VaultSettings.swift */,
 			);
 			path = Models;
@@ -238,6 +246,7 @@
 			isa = PBXGroup;
 			children = (
 				330288F7F0E1F56443C80A74 /* TodayView.swift */,
+				BB3000000000000000000001 /* WhatsNextView.swift */,
 			);
 			path = Today;
 			sourceTree = "<group>";
@@ -393,6 +402,9 @@
 				8992F9EEB5269203DC7AFD21 /* VaultSettings.swift in Sources */,
 				AA4000000000000000000002 /* ContactService.swift in Sources */,
 				AA5000000000000000000002 /* PeopleView.swift in Sources */,
+				BB1000000000000000000002 /* TodoItem.swift in Sources */,
+				BB2000000000000000000002 /* RemindersService.swift in Sources */,
+				BB3000000000000000000002 /* WhatsNextView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -6,6 +6,7 @@ struct TodayView: View {
     @EnvironmentObject var briefingService: BriefingService
     @EnvironmentObject var vaultManager: VaultManager
     @EnvironmentObject var projectService: ProjectService
+    @EnvironmentObject var remindersService: RemindersService
     @Environment(\.fontScale) private var scale
     @State private var dayOffset = 0
 
@@ -14,6 +15,12 @@ struct TodayView: View {
     }
 
     private var isToday: Bool { dayOffset == 0 }
+
+    private func headerString(for date: Date) -> String {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "EEEE, MMMM d"
+        return fmt.string(from: date)
+    }
 
     private var timeEvents: [CalendarEvent] {
         calendarService.todayEvents.filter { !$0.isAllDay }
@@ -42,39 +49,63 @@ struct TodayView: View {
                     .padding(.top, 4)
                 Spacer()
             } else if calendarService.todayEvents.isEmpty {
-                Spacer()
-                Image(systemName: "calendar")
-                    .font(.system(size: 28))
-                    .foregroundColor(.secondary.opacity(0.5))
-                Text(isToday ? "No events today" : "No events")
-                    .font(.smallFont(scale))
-                    .foregroundColor(.secondary)
-                    .padding(.top, 6)
-                // Nav arrows on empty days
-                HStack(spacing: 8) {
-                    Button(action: { dayOffset -= 1 }) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 10 * scale, weight: .semibold))
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.borderless)
-                    if !isToday {
-                        Button(action: { dayOffset = 0 }) {
-                            Image(systemName: "calendar.circle.fill")
-                            .font(.system(size: 14 * scale))
-                            .foregroundColor(.blue)
+                // Even with no events, show WhatsNext + nav
+                ScrollView {
+                    // Date header with nav (minimal)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Button(action: { dayOffset -= 1 }) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 9 * scale, weight: .semibold))
+                                .foregroundColor(.secondary.opacity(0.5))
                         }
                         .buttonStyle(.borderless)
+
+                        Text(headerString(for: selectedDate))
+                            .font(.smallMedium(scale))
+                            .foregroundColor(.primary)
+
+                        Button(action: { dayOffset += 1 }) {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9 * scale, weight: .semibold))
+                                .foregroundColor(.secondary.opacity(0.5))
+                        }
+                        .buttonStyle(.borderless)
+
+                        if !isToday {
+                            Button(action: { dayOffset = 0 }) {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "arrow.uturn.backward")
+                                        .font(.system(size: 9 * scale))
+                                    Text("today")
+                                        .font(.captionFont(scale).weight(.medium))
+                                }
+                                .foregroundColor(.blue)
+                            }
+                            .buttonStyle(.borderless)
+                        }
+
+                        Spacer()
                     }
-                    Button(action: { dayOffset += 1 }) {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 10 * scale, weight: .semibold))
-                            .foregroundColor(.secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 10)
+                    .padding(.bottom, 4)
+
+                    WhatsNextView(date: selectedDate, isToday: isToday)
+
+                    if remindersService.todos.isEmpty {
+                        // Truly empty — show placeholder
+                        VStack(spacing: 6) {
+                            Image(systemName: "calendar")
+                                .font(.system(size: 28))
+                                .foregroundColor(.secondary.opacity(0.5))
+                            Text(isToday ? "No events today" : "No events")
+                                .font(.smallFont(scale))
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 40)
                     }
-                    .buttonStyle(.borderless)
                 }
-                .padding(.top, 10)
-                Spacer()
             } else {
                 ScrollView {
                     // "Your Day" summary
@@ -84,6 +115,9 @@ struct TodayView: View {
                         .padding(.bottom, 6)
 
                     Divider().opacity(0.3)
+
+                    WhatsNextView(date: selectedDate, isToday: isToday)
+
                     LazyVStack(spacing: 0) {
                         // All-day events
                         if !allDayEvents.isEmpty {
@@ -107,6 +141,8 @@ struct TodayView: View {
         .task(id: dayOffset) {
             let date = selectedDate
             calendarService.loadEvents(for: date)
+            remindersService.loadReminders(for: date)
+            vaultManager.ensureDailyNote(for: date)
             briefingService.clearDaySummary()
             briefingService.generateDaySummary(
                 events: calendarService.todayEvents,
