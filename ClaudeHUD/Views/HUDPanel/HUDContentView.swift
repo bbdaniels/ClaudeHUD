@@ -28,6 +28,11 @@ extension Font {
     static func codeLarge(_ s: CGFloat) -> Font { .custom(codeFamily, size: 16.5 * s) }
 }
 
+enum FixedTab: String {
+    case history
+    case obsidian
+}
+
 struct HUDContentView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var tabManager: TabManager
@@ -35,10 +40,11 @@ struct HUDContentView: View {
     @EnvironmentObject var terminalService: TerminalService
     @EnvironmentObject var sessionHistory: SessionHistoryService
     @EnvironmentObject var permissionWatcher: PermissionWatcherService
+    @EnvironmentObject var vaultManager: VaultManager
     @State private var showPermissionPopover = false
     @State private var showPushPopover = false
     @State private var showTerminalPopover = false
-    @State private var showingHistory = true
+    @State private var activeFixedTab: FixedTab? = .history
     @State private var fontScale: CGFloat = 1.0
 
     var body: some View {
@@ -116,7 +122,7 @@ struct HUDContentView: View {
             .padding(.vertical, 8)
 
             // Tab bar
-            TabBar(showingHistory: $showingHistory)
+            TabBar(activeFixedTab: $activeFixedTab)
 
             Divider()
                 .opacity(0.5)
@@ -127,11 +133,17 @@ struct HUDContentView: View {
                     .environmentObject(permissionWatcher)
             }
 
-            // Main content: history or conversation
-            if showingHistory {
-                SessionHistoryView()
-                    .environmentObject(sessionHistory)
-                    .environmentObject(terminalService)
+            // Main content
+            if let fixedTab = activeFixedTab {
+                switch fixedTab {
+                case .history:
+                    SessionHistoryView()
+                        .environmentObject(sessionHistory)
+                        .environmentObject(terminalService)
+                case .obsidian:
+                    ObsidianBrowserView()
+                        .environmentObject(vaultManager)
+                }
             } else {
                 ChatView()
                     .id(tabManager.selectedTabId)
@@ -194,39 +206,53 @@ struct HUDContentView: View {
 // MARK: - Tab Bar
 
 struct TabBar: View {
-    @Binding var showingHistory: Bool
+    @Binding var activeFixedTab: FixedTab?
     @EnvironmentObject var tabManager: TabManager
     @Environment(\.fontScale) private var scale
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
-                // History tab (fixed, far left)
-                Button(action: { showingHistory = true }) {
+                // History tab (fixed)
+                Button(action: { activeFixedTab = .history }) {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.captionFont(scale))
-                        .foregroundColor(showingHistory ? .primary : .secondary)
+                        .foregroundColor(activeFixedTab == .history ? .primary : .secondary)
                         .frame(width: 28, height: 24)
                 }
                 .buttonStyle(.borderless)
                 .background(
                     RoundedRectangle(cornerRadius: 5)
-                        .fill(showingHistory ? Color.accentColor.opacity(0.12) : Color.clear)
+                        .fill(activeFixedTab == .history ? Color.accentColor.opacity(0.12) : Color.clear)
                 )
                 .help("Session history")
+
+                // Obsidian tab (fixed)
+                Button(action: { activeFixedTab = .obsidian }) {
+                    Image(systemName: "archivebox")
+                        .font(.captionFont(scale))
+                        .foregroundColor(activeFixedTab == .obsidian ? .primary : .secondary)
+                        .frame(width: 28, height: 24)
+                }
+                .buttonStyle(.borderless)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(activeFixedTab == .obsidian ? Color.accentColor.opacity(0.12) : Color.clear)
+                )
+                .help("Obsidian notes")
 
                 Divider()
                     .frame(height: 16)
                     .padding(.horizontal, 4)
 
                 ForEach(tabManager.tabs) { tab in
-                    TabButton(tab: tab, showingHistory: $showingHistory)
+                    TabButton(tab: tab, activeFixedTab: $activeFixedTab)
                 }
 
                 // Add tab button
                 Button(action: {
                     tabManager.addTab()
-                    showingHistory = false
+                    activeFixedTab = nil
                 }) {
                     Image(systemName: "plus")
                         .font(.captionFont(scale))
@@ -245,12 +271,12 @@ struct TabBar: View {
 
 struct TabButton: View {
     let tab: ConversationTab
-    @Binding var showingHistory: Bool
+    @Binding var activeFixedTab: FixedTab?
     @EnvironmentObject var tabManager: TabManager
     @Environment(\.fontScale) private var scale
 
     private var isSelected: Bool {
-        !showingHistory && tabManager.selectedTabId == tab.id
+        activeFixedTab == nil && tabManager.selectedTabId == tab.id
     }
 
     var body: some View {
@@ -277,7 +303,7 @@ struct TabButton: View {
         )
         .contentShape(Rectangle())
         .onTapGesture {
-            showingHistory = false
+            activeFixedTab = nil
             tabManager.selectedTabId = tab.id
         }
     }
@@ -483,9 +509,9 @@ struct SessionHistoryView: View {
         Set(UserDefaults.standard.stringArray(forKey: "history.starredProjects") ?? [])
     }()
 
-    private typealias ProjectGroup = (name: String, path: String, sessions: [SessionInfo])
+    private typealias ProjectGroup = (name: String, path: String, parentPath: String, sessions: [SessionInfo])
 
-    /// Sessions grouped by project, filtered by search, sorted by most recent.
+    /// Sessions grouped by project path, filtered by search, sorted by most recent.
     private var projectGroups: [ProjectGroup] {
         let filtered: [SessionInfo]
         if searchText.isEmpty {
@@ -493,13 +519,21 @@ struct SessionHistoryView: View {
         } else {
             let q = searchText.lowercased()
             filtered = sessionHistory.sessions.filter {
-                $0.projectName.lowercased().contains(q) || $0.preview.lowercased().contains(q)
+                $0.projectName.lowercased().contains(q) || $0.preview.lowercased().contains(q) ||
+                $0.projectPath.lowercased().contains(q)
             }
         }
 
-        let grouped = Dictionary(grouping: filtered) { $0.projectName }
-        return grouped.map { (name: $0.key, path: $0.value.first!.projectPath, sessions: $0.value) }
-            .sorted { $0.sessions.first!.timestamp > $1.sessions.first!.timestamp }
+        let home = NSHomeDirectory()
+        let grouped = Dictionary(grouping: filtered) { $0.projectPath }
+        return grouped.map { entry in
+            // Home dir project: group under "~" instead of "/Users"
+            let parentPath = entry.key == home
+                ? home
+                : URL(fileURLWithPath: entry.key).deletingLastPathComponent().path
+            return (name: entry.value.first!.projectName, path: entry.key, parentPath: parentPath, sessions: entry.value)
+        }
+        .sorted { $0.sessions.first!.timestamp > $1.sessions.first!.timestamp }
     }
 
     /// Partition groups into time-based sections.
@@ -578,7 +612,7 @@ struct SessionHistoryView: View {
                     Spacer()
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 0) {
+                        VStack(spacing: 0) {
                             ForEach(sections, id: \.title) { section in
                                 TimeSectionView(
                                     title: section.title,
@@ -614,16 +648,46 @@ struct SessionHistoryView: View {
     }
 }
 
+// MARK: - Path Display Helpers
+
+private func tildeCollapsedPath(_ path: String) -> String {
+    let home = NSHomeDirectory()
+    if path == home { return "~" }
+    if path.hasPrefix(home + "/") {
+        return "~/" + String(path.dropFirst(home.count + 1))
+    }
+    return path
+}
+
+private func abbreviatedFolderName(_ path: String) -> String {
+    let collapsed = tildeCollapsedPath(path)
+    if collapsed == "~" { return "~" }
+    return URL(fileURLWithPath: path).lastPathComponent
+}
+
 // MARK: - Collapsible Time Section
 
 struct TimeSectionView: View {
     let title: String
-    let groups: [(name: String, path: String, sessions: [SessionInfo])]
+    let groups: [(name: String, path: String, parentPath: String, sessions: [SessionInfo])]
     let starredPaths: Set<String>
     let onToggleStar: (String) -> Void
     let onDeleteSession: (String, String) -> Void
     @State private var collapsed = false
     @Environment(\.fontScale) private var scale
+
+    /// Projects sub-grouped by parent folder, sorted by most recent activity.
+    private var folderGroups: [(path: String, displayName: String, fullPath: String,
+                                projects: [(name: String, path: String, parentPath: String, sessions: [SessionInfo])])] {
+        let byFolder = Dictionary(grouping: groups) { $0.parentPath }
+        return byFolder.map { entry in
+            (path: entry.key,
+             displayName: abbreviatedFolderName(entry.key),
+             fullPath: tildeCollapsedPath(entry.key),
+             projects: entry.value.sorted { $0.sessions.first!.timestamp > $1.sessions.first!.timestamp })
+        }
+        .sorted { $0.projects.first!.sessions.first!.timestamp > $1.projects.first!.sessions.first!.timestamp }
+    }
 
     var body: some View {
         // Section header
@@ -651,18 +715,37 @@ struct TimeSectionView: View {
         }
 
         if !collapsed {
-            ForEach(groups, id: \.path) { group in
-                ProjectRow(
-                    projectName: group.name,
-                    projectPath: group.path,
-                    sessions: group.sessions,
-                    isStarred: starredPaths.contains(group.path),
-                    onToggleStar: { onToggleStar(group.path) },
-                    onDeleteSession: { sessionId in
-                        onDeleteSession(sessionId, group.path)
+            ForEach(folderGroups, id: \.path) { folder in
+                VStack(spacing: 0) {
+                    // Folder header
+                    HStack(spacing: 4) {
+                        Image(systemName: "folder")
+                            .font(.system(size: 9 * scale))
+                            .foregroundColor(.secondary.opacity(0.6))
+                        Text(folder.displayName)
+                            .font(.custom("Fira Code", size: 10 * scale))
+                            .foregroundColor(.secondary.opacity(0.7))
+                        Spacer()
                     }
-                )
-                Divider().opacity(0.3)
+                    .padding(.horizontal, 4)
+                    .padding(.top, 4)
+                    .padding(.bottom, 1)
+                    .help(folder.fullPath)
+
+                    ForEach(folder.projects, id: \.path) { group in
+                        ProjectRow(
+                            projectName: group.name,
+                            projectPath: group.path,
+                            sessions: group.sessions,
+                            isStarred: starredPaths.contains(group.path),
+                            onToggleStar: { onToggleStar(group.path) },
+                            onDeleteSession: { sessionId in
+                                onDeleteSession(sessionId, group.path)
+                            }
+                        )
+                        Divider().opacity(0.3)
+                    }
+                }
             }
         }
     }

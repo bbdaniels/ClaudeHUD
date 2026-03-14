@@ -102,7 +102,7 @@ struct MarkdownContentView: View {
     }
 
     /// Replace inline $...$ math with code style for display
-    private static func processInlineMath(_ text: String) -> String {
+    static func processInlineMath(_ text: String) -> String {
         let result = text
         // Match $...$ but not $$...$$ — use a simple scan approach
         var output = ""

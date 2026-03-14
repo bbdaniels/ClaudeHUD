@@ -46,6 +46,7 @@ class HUDPanelController {
             .environmentObject(appState.terminalService)
             .environmentObject(appState.sessionHistoryService)
             .environmentObject(appState.permissionWatcher)
+            .environmentObject(appState.vaultManager)
 
         panel.contentView = NSHostingView(rootView: contentView)
 

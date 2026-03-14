@@ -49,6 +49,10 @@ except Exception as e:
 # If write failed, fall through
 [ $? -ne 0 ] && exit 0
 
+# Clean up pending file on any exit (including SIGTERM/SIGINT when user
+# approves directly in Claude Code's terminal, killing this hook process)
+trap 'rm -f "$PENDING_DIR/$ID.json"' EXIT INT TERM HUP PIPE
+
 # Poll for decision (timeout 90s, poll every 0.3s)
 POLLS=300
 for i in $(seq 1 $POLLS); do
