@@ -543,7 +543,10 @@ private struct BriefingListSection: View {
             try? content.write(toFile: actionItemsPath, atomically: true, encoding: .utf8)
         }
 
-        withAnimation(.easeOut(duration: 0.2)) { _ = pushed.insert(idx) }
+        withAnimation(.easeOut(duration: 0.2)) {
+            _ = pushed.insert(idx)
+            expandedItem = nil
+        }
     }
 }
 
@@ -561,12 +564,7 @@ private struct BriefingItemRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 4) {
-            if isPushed {
-                Image(systemName: "checkmark.square.fill")
-                    .font(.system(size: 11 * scale))
-                    .foregroundColor(.green)
-                    .frame(width: 14)
-            } else if isExpanded {
+            if isExpanded {
                 HStack(spacing: 2) {
                     Button(action: onDone) {
                         Image(systemName: "checkmark")
@@ -607,9 +605,14 @@ private struct BriefingItemRow: View {
 
             Text(text)
                 .font(.captionFont(scale))
-                .foregroundColor(isPushed ? .secondary : .primary)
-                .strikethrough(isPushed)
+                .foregroundColor(.primary)
                 .lineLimit(2)
+
+            if isPushed {
+                Text("added")
+                    .font(.custom("Fira Code", size: 9 * scale))
+                    .foregroundColor(.blue.opacity(0.5))
+            }
         }
         .padding(.leading, 2)
     }
