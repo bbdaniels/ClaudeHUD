@@ -21,6 +21,17 @@ A macOS menu bar app that puts Claude at your fingertips. ClaudeHUD is a lightwe
 - **Safe/Unsafe toggle** -- Persistent per-project, controls `--dangerously-skip-permissions`
 - **Effort level** -- Cycle through default/low/medium/high/max per project
 
+**Today tab** -- Your daily calendar with AI-powered meeting briefings:
+- All events from EventKit (works with any calendar app)
+- Expandable events showing attendees, Zoom links, location
+- Claude-generated meeting prep: what it's about, recent developments, what to prepare
+- Cross-references Spark email and Obsidian notes automatically
+- Attendee name/org resolution via Spark contacts, message headers, and macOS Contacts
+- Briefings preloaded and cached to disk (instant on revisit)
+- Click email threads to expand full body content
+
+**Projects tab** -- Cross-references your Obsidian vault with Claude Code sessions, calendar events, and email threads to surface project-level intelligence.
+
 **Terminal integration** -- Launch your preferred terminal directly from the header. Long-press the terminal button to switch. Supported terminals:
 - **Auto-execute:** Ghostty, iTerm2, Terminal.app
 - **Copy to clipboard:** Warp, Alacritty, kitty, Hyper, VS Code
@@ -72,6 +83,8 @@ Notifications fire on `AskUserQuestion` and `PermissionRequest` hooks. ClaudeHUD
 - [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) installed (`claude` command available in PATH)
 - Python 3 (required for permission approval hooks)
 - [Fira Sans](https://fonts.google.com/specimen/Fira+Sans) and [Fira Code](https://fonts.google.com/specimen/Fira+Code) fonts (optional -- falls back to system fonts)
+- Spark Desktop (optional -- for email intel in Today/Projects tabs)
+- Obsidian (optional -- for vault browsing and note cross-referencing)
 
 ## Building
 
@@ -126,9 +139,17 @@ ClaudeHUD/
       ObsidianMarkdownView.swift      # Extended markdown with checkboxes, images, wikilinks
       NoteContentView.swift           # Edit/preview note window content
       FloatingNoteWindowManager.swift # Floating note window management
+    Today/
+      TodayView.swift                 # Daily calendar with AI meeting briefings
+    Projects/
+      ProjectDashboardView.swift      # Project intelligence dashboard
     Settings/
       SettingsView.swift   # Settings UI
   Services/
+    CalendarService.swift          # EventKit integration, live updates
+    BriefingService.swift          # AI meeting briefings with Claude
+    SparkService.swift             # Spark email DB (FTS + messages)
+    ProjectService.swift           # Project discovery and cross-referencing
     VaultManager.swift             # Obsidian vault state, file loading
     PushNotificationManager.swift  # Hook install, settings.json management
     SessionHistoryService.swift    # Scan ~/.claude/projects/ for past sessions
