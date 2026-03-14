@@ -21,7 +21,9 @@ A macOS menu bar app that puts Claude at your fingertips. ClaudeHUD is a lightwe
 - **Safe/Unsafe toggle** -- Persistent per-project, controls `--dangerously-skip-permissions`
 - **Effort level** -- Cycle through default/low/medium/high/max per project
 
-**Today tab** -- Your daily calendar with AI-powered meeting briefings:
+**Today tab** -- Your daily calendar with AI-powered intelligence:
+- "Your Day" summary at the top -- Claude reads your full schedule and writes a conversational briefing with tips
+- Date navigation with `<` `>` arrows to browse past and future days
 - All events from EventKit (works with any calendar app)
 - Expandable events showing attendees, Zoom links, location
 - Claude-generated meeting prep: what it's about, recent developments, what to prepare

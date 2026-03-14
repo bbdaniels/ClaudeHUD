@@ -30,6 +30,7 @@ struct PersonInfo: Identifiable {
 class CalendarService: ObservableObject {
     @Published var todayEvents: [CalendarEvent] = []
     @Published var accessGranted = false
+    @Published var displayDate: Date = Date()
 
     private let store = EKEventStore()
     private var observer: NSObjectProtocol?
@@ -53,8 +54,13 @@ class CalendarService: ObservableObject {
     }
 
     func loadToday() {
+        loadEvents(for: Date())
+    }
+
+    func loadEvents(for date: Date) {
+        displayDate = date
         let cal = Calendar.current
-        let startOfDay = cal.startOfDay(for: Date())
+        let startOfDay = cal.startOfDay(for: date)
         let endOfDay = cal.date(byAdding: .day, value: 1, to: startOfDay)!
 
         let predicate = store.predicateForEvents(withStart: startOfDay, end: endOfDay, calendars: nil)
@@ -71,7 +77,8 @@ class CalendarService: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.loadToday()
+                guard let self else { return }
+                self.loadEvents(for: self.displayDate)
             }
         }
     }
