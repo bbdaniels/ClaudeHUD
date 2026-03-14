@@ -5,7 +5,6 @@ struct PeopleView: View {
     @Environment(\.fontScale) private var scale
     @State private var searchText = ""
     @State private var inboxEmails: [SparkEmailResult] = []
-    @State private var inboxBriefings: [String: String] = [:] // pk -> briefing
 
     private var displayedContacts: [Contact] {
         if searchText.isEmpty {
@@ -60,7 +59,7 @@ struct PeopleView: View {
                     LazyVStack(spacing: 0) {
                         // Inbox section
                         if !inboxEmails.isEmpty && searchText.isEmpty {
-                            InboxSection(emails: inboxEmails, briefings: $inboxBriefings, scale: scale)
+                            InboxSection(emails: inboxEmails, scale: scale)
                             Divider().opacity(0.3)
                         }
 
@@ -89,7 +88,6 @@ struct PeopleView: View {
 
 private struct InboxSection: View {
     let emails: [SparkEmailResult]
-    @Binding var briefings: [String: String]
     let scale: CGFloat
     @State private var expanded = true
 
@@ -119,7 +117,7 @@ private struct InboxSection: View {
 
             if expanded {
                 ForEach(Array(emails.enumerated()), id: \.element.pk) { _, email in
-                    InboxEmailRow(email: email, briefings: $briefings, scale: scale)
+                    InboxEmailRow(email: email, scale: scale)
                 }
             }
         }
@@ -131,25 +129,24 @@ private struct InboxSection: View {
 
 private struct InboxEmailRow: View {
     let email: SparkEmailResult
-    @Binding var briefings: [String: String]
     let scale: CGFloat
     @State private var expanded = false
-
-    private var briefing: String? { briefings[email.pk] }
-    private var isLoading: Bool { briefing == nil }
+    @State private var briefing: String?
+    @State private var isLoading = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button(action: {
                 let willExpand = !expanded
                 withAnimation(.easeInOut(duration: 0.15)) { expanded = willExpand }
-                if willExpand && briefing == nil {
-                    let pk = email.pk
+                if willExpand && briefing == nil && !isLoading {
+                    isLoading = true
                     let emailCopy = email
-                    DispatchQueue.global(qos: .userInitiated).async {
+                    DispatchQueue.global(qos: .utility).async {
                         let result = Self.generateBriefingSync(email: emailCopy)
                         DispatchQueue.main.async {
-                            if let r = result { briefings[pk] = r }
+                            briefing = result ?? "No summary available."
+                            isLoading = false
                         }
                     }
                 }
