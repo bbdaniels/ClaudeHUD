@@ -208,23 +208,8 @@ private struct InboxEmailRow: View {
 
     /// Synchronous briefing generation (call from background queue only)
     nonisolated static func generateBriefingSync(email: SparkEmailResult) -> String? {
-        let priorEmails = SparkService.searchEmails(
-            terms: [email.from.split(separator: " ").first.map(String.init) ?? email.from],
-            limit: 5,
-            includeBody: true
-        )
-
-        var context = "Current email:\nFrom: \(email.from)\nSubject: \(email.subject)\n"
-        if !email.body.isEmpty { context += "Body: \(String(email.body.prefix(500)))\n" }
-
-        if !priorEmails.isEmpty {
-            context += "\nRecent email history with this person:\n"
-            for prior in priorEmails where prior.pk != email.pk {
-                context += "- \(prior.date): \(prior.subject)"
-                if !prior.body.isEmpty { context += " — \(String(prior.body.prefix(200)))" }
-                context += "\n"
-            }
-        }
+        var context = "Email:\nFrom: \(email.from)\nSubject: \(email.subject)\n"
+        if !email.body.isEmpty { context += "Preview: \(String(email.body.prefix(500)))\n" }
 
         let prompt = """
         You're a sharp executive assistant. Based on this email and prior history, write 2-3 sentences covering:
