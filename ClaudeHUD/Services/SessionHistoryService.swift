@@ -156,14 +156,41 @@ class SessionHistoryService: ObservableObject {
         return (fallbackPath, URL(fileURLWithPath: fallbackPath).lastPathComponent)
     }
 
-    /// Returns variants of a path component with dashes replaced by underscore / dot.
+    /// Returns variants of a path component, trying all combinations of dash/space/underscore/dot
+    /// at each dash position.  Handles names like "26-1 Spring" where some dashes are literal and
+    /// others represent spaces.  Falls back to uniform replacement when there are too many dashes.
     nonisolated private static func componentVariants(_ component: String) -> [String] {
         guard component.contains("-") else { return [component] }
-        return [
-            component,
-            component.replacingOccurrences(of: "-", with: "_"),
-            component.replacingOccurrences(of: "-", with: "."),
-        ]
+
+        let parts = component.split(separator: "-", omittingEmptySubsequences: false).map(String.init)
+        let dashCount = parts.count - 1
+
+        // Too many dashes for combinatorial search → uniform replacement only
+        guard dashCount <= 4 else {
+            return [
+                component,
+                component.replacingOccurrences(of: "-", with: " "),
+                component.replacingOccurrences(of: "-", with: "_"),
+                component.replacingOccurrences(of: "-", with: "."),
+            ]
+        }
+
+        let separators = ["-", " ", "_", "."]
+        let total = Int(pow(4.0, Double(dashCount)))
+        var results: [String] = []
+        results.reserveCapacity(total)
+
+        for i in 0..<total {
+            var result = parts[0]
+            var combo = i
+            for j in 1..<parts.count {
+                result += separators[combo % 4] + parts[j]
+                combo /= 4
+            }
+            results.append(result)
+        }
+
+        return results
     }
 
     // MARK: - Preview Extraction

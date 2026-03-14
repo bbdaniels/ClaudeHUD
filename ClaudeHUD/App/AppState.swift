@@ -13,6 +13,7 @@ class AppState: ObservableObject {
     let terminalService = TerminalService()
     let sessionHistoryService = SessionHistoryService()
     let permissionWatcher = PermissionWatcherService()
+    let vaultManager = VaultManager()
 
     init() {
         self.tabManager = TabManager(cliClient: cliClient)
