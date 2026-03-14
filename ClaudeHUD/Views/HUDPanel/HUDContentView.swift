@@ -33,6 +33,7 @@ enum FixedTab: String {
     case obsidian
     case today
     case projects
+    case people
 }
 
 struct HUDContentView: View {
@@ -171,6 +172,9 @@ struct HUDContentView: View {
                         .environmentObject(sessionHistory)
                         .environmentObject(vaultManager)
                         .environmentObject(calendarService)
+                case .people:
+                    PeopleView()
+                        .environmentObject(appState.contactService)
                 }
             } else {
                 ChatView()
@@ -296,6 +300,20 @@ struct TabBar: View {
                         .fill(activeFixedTab == .projects ? Color.accentColor.opacity(0.12) : Color.clear)
                 )
                 .help("Projects")
+
+                // People tab (fixed)
+                Button(action: { activeFixedTab = .people }) {
+                    Image(systemName: "person.2")
+                        .font(.captionFont(scale))
+                        .foregroundColor(activeFixedTab == .people ? .primary : .secondary)
+                        .frame(width: 28, height: 24)
+                }
+                .buttonStyle(.borderless)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(activeFixedTab == .people ? Color.accentColor.opacity(0.12) : Color.clear)
+                )
+                .help("People")
 
                 Divider()
                     .frame(height: 16)
@@ -589,6 +607,7 @@ struct SessionHistoryView: View {
                 : URL(fileURLWithPath: entry.key).deletingLastPathComponent().path
             return (name: entry.value.first!.projectName, path: entry.key, parentPath: parentPath, sessions: entry.value)
         }
+        .filter { $0.path != "/" && $0.parentPath != "/" }
         .sorted { $0.sessions.first!.timestamp > $1.sessions.first!.timestamp }
     }
 
@@ -642,7 +661,7 @@ struct SessionHistoryView: View {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 11 * scale))
                         .foregroundColor(.secondary)
-                    TextField("Filter projects and sessions...", text: $searchText)
+                    TextField("Search sessions...", text: $searchText)
                         .font(.smallFont(scale))
                         .textFieldStyle(.plain)
                     if !searchText.isEmpty {
@@ -1174,6 +1193,8 @@ struct InfoPopover: View {
                     .font(.custom("Fira Sans", size: 12).weight(.semibold))
                     .foregroundColor(.secondary)
 
+                InfoRow(icon: "calendar", text: "**Today:** AI-powered daily briefing with date navigation. Claude summarizes your schedule and preps each meeting")
+                InfoRow(icon: "folder", text: "**Projects:** Cross-references Obsidian, sessions, calendar, and email for project-level intelligence")
                 InfoRow(icon: "clock.arrow.circlepath", text: "**History:** Browse and resume past Claude sessions across all projects")
                 InfoRow(icon: "lock.fill", text: "**Safe/Unsafe:** Per-project toggle in history. Controls whether sessions launch with --dangerously-skip-permissions")
                 InfoRow(icon: "gauge.with.dots.needle.50percent", text: "**Effort:** Per-project effort level in history. Click the gauge icon to cycle through default/low/medium/high/max")

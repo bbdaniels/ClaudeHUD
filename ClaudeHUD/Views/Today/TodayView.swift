@@ -7,6 +7,13 @@ struct TodayView: View {
     @EnvironmentObject var vaultManager: VaultManager
     @EnvironmentObject var projectService: ProjectService
     @Environment(\.fontScale) private var scale
+    @State private var dayOffset = 0
+
+    private var selectedDate: Date {
+        Calendar.current.date(byAdding: .day, value: dayOffset, to: Calendar.current.startOfDay(for: Date()))!
+    }
+
+    private var isToday: Bool { dayOffset == 0 }
 
     private var timeEvents: [CalendarEvent] {
         calendarService.todayEvents.filter { !$0.isAllDay }
@@ -39,28 +46,44 @@ struct TodayView: View {
                 Image(systemName: "calendar")
                     .font(.system(size: 28))
                     .foregroundColor(.secondary.opacity(0.5))
-                Text("No events today")
+                Text(isToday ? "No events today" : "No events")
                     .font(.smallFont(scale))
                     .foregroundColor(.secondary)
                     .padding(.top, 6)
+                // Nav arrows on empty days
+                HStack(spacing: 8) {
+                    Button(action: { dayOffset -= 1 }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 10 * scale, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    if !isToday {
+                        Button(action: { dayOffset = 0 }) {
+                            Image(systemName: "calendar.circle.fill")
+                            .font(.system(size: 14 * scale))
+                            .foregroundColor(.blue)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    Button(action: { dayOffset += 1 }) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10 * scale, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(.top, 10)
                 Spacer()
             } else {
-                // Header
-                HStack {
-                    Text(todayHeaderString())
-                        .font(.smallMedium(scale))
-                        .foregroundColor(.primary)
-                    Spacer()
-                    Text("\(timeEvents.count) events")
-                        .font(.captionFont(scale))
-                        .foregroundColor(.secondary)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-
-                Divider().opacity(0.3)
-
                 ScrollView {
+                    // "Your Day" summary
+                    DaySummaryView(timeEvents: timeEvents, allDayEvents: allDayEvents, date: selectedDate, isToday: isToday, dayOffset: $dayOffset)
+                        .padding(.horizontal, 14)
+                        .padding(.top, 10)
+                        .padding(.bottom, 6)
+
+                    Divider().opacity(0.3)
                     LazyVStack(spacing: 0) {
                         // All-day events
                         if !allDayEvents.isEmpty {
@@ -81,8 +104,14 @@ struct TodayView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear {
-            // Preload briefings for all timed events
+        .task(id: dayOffset) {
+            let date = selectedDate
+            calendarService.loadEvents(for: date)
+            briefingService.clearDaySummary()
+            briefingService.generateDaySummary(
+                events: calendarService.todayEvents,
+                date: date
+            )
             briefingService.preloadAll(
                 events: calendarService.todayEvents,
                 vaultPath: vaultManager.currentVault?.path,
@@ -90,11 +119,98 @@ struct TodayView: View {
             )
         }
     }
+}
 
-    private func todayHeaderString() -> String {
+// MARK: - Day Summary
+
+private struct DaySummaryView: View {
+    let timeEvents: [CalendarEvent]
+    let allDayEvents: [CalendarEvent]
+    let date: Date
+    let isToday: Bool
+    @Binding var dayOffset: Int
+    @EnvironmentObject var briefingService: BriefingService
+    @EnvironmentObject var calendarService: CalendarService
+    @Environment(\.fontScale) private var scale
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Date header with nav
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Button(action: { dayOffset -= 1 }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 9 * scale, weight: .semibold))
+                        .foregroundColor(.secondary.opacity(0.5))
+                }
+                .buttonStyle(.borderless)
+
+                Text(headerString())
+                    .font(.smallMedium(scale))
+                    .foregroundColor(.primary)
+
+                Button(action: { dayOffset += 1 }) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9 * scale, weight: .semibold))
+                        .foregroundColor(.secondary.opacity(0.5))
+                }
+                .buttonStyle(.borderless)
+
+                if !isToday {
+                    Button(action: { dayOffset = 0 }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "arrow.uturn.backward")
+                                .font(.system(size: 9 * scale))
+                            Text("today")
+                                .font(.captionFont(scale).weight(.medium))
+                        }
+                        .foregroundColor(.blue)
+                    }
+                    .buttonStyle(.borderless)
+                }
+
+                Spacer()
+                Text(dayShape)
+                    .font(.captionFont(scale))
+                    .foregroundColor(.secondary.opacity(0.5))
+            }
+
+            // LLM-generated summary
+            if let daySummary = briefingService.daySummary {
+                if let text = daySummary.text {
+                    Text(text)
+                        .font(.custom("Fira Sans", size: 12 * scale))
+                        .foregroundColor(.secondary.opacity(0.85))
+                        .lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                } else if daySummary.isLoading {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Reading your day...")
+                            .font(.captionFont(scale))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+    }
+
+    // MARK: - Day shape label
+
+    private var dayShape: String {
+        if timeEvents.isEmpty { return "" }
+
+        let total = timeEvents.count
+        if total <= 2 { return "light" }
+        if total >= 5 { return "packed" }
+        return "\(total) events"
+    }
+
+    private func headerString() -> String {
         let fmt = DateFormatter()
         fmt.dateFormat = "EEEE, MMMM d"
-        return fmt.string(from: Date())
+        return fmt.string(from: date)
     }
 }
 
@@ -318,16 +434,16 @@ struct EventDetailView: View {
                         color: .secondary,
                         isExpanded: $showPeople
                     ) {
-                        ForEach(event.attendees.filter { !BriefingService.isCurrentUser($0) }) { person in
+                        ForEach(event.attendees.filter { !ContactService.isCurrentUser($0) }) { person in
                             HStack(spacing: 4) {
                                 Image(systemName: statusIcon(person.status))
                                     .font(.system(size: 9 * scale))
                                     .foregroundColor(statusColor(person.status))
                                     .frame(width: 12)
-                                Text(BriefingService.resolvedName(for: person))
+                                Text(ContactService.resolvedName(for: person))
                                     .font(.captionFont(scale))
                                     .foregroundColor(.primary)
-                                if let org = BriefingService.resolvedOrg(for: person) {
+                                if let org = ContactService.resolvedOrg(for: person) {
                                     Text("(\(org))")
                                         .font(.custom("Fira Code", size: 9 * scale))
                                         .foregroundColor(.secondary.opacity(0.5))

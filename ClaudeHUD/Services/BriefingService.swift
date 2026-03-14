@@ -1,4 +1,3 @@
-import Contacts
 import Foundation
 import os
 
@@ -29,9 +28,16 @@ struct RelatedNote: Identifiable {
     let preview: String
 }
 
+struct DaySummary {
+    var text: String?
+    var isLoading: Bool = false
+}
+
 @MainActor
 class BriefingService: ObservableObject {
     @Published var briefings: [String: EventBriefing] = [:]
+    @Published var daySummary: DaySummary?
+    private var daySummaryDateKey: String?
 
     private static let cacheDir: String = {
         let dir = "\(NSHomeDirectory())/.claude/hud/briefings"
@@ -46,6 +52,158 @@ class BriefingService: ObservableObject {
         for event in events where !event.isAllDay {
             generateBriefing(for: event, vaultPath: vaultPath, projects: projects)
         }
+    }
+
+    /// Generate an intelligent day summary via Claude
+    func generateDaySummary(events: [CalendarEvent], date: Date) {
+        let dateKey = Self.dateCacheKey(date)
+        // Re-generate if date changed (e.g. midnight rollover)
+        if daySummaryDateKey != dateKey {
+            daySummary = nil
+            daySummaryDateKey = dateKey
+        }
+        guard daySummary == nil else { return }
+
+        // Check disk cache
+        let cacheKey = "day-\(dateKey)"
+        if let cached = Self.loadCachedSummary(eventId: cacheKey) {
+            daySummary = DaySummary(text: cached, isLoading: false)
+            return
+        }
+
+        daySummary = DaySummary(text: nil, isLoading: true)
+
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let summary = await Self.generateClaudeDaySummary(events: events, date: date)
+            if let s = summary {
+                Self.saveCachedSummary(eventId: cacheKey, summary: s)
+            }
+            await MainActor.run {
+                self?.daySummary = DaySummary(text: summary, isLoading: false)
+            }
+        }
+    }
+
+    /// Clear day summary (for date navigation)
+    func clearDaySummary() {
+        daySummary = nil
+        daySummaryDateKey = nil
+    }
+
+    /// Claude call for day-level summary
+    nonisolated private static func generateClaudeDaySummary(
+        events: [CalendarEvent],
+        date: Date
+    ) async -> String? {
+        let timedEvents = events.filter { !$0.isAllDay }
+        let allDayEvents = events.filter { $0.isAllDay }
+        guard !events.isEmpty else { return nil }
+
+        let fmt = DateFormatter()
+        fmt.dateFormat = "EEEE, MMMM d"
+        let dateStr = fmt.string(from: date)
+
+        let timeFmt = DateFormatter()
+        timeFmt.dateFormat = "h:mma"
+
+        let isToday = Calendar.current.isDateInToday(date)
+        let isTomorrow = Calendar.current.isDateInTomorrow(date)
+
+        var context = "Date: \(dateStr)\n"
+        if isToday {
+            let nowFmt = DateFormatter()
+            nowFmt.dateFormat = "h:mma"
+            context += "Current time: \(nowFmt.string(from: Date()))\n"
+        }
+        context += "\n"
+
+        if !allDayEvents.isEmpty {
+            context += "All-day:\n"
+            for e in allDayEvents {
+                context += "- \(e.title) (\(e.calendarName))\n"
+            }
+            context += "\n"
+        }
+
+        if !timedEvents.isEmpty {
+            context += "Schedule:\n"
+            for e in timedEvents {
+                var line = "- \(timeFmt.string(from: e.startDate))–\(timeFmt.string(from: e.endDate)): \(e.title)"
+                if !e.attendees.isEmpty {
+                    let names = e.attendees
+                        .filter { !ContactService.isCurrentUser($0) }
+                        .prefix(3)
+                        .map { ContactService.resolvedName(for: $0) }
+                    if !names.isEmpty { line += " (with \(names.joined(separator: ", ")))" }
+                }
+                if let loc = e.location, !loc.isEmpty,
+                   !loc.contains("zoom.us"), !loc.contains("meet.google") {
+                    line += " @ \(String(loc.prefix(40)))"
+                } else if e.zoomLink != nil {
+                    line += " [Zoom]"
+                }
+                context += line + "\n"
+            }
+        } else {
+            context += "No meetings scheduled.\n"
+        }
+
+        let tense = isToday ? "today" : isTomorrow ? "tomorrow" : "that day"
+        let prompt = """
+        You're a sharp, warm executive assistant writing a day-at-a-glance briefing. \
+        Based on the schedule below, write 2-4 short sentences covering:
+        1. The shape and feel of \(tense) — is it packed, light, meeting-free, has open time?
+        2. What to be aware of — all-day events, things happening, or the freedom of an open schedule
+        3. A practical tip or encouraging note — what to do with free time, or just a good vibe
+
+        Be specific. Reference actual event names. \
+        Keep it natural and conversational — like a friend who knows your calendar. \
+        No headers, no bullet points, no markdown. Just flowing sentences. \
+        \(isToday ? "Use present/future tense relative to the current time." : "")
+
+        \(context)
+        """
+
+        return await runClaude(prompt: prompt)
+    }
+
+    /// Shared Claude runner
+    nonisolated private static func runClaude(prompt: String) async -> String? {
+        await withCheckedContinuation { continuation in
+            let process = Process()
+            let claudePaths = [
+                "\(NSHomeDirectory())/.local/bin/claude",
+                "/usr/local/bin/claude",
+                "/opt/homebrew/bin/claude",
+                "\(NSHomeDirectory())/.npm-global/bin/claude",
+                "\(NSHomeDirectory())/.claude/local/claude",
+            ]
+            let claudePath = claudePaths.first { FileManager.default.fileExists(atPath: $0) } ?? "claude"
+
+            process.executableURL = URL(fileURLWithPath: claudePath)
+            process.arguments = ["-p", prompt, "--model", "haiku", "--max-turns", "1"]
+
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = Pipe()
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: data, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                continuation.resume(returning: output?.isEmpty == false ? output : nil)
+            } catch {
+                continuation.resume(returning: nil)
+            }
+        }
+    }
+
+    private static func dateCacheKey(_ date: Date) -> String {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        return fmt.string(from: date)
     }
 
     /// Generate briefing for an event using local data sources
@@ -79,8 +237,8 @@ class BriefingService: ObservableObject {
             }.map(\.name)
 
             // Resolve attendee names
-            let others = event.attendees.filter { !Self.isCurrentUser($0) }
-            let people = Self.resolveNames(others)
+            let others = event.attendees.filter { !ContactService.isCurrentUser($0) }
+            let people = ContactService.resolveNames(others)
 
             // Show raw data immediately while Claude generates the summary
             await MainActor.run {
@@ -224,290 +382,6 @@ class BriefingService: ObservableObject {
                   let first = results.first else { return nil as String? }
             return Self.stripQuotedReplies(first)
         }.value
-    }
-
-    /// Build a prose briefing from available intel
-    nonisolated private static func buildSummary(
-        event: CalendarEvent,
-        emails: [EmailThread],
-        notes: [RelatedNote],
-        projects: [String]
-    ) -> String? {
-        var sentences: [String] = []
-
-        // People — resolve emails to real names via Spark
-        let others = event.attendees
-            .filter { !$0.email.lowercased().contains("daniels") && !$0.email.lowercased().contains("bbdaniels") }
-        let people = resolveNames(others)
-
-        // Opening: who and what
-        if !people.isEmpty && !projects.isEmpty {
-            sentences.append("Meeting with \(naturalList(people)) about \(projects.joined(separator: " / ")).")
-        } else if !people.isEmpty {
-            sentences.append("Meeting with \(naturalList(people)).")
-        } else if !projects.isEmpty {
-            sentences.append("Related to \(projects.joined(separator: " / ")).")
-        }
-
-        // Email intel — just count and key subjects, no raw body content
-        let substantiveEmails = emails.filter { email in
-            let subj = email.subject.lowercased()
-            let s = email.snippet.lowercased()
-            if s.hasPrefix("invite.ics") || s.hasPrefix("reply.ics") { return false }
-            if subj.hasPrefix("accepted:") || subj.hasPrefix("declined:") || subj.hasPrefix("tentative:") { return false }
-            return true
-        }
-
-        if !substantiveEmails.isEmpty {
-            // Get unique subject lines (without Re:/Fwd: prefixes)
-            let subjects = Array(Set(substantiveEmails.map { subj in
-                subj.subject
-                    .replacingOccurrences(of: "^(Re|Fwd|RE|FW): *", with: "", options: .regularExpression)
-            })).prefix(3)
-
-            if subjects.count == 1 {
-                sentences.append("Recent thread: \(subjects[0]).")
-            } else {
-                sentences.append("Recent threads: \(subjects.joined(separator: "; ")).")
-            }
-        }
-
-        // Notes intel — deduplicate, just name them
-        let uniqueNotes = notes.reduce(into: [String: RelatedNote]()) { dict, note in
-            let key = URL(fileURLWithPath: note.path).lastPathComponent
-            if dict[key] == nil { dict[key] = note }
-        }.values.sorted { $0.name < $1.name }
-
-        if !uniqueNotes.isEmpty {
-            sentences.append("See notes: \(uniqueNotes.map(\.name).joined(separator: ", ")).")
-        }
-
-        if sentences.isEmpty { return nil }
-        return sentences.joined(separator: " ")
-    }
-
-    /// Name + org cache: email → (name, org)
-    nonisolated(unsafe) static var nameCache: [String: (name: String, org: String)] = [:]
-
-    /// Check if this is the user's own email
-    nonisolated static func isCurrentUser(_ person: PersonInfo) -> Bool {
-        let e = person.email.lowercased()
-        return e.contains("bbdaniels") || e.contains("bdaniels") || e.contains("bd581")
-    }
-
-    /// Public accessor for resolved names (used by views)
-    nonisolated static func resolvedName(for person: PersonInfo) -> String {
-        if isCurrentUser(person) { return NSFullUserName() }
-        let key = person.email.lowercased()
-        if let cached = nameCache[key], !cached.name.isEmpty {
-            return cleanName(cached.name)
-        }
-        let name = person.name
-        if name.contains("@") || name == "Unknown" { return person.email }
-        return cleanName(name)
-    }
-
-    /// Public accessor for resolved org
-    nonisolated static func resolvedOrg(for person: PersonInfo) -> String? {
-        if isCurrentUser(person) { return nil }
-        // Check cache
-        if let org = nameCache[person.email.lowercased()]?.org, !org.isEmpty {
-            return org
-        }
-        // Fall back to domain-based org
-        let domain = person.email.split(separator: "@").last.map(String.init) ?? ""
-        let org = orgFromDomain(domain)
-        return org.isEmpty ? nil : org
-    }
-
-    /// Resolve all attendees — always look up every email
-    nonisolated private static func resolveNames(_ people: [PersonInfo]) -> [String] {
-        let allEmails = people.map(\.email)
-
-        // Only look up emails not yet cached
-        let uncached = allEmails.filter { nameCache[$0.lowercased()] == nil }
-        if !uncached.isEmpty {
-            let resolved = lookupNames(emails: uncached)
-            for (email, info) in resolved {
-                nameCache[email.lowercased()] = info
-            }
-        }
-
-        return people.map { displayName($0) }.filter { !$0.isEmpty }
-    }
-
-    nonisolated private static func displayName(_ person: PersonInfo) -> String {
-        let key = person.email.lowercased()
-        if let cached = nameCache[key], !cached.name.isEmpty {
-            return cleanName(cached.name)
-        }
-        let name = person.name
-        if name.contains("@") || name == "Unknown" { return "" }
-        return cleanName(name)
-    }
-
-    nonisolated private static func cleanName(_ name: String) -> String {
-        var n = name.replacingOccurrences(of: "\"", with: "").trimmingCharacters(in: .whitespaces)
-
-        // "Last, First Middle" → "First Middle Last"
-        // But preserve suffixes: "Last, First, MD" → "First Last, MD"
-        if n.contains(", ") {
-            let parts = n.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-            if parts.count >= 2 {
-                let last = parts[0]
-                let first = parts[1]
-                // Check if remaining parts are suffixes (MD, PhD, Jr, etc.)
-                let suffixes = parts.dropFirst(2).joined(separator: ", ")
-                n = suffixes.isEmpty ? "\(first) \(last)" : "\(first) \(last), \(suffixes)"
-            }
-        }
-
-        // Title-case each word (handles all-lowercase names from headers)
-        n = n.split(separator: " ").map { word in
-            let w = String(word)
-            // Don't capitalize suffixes/abbreviations that are already uppercase-ish
-            if w.count <= 3 && w == w.uppercased() { return w }
-            // Capitalize first letter of each word
-            return w.prefix(1).uppercased() + w.dropFirst()
-        }.joined(separator: " ")
-
-        return n
-    }
-
-    /// Look up names from: 1) Spark contacts, 2) message From/To headers, 3) macOS Contacts
-    nonisolated private static func lookupNames(emails: [String]) -> [String: (name: String, org: String)] {
-        var results: [String: (name: String, org: String)] = [:]
-
-        // 1. Spark contacts DB
-        if let msgPath = SparkService.msgPath {
-            let emailList = emails.map { "'\($0.lowercased())'" }.joined(separator: ",")
-            let sql = "SELECT name, email FROM contacts WHERE email IN (\(emailList)) AND name IS NOT NULL AND name != ''"
-            if let rows = SparkService.runSQLite(dbPath: msgPath, sql: sql) {
-                for row in rows {
-                    let cols = row.split(separator: "|", maxSplits: 1)
-                    if cols.count == 2 {
-                        let name = String(cols[0])
-                        let email = String(cols[1]).lowercased()
-                        if !name.isEmpty && !name.contains("@") {
-                            results[email] = (name: name, org: "")
-                        }
-                    }
-                }
-            }
-
-            // 2. Message headers for unresolved — extract name paired with the specific email
-            let unresolved = emails.filter { results[$0.lowercased()] == nil }
-            for email in unresolved {
-                let escaped = email.replacingOccurrences(of: "'", with: "''")
-                // Check From headers first (most reliable — single sender)
-                let fromSQL = "SELECT DISTINCT messageFrom FROM messages WHERE messageFromMailbox = '\(escaped.split(separator: "@").first ?? "")' AND messageFromDomain = '\(escaped.split(separator: "@").last ?? "")' LIMIT 1"
-                if let rows = SparkService.runSQLite(dbPath: msgPath, sql: fromSQL), let row = rows.first {
-                    let name = SparkService.extractDisplayName(from: row)
-                    if !name.isEmpty && !name.contains("@") {
-                        let domain = email.split(separator: "@").last.map(String.init) ?? ""
-                        results[email.lowercased()] = (name: name, org: orgFromDomain(domain))
-                        continue
-                    }
-                }
-                // Check To/Cc headers — parse out the specific entry for this email
-                let toSQL = "SELECT DISTINCT messageTo FROM messages WHERE messageTo LIKE '%\(escaped)%' LIMIT 3"
-                if let rows = SparkService.runSQLite(dbPath: msgPath, sql: toSQL) {
-                    for row in rows {
-                        if let name = extractNameForEmail(email: email, fromHeader: row) {
-                            let domain = email.split(separator: "@").last.map(String.init) ?? ""
-                            results[email.lowercased()] = (name: name, org: orgFromDomain(domain))
-                            break
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3. macOS Contacts (CNContactStore) for still unresolved
-        let stillUnresolved = emails.filter { results[$0.lowercased()] == nil }
-        if !stillUnresolved.isEmpty {
-            let contactResults = lookupMacOSContacts(emails: stillUnresolved)
-            for (email, info) in contactResults {
-                results[email] = info
-            }
-        }
-
-        return results
-    }
-
-    /// Look up names from macOS Contacts framework
-    nonisolated private static func lookupMacOSContacts(emails: [String]) -> [String: (name: String, org: String)] {
-        var results: [String: (name: String, org: String)] = [:]
-
-        let store = CNContactStore()
-        let keysToFetch: [CNKeyDescriptor] = [
-            CNContactGivenNameKey as CNKeyDescriptor,
-            CNContactFamilyNameKey as CNKeyDescriptor,
-            CNContactOrganizationNameKey as CNKeyDescriptor,
-            CNContactEmailAddressesKey as CNKeyDescriptor,
-        ]
-
-        for email in emails {
-            let predicate = CNContact.predicateForContacts(matchingEmailAddress: email)
-            if let contacts = try? store.unifiedContacts(matching: predicate, keysToFetch: keysToFetch),
-               let contact = contacts.first {
-                let name = [contact.givenName, contact.familyName]
-                    .filter { !$0.isEmpty }
-                    .joined(separator: " ")
-                if !name.isEmpty {
-                    results[email.lowercased()] = (name: name, org: contact.organizationName)
-                }
-            }
-        }
-
-        return results
-    }
-
-    /// Extract the display name specifically paired with an email in a header like:
-    /// "Name One <one@x.com>, Name Two <two@x.com>"
-    nonisolated private static func extractNameForEmail(email: String, fromHeader header: String) -> String? {
-        let emailLower = email.lowercased()
-        // Split on comma to get individual entries
-        let entries = header.components(separatedBy: ",")
-        for entry in entries {
-            let trimmed = entry.trimmingCharacters(in: .whitespaces)
-            guard trimmed.lowercased().contains(emailLower) else { continue }
-            // Extract name before <email>
-            let name = SparkService.extractDisplayName(from: trimmed)
-            if !name.isEmpty && !name.contains("@") {
-                return name
-            }
-        }
-        return nil
-    }
-
-    /// Guess organization from email domain
-    nonisolated private static func orgFromDomain(_ domain: String) -> String {
-        let d = domain.lowercased()
-        if d.contains("harvard") { return "Harvard" }
-        if d.contains("novartis") { return "Novartis" }
-        if d.contains("georgetown") { return "Georgetown" }
-        if d.hasSuffix(".edu") {
-            let parts = d.split(separator: ".")
-            if parts.count >= 2 { return String(parts[parts.count - 2]).capitalized }
-        }
-        if d.hasSuffix(".gov") { return String(d.split(separator: ".").first ?? "").uppercased() }
-        // Generic: use second-level domain
-        let parts = d.split(separator: ".")
-        if parts.count >= 2 && !["gmail", "yahoo", "hotmail", "outlook", "icloud", "me", "aol"].contains(String(parts[0])) {
-            return String(parts[0]).capitalized
-        }
-        return ""
-    }
-
-    /// Join names naturally: "A", "A and B", "A, B, and C"
-    nonisolated private static func naturalList(_ items: [String]) -> String {
-        switch items.count {
-        case 0: return ""
-        case 1: return items[0]
-        case 2: return "\(items[0]) and \(items[1])"
-        default: return items.dropLast().joined(separator: ", ") + ", and " + items.last!
-        }
     }
 
     /// Strip quoted reply chains, signatures, and forwarded content
