@@ -657,25 +657,12 @@ struct SessionHistoryView: View {
                     .padding(.top, 6)
                 Spacer()
             } else {
-                // Header
-                HStack {
-                    Text("History")
-                        .font(.smallMedium(scale))
-                        .foregroundColor(.primary)
-                    Spacer()
-                    Text("\(sessionHistory.sessions.count)")
-                        .font(.captionFont(scale))
-                        .foregroundColor(.secondary)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-
                 // Search bar
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 11 * scale))
                         .foregroundColor(.secondary)
-                    TextField("Search sessions...", text: $searchText)
+                    TextField("Search chats...", text: $searchText)
                         .font(.smallFont(scale))
                         .textFieldStyle(.plain)
                     if !searchText.isEmpty {

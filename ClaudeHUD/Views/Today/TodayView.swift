@@ -22,6 +22,14 @@ struct TodayView: View {
         return fmt.string(from: date)
     }
 
+    private var dayShape: String {
+        if timeEvents.isEmpty { return "" }
+        let total = timeEvents.count
+        if total <= 2 { return "light" }
+        if total >= 5 { return "packed" }
+        return "\(total) events"
+    }
+
     private var timeEvents: [CalendarEvent] {
         calendarService.todayEvents.filter { !$0.isAllDay }
     }
@@ -49,51 +57,51 @@ struct TodayView: View {
                     .padding(.top, 4)
                 Spacer()
             } else if calendarService.todayEvents.isEmpty {
-                // Even with no events, show WhatsNext + nav
-                ScrollView {
-                    // Date header with nav (minimal)
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Button(action: { dayOffset -= 1 }) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 9 * scale, weight: .semibold))
-                                .foregroundColor(.secondary.opacity(0.5))
-                        }
-                        .buttonStyle(.borderless)
-
-                        Text(headerString(for: selectedDate))
-                            .font(.smallMedium(scale))
-                            .foregroundColor(.primary)
-
-                        Button(action: { dayOffset += 1 }) {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 9 * scale, weight: .semibold))
-                                .foregroundColor(.secondary.opacity(0.5))
-                        }
-                        .buttonStyle(.borderless)
-
-                        if !isToday {
-                            Button(action: { dayOffset = 0 }) {
-                                HStack(spacing: 3) {
-                                    Image(systemName: "arrow.uturn.backward")
-                                        .font(.system(size: 9 * scale))
-                                    Text("today")
-                                        .font(.captionFont(scale).weight(.medium))
-                                }
-                                .foregroundColor(.blue)
-                            }
-                            .buttonStyle(.borderless)
-                        }
-
-                        Spacer()
+                // Date nav bar (fixed, dark) — same as events case
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Button(action: { dayOffset -= 1 }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 9 * scale, weight: .semibold))
+                            .foregroundColor(.secondary.opacity(0.5))
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.top, 10)
-                    .padding(.bottom, 4)
+                    .buttonStyle(.borderless)
 
+                    Text(headerString(for: selectedDate))
+                        .font(.smallFont(scale))
+                        .foregroundColor(.primary)
+
+                    Button(action: { dayOffset += 1 }) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9 * scale, weight: .semibold))
+                            .foregroundColor(.secondary.opacity(0.5))
+                    }
+                    .buttonStyle(.borderless)
+
+                    if !isToday {
+                        Button(action: { dayOffset = 0 }) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "arrow.uturn.backward")
+                                    .font(.system(size: 9 * scale))
+                                Text("today")
+                                    .font(.captionFont(scale).weight(.medium))
+                            }
+                            .foregroundColor(.blue)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .background(Color(.textBackgroundColor).opacity(0.3))
+
+                Divider().opacity(0.3)
+
+                ScrollView {
                     WhatsNextView(date: selectedDate, isToday: isToday)
 
                     if remindersService.todos.isEmpty {
-                        // Truly empty — show placeholder
                         VStack(spacing: 6) {
                             Image(systemName: "calendar")
                                 .font(.system(size: 28))
@@ -107,9 +115,54 @@ struct TodayView: View {
                     }
                 }
             } else {
+                // Date nav bar (fixed, dark)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Button(action: { dayOffset -= 1 }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 9 * scale, weight: .semibold))
+                            .foregroundColor(.secondary.opacity(0.5))
+                    }
+                    .buttonStyle(.borderless)
+
+                    Text(headerString(for: selectedDate))
+                        .font(.smallFont(scale))
+                        .foregroundColor(.primary)
+
+                    Button(action: { dayOffset += 1 }) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9 * scale, weight: .semibold))
+                            .foregroundColor(.secondary.opacity(0.5))
+                    }
+                    .buttonStyle(.borderless)
+
+                    if !isToday {
+                        Button(action: { dayOffset = 0 }) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "arrow.uturn.backward")
+                                    .font(.system(size: 9 * scale))
+                                Text("today")
+                                    .font(.captionFont(scale).weight(.medium))
+                            }
+                            .foregroundColor(.blue)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+
+                    Spacer()
+
+                    Text(dayShape)
+                        .font(.captionFont(scale))
+                        .foregroundColor(.secondary.opacity(0.5))
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .background(Color(.textBackgroundColor).opacity(0.3))
+
+                Divider().opacity(0.3)
+
                 ScrollView {
                     // "Your Day" summary
-                    DaySummaryView(timeEvents: timeEvents, allDayEvents: allDayEvents, date: selectedDate, isToday: isToday, dayOffset: $dayOffset)
+                    DaySummaryView(date: selectedDate)
                         .padding(.horizontal, 14)
                         .padding(.top, 10)
                         .padding(.bottom, 6)
@@ -163,56 +216,12 @@ struct TodayView: View {
 // MARK: - Day Summary
 
 private struct DaySummaryView: View {
-    let timeEvents: [CalendarEvent]
-    let allDayEvents: [CalendarEvent]
     let date: Date
-    let isToday: Bool
-    @Binding var dayOffset: Int
     @EnvironmentObject var briefingService: BriefingService
-    @EnvironmentObject var calendarService: CalendarService
     @Environment(\.fontScale) private var scale
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Date header with nav
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Button(action: { dayOffset -= 1 }) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 9 * scale, weight: .semibold))
-                        .foregroundColor(.secondary.opacity(0.5))
-                }
-                .buttonStyle(.borderless)
-
-                Text(headerString())
-                    .font(.smallMedium(scale))
-                    .foregroundColor(.primary)
-
-                Button(action: { dayOffset += 1 }) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9 * scale, weight: .semibold))
-                        .foregroundColor(.secondary.opacity(0.5))
-                }
-                .buttonStyle(.borderless)
-
-                if !isToday {
-                    Button(action: { dayOffset = 0 }) {
-                        HStack(spacing: 3) {
-                            Image(systemName: "arrow.uturn.backward")
-                                .font(.system(size: 9 * scale))
-                            Text("today")
-                                .font(.captionFont(scale).weight(.medium))
-                        }
-                        .foregroundColor(.blue)
-                    }
-                    .buttonStyle(.borderless)
-                }
-
-                Spacer()
-                Text(dayShape)
-                    .font(.captionFont(scale))
-                    .foregroundColor(.secondary.opacity(0.5))
-            }
-
             // LLM-generated summary
             if let daySummary = briefingService.daySummary {
                 if let text = daySummary.text {
@@ -235,22 +244,6 @@ private struct DaySummaryView: View {
         }
     }
 
-    // MARK: - Day shape label
-
-    private var dayShape: String {
-        if timeEvents.isEmpty { return "" }
-
-        let total = timeEvents.count
-        if total <= 2 { return "light" }
-        if total >= 5 { return "packed" }
-        return "\(total) events"
-    }
-
-    private func headerString() -> String {
-        let fmt = DateFormatter()
-        fmt.dateFormat = "EEEE, MMMM d"
-        return fmt.string(from: date)
-    }
 }
 
 // MARK: - All Day Event Row

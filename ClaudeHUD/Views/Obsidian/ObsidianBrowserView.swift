@@ -25,13 +25,22 @@ struct ObsidianBrowserView: View {
                     .padding(.top, 8)
                 Spacer()
             } else {
-                // Vault selector + actions
+                // Search bar + actions
                 HStack(spacing: 6) {
-                    Text("Notes")
-                        .font(.smallMedium(scale))
-                        .foregroundColor(.primary)
-
-                    Spacer()
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 11 * scale))
+                        .foregroundColor(.secondary)
+                    TextField("Search notes...", text: $searchText)
+                        .font(.smallFont(scale))
+                        .textFieldStyle(.plain)
+                    if !searchText.isEmpty {
+                        Button(action: { searchText = "" }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 11 * scale))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                    }
 
                     VaultSelectorMenu()
                         .environmentObject(vaultManager)
@@ -51,26 +60,6 @@ struct ObsidianBrowserView: View {
                     }
                     .buttonStyle(.borderless)
                     .help("Today's note")
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-
-                // Search bar
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 11 * scale))
-                        .foregroundColor(.secondary)
-                    TextField("Search notes...", text: $searchText)
-                        .font(.smallFont(scale))
-                        .textFieldStyle(.plain)
-                    if !searchText.isEmpty {
-                        Button(action: { searchText = "" }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 11 * scale))
-                                .foregroundColor(.secondary)
-                        }
-                        .buttonStyle(.borderless)
-                    }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 6)
