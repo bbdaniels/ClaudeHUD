@@ -24,6 +24,8 @@
 	<string>ClaudeHUD looks up attendee names and organizations for meeting briefings.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>ClaudeHUD displays today's calendar events and prepares meeting briefings.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>ClaudeHUD shows your reminders in the What's Next panel and lets you complete them.</string>
 	<key>NSUserNotificationUsageDescription</key>
 	<string>ClaudeHUD shows desktop notifications when Claude needs your attention.</string>
 </dict>

@@ -165,6 +165,7 @@ struct HUDContentView: View {
                         .environmentObject(appState.briefingService)
                         .environmentObject(vaultManager)
                         .environmentObject(appState.projectService)
+                        .environmentObject(appState.remindersService)
                 case .projects:
                     ProjectDashboardView()
                         .environmentObject(appState.projectService)

@@ -19,6 +19,7 @@ class AppState: ObservableObject {
     let projectService = ProjectService()
     let projectBriefingService = ProjectBriefingService()
     let contactService = ContactService()
+    let remindersService = RemindersService()
 
     init() {
         self.tabManager = TabManager(cliClient: cliClient)
@@ -27,6 +28,7 @@ class AppState: ObservableObject {
 
     func setup() async {
         permissionWatcher.start()
+        vaultManager.ensureDailyNote(for: Date())
         logger.info("AppState setup complete")
     }
 }

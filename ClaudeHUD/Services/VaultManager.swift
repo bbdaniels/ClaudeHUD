@@ -129,6 +129,210 @@ class VaultManager: ObservableObject {
         noteIndex[name.lowercased()]
     }
 
+    // MARK: - Daily Note Generation
+
+    /// Create today's daily note if it doesn't exist, populated with unchecked todos from project notes
+    func ensureDailyNote(for date: Date) {
+        guard let vault = currentVault else { return }
+        guard Calendar.current.isDateInToday(date) else { return }
+
+        let vaultPath = vault.path
+        let fm = FileManager.default
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        let dateStr = fmt.string(from: date)
+        let dailyDir = (vaultPath as NSString).appendingPathComponent("Daily Notes")
+        let dailyPath = (dailyDir as NSString).appendingPathComponent("\(dateStr).md")
+
+        // Don't overwrite existing
+        guard !fm.fileExists(atPath: dailyPath) else { return }
+
+        // Ensure Daily Notes directory exists
+        try? fm.createDirectory(atPath: dailyDir, withIntermediateDirectories: true)
+
+        // Scan all top-level vault folders for unchecked todos
+        let skipFolders: Set<String> = ["Templates", "Daily Notes", "Attachments", "Assets", "Archive"]
+        guard let folders = try? fm.contentsOfDirectory(atPath: vaultPath) else { return }
+        var sections: [(project: String, todos: [String])] = []
+
+        for folder in folders.sorted() {
+            let folderPath = (vaultPath as NSString).appendingPathComponent(folder)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: folderPath, isDirectory: &isDir), isDir.boolValue else { continue }
+            guard !folder.hasPrefix("."), !skipFolders.contains(folder) else { continue }
+
+            var projectTodos: [String] = []
+            guard let files = try? fm.contentsOfDirectory(atPath: folderPath) else { continue }
+
+            for file in files where file.hasSuffix(".md") {
+                let filePath = (folderPath as NSString).appendingPathComponent(file)
+                guard let content = try? String(contentsOfFile: filePath, encoding: .utf8) else { continue }
+                let lines = content.components(separatedBy: "\n")
+                for line in lines {
+                    guard ObsidianMarkdownView.isListLine(line) else { continue }
+                    let parsed = ObsidianMarkdownView.parseListItem(line, lineNumber: 0)
+                    if parsed.checkState == false {
+                        projectTodos.append(parsed.text)
+                    }
+                }
+            }
+
+            if !projectTodos.isEmpty {
+                sections.append((folder, projectTodos))
+            }
+        }
+
+        // Build the daily note content
+        let displayFmt = DateFormatter()
+        displayFmt.dateFormat = "EEEE, MMMM d, yyyy"
+        var content = "# \(displayFmt.string(from: date))\n\n"
+
+        if sections.isEmpty {
+            content += "- [ ] \n"
+        } else {
+            content += "## Open Items\n\n"
+            for section in sections {
+                content += "### \(section.project)\n"
+                for todo in section.todos.prefix(8) {
+                    content += "- [ ] \(todo)\n"
+                }
+                content += "\n"
+            }
+        }
+
+        content += "## Notes\n\n"
+
+        try? content.write(toFile: dailyPath, atomically: true, encoding: .utf8)
+        logger.info("Created daily note: \(dateStr) with \(sections.map(\.todos.count).reduce(0, +)) todos from \(sections.count) projects")
+    }
+
+    // MARK: - Todo Scanning
+
+    /// Scan Obsidian vault for unchecked todos on the given date
+    func scanTodos(for date: Date, includeRecent: Bool = false) -> [TodoItem] {
+        guard let vault = currentVault else { return [] }
+        let vaultPath = vault.path
+        var items: [TodoItem] = []
+
+        // Primary: today's daily note
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        let dateStr = fmt.string(from: date)
+        let dailyNotePath = (vaultPath as NSString).appendingPathComponent("Daily Notes/\(dateStr).md")
+        let noteName = dateStr
+
+        items += extractTodos(from: dailyNotePath, noteName: noteName)
+
+        // Secondary (today only): recently modified .md files
+        if includeRecent {
+            let fm = FileManager.default
+            let cutoff = Date().addingTimeInterval(-86400) // 24 hours ago
+            let excludePrefixes = ["Daily Notes/", "Templates/", ".obsidian/"]
+
+            if let enumerator = fm.enumerator(atPath: vaultPath) {
+                var recentFiles: [(path: String, mod: Date)] = []
+                while let rel = enumerator.nextObject() as? String {
+                    guard rel.hasSuffix(".md"),
+                          !rel.hasPrefix("."),
+                          !excludePrefixes.contains(where: { rel.hasPrefix($0) }) else { continue }
+                    let full = (vaultPath as NSString).appendingPathComponent(rel)
+                    if let attrs = try? fm.attributesOfItem(atPath: full),
+                       let mod = attrs[.modificationDate] as? Date,
+                       mod > cutoff {
+                        recentFiles.append((full, mod))
+                    }
+                }
+                // Sort by most recent, take top 3
+                recentFiles.sort { $0.mod > $1.mod }
+                for file in recentFiles.prefix(3) {
+                    let name = URL(fileURLWithPath: file.path).deletingPathExtension().lastPathComponent
+                    let fileItems = extractTodos(from: file.path, noteName: name)
+                    items += Array(fileItems.prefix(5))
+                }
+            }
+        }
+
+        return items
+    }
+
+    /// Toggle an Obsidian todo checkbox from unchecked to checked
+    func toggleObsidianTodo(_ item: TodoItem) {
+        guard let filePath = item.obsidianFilePath,
+              let lineNumber = item.obsidianLineNumber else { return }
+
+        // 1. Toggle in the daily note
+        let url = URL(fileURLWithPath: filePath)
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return }
+
+        var lines = content.components(separatedBy: "\n")
+        guard lineNumber < lines.count else { return }
+
+        lines[lineNumber] = lines[lineNumber].replacingOccurrences(of: "[ ] ", with: "[x] ")
+        let newContent = lines.joined(separator: "\n")
+        try? newContent.write(to: url, atomically: true, encoding: .utf8)
+
+        // 2. Cross-update the source project note
+        guard let vault = currentVault else { return }
+        if case .obsidian(let projectName) = item.source {
+            let projectPath = (vault.path as NSString).appendingPathComponent(projectName)
+            let fm = FileManager.default
+            guard let files = try? fm.contentsOfDirectory(atPath: projectPath) else { return }
+
+            for file in files where file.hasSuffix(".md") {
+                let srcPath = (projectPath as NSString).appendingPathComponent(file)
+                guard let srcContent = try? String(contentsOfFile: srcPath, encoding: .utf8) else { continue }
+                let srcLines = srcContent.components(separatedBy: "\n")
+
+                for (srcIdx, srcLine) in srcLines.enumerated() {
+                    // Match: same unchecked text on this line
+                    guard srcLine.contains("[ ] ") else { continue }
+                    guard ObsidianMarkdownView.isListLine(srcLine) else { continue }
+                    let parsed = ObsidianMarkdownView.parseListItem(srcLine, lineNumber: srcIdx)
+                    if parsed.checkState == false && parsed.text == item.title {
+                        var newSrcLines = srcLines
+                        newSrcLines[srcIdx] = srcLine.replacingOccurrences(of: "[ ] ", with: "[x] ")
+                        let newSrcContent = newSrcLines.joined(separator: "\n")
+                        try? newSrcContent.write(toFile: srcPath, atomically: true, encoding: .utf8)
+                        return
+                    }
+                }
+            }
+        }
+    }
+
+    /// Extract todos from a file, tracking headings as group names for daily notes
+    private func extractTodos(from filePath: String, noteName: String) -> [TodoItem] {
+        guard let content = try? String(contentsOfFile: filePath, encoding: .utf8) else { return [] }
+        let lines = content.components(separatedBy: "\n")
+        var items: [TodoItem] = []
+        var currentHeading = noteName
+
+        for (idx, line) in lines.enumerated() {
+            // Track ### headings as project group names
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("### ") {
+                currentHeading = String(trimmed.dropFirst(4))
+                continue
+            }
+
+            guard ObsidianMarkdownView.isListLine(line) else { continue }
+            let parsed = ObsidianMarkdownView.parseListItem(line, lineNumber: idx)
+            guard parsed.checkState == false else { continue }
+
+            items.append(TodoItem(
+                title: parsed.text,
+                source: .obsidian(noteName: currentHeading),
+                dueDate: nil,
+                isOverdue: false,
+                priority: 0,
+                reminderIdentifier: nil,
+                obsidianFilePath: filePath,
+                obsidianLineNumber: idx
+            ))
+        }
+        return items
+    }
+
     // MARK: - Private
 
     private func loadDirectory(at url: URL, relativePath: String) -> [NoteFile]? {
