@@ -487,6 +487,7 @@ private struct BriefingListSection: View {
 
     @State private var dismissed: Set<Int> = []
     @State private var pushed: Set<Int> = []
+    @State private var expandedItem: Int? = nil
 
     private var visibleItems: [(offset: Int, element: String)] {
         Array(items.enumerated()).filter { !dismissed.contains($0.offset) }
@@ -505,43 +506,24 @@ private struct BriefingListSection: View {
                 }
 
                 ForEach(visibleItems, id: \.offset) { idx, item in
-                    HStack(alignment: .top, spacing: 4) {
-                        if pushed.contains(idx) {
-                            Image(systemName: "checkmark.square.fill")
-                                .font(.system(size: 11 * scale))
-                                .foregroundColor(.green)
-                                .frame(width: 14)
-                        } else {
-                            // Push to Obsidian
-                            Button(action: { pushToObsidian(item, idx: idx) }) {
-                                Image(systemName: "square.and.arrow.down")
-                                    .font(.system(size: 10 * scale))
-                                    .foregroundColor(.secondary.opacity(0.5))
-                                    .frame(width: 14)
+                    BriefingItemRow(
+                        text: item,
+                        isPushed: pushed.contains(idx),
+                        isExpanded: expandedItem == idx,
+                        scale: scale,
+                        onTapBullet: {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                expandedItem = expandedItem == idx ? nil : idx
                             }
-                            .buttonStyle(.borderless)
-                            .help("Add to project notes")
-                        }
-
-                        // Dismiss
-                        Button(action: {
+                        },
+                        onPush: { pushToObsidian(item, idx: idx) },
+                        onDismiss: {
                             withAnimation(.easeOut(duration: 0.2)) { _ = dismissed.insert(idx) }
-                        }) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 8 * scale, weight: .semibold))
-                                .foregroundColor(.secondary.opacity(0.3))
-                                .frame(width: 12)
+                        },
+                        onDone: {
+                            withAnimation(.easeOut(duration: 0.2)) { _ = dismissed.insert(idx) }
                         }
-                        .buttonStyle(.borderless)
-                        .help("Dismiss")
-
-                        Text(item)
-                            .font(.captionFont(scale))
-                            .foregroundColor(pushed.contains(idx) ? .secondary : .primary)
-                            .strikethrough(pushed.contains(idx))
-                            .lineLimit(2)
-                    }
-                    .padding(.leading, 2)
+                    )
                 }
             }
         }
@@ -552,13 +534,11 @@ private struct BriefingListSection: View {
         let fm = FileManager.default
 
         if fm.fileExists(atPath: actionItemsPath) {
-            // Append to existing
             if var content = try? String(contentsOfFile: actionItemsPath, encoding: .utf8) {
                 content += "\n- [ ] \(item)"
                 try? content.write(toFile: actionItemsPath, atomically: true, encoding: .utf8)
             }
         } else {
-            // Create new
             let content = "# Action Items\n\n- [ ] \(item)"
             try? content.write(toFile: actionItemsPath, atomically: true, encoding: .utf8)
         }
@@ -566,3 +546,72 @@ private struct BriefingListSection: View {
         withAnimation(.easeOut(duration: 0.2)) { _ = pushed.insert(idx) }
     }
 }
+
+// MARK: - Briefing Item Row (tap bullet to expand actions)
+
+private struct BriefingItemRow: View {
+    let text: String
+    let isPushed: Bool
+    let isExpanded: Bool
+    let scale: CGFloat
+    let onTapBullet: () -> Void
+    let onPush: () -> Void
+    let onDismiss: () -> Void
+    let onDone: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 4) {
+            if isPushed {
+                Image(systemName: "checkmark.square.fill")
+                    .font(.system(size: 11 * scale))
+                    .foregroundColor(.green)
+                    .frame(width: 14)
+            } else if isExpanded {
+                HStack(spacing: 2) {
+                    Button(action: onDone) {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 9 * scale, weight: .semibold))
+                            .foregroundColor(.green)
+                            .frame(width: 14, height: 14)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Done")
+
+                    Button(action: onDismiss) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 9 * scale, weight: .semibold))
+                            .foregroundColor(.red.opacity(0.6))
+                            .frame(width: 14, height: 14)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Skip")
+
+                    Button(action: onPush) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 9 * scale, weight: .semibold))
+                            .foregroundColor(.blue)
+                            .frame(width: 14, height: 14)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Add to notes")
+                }
+            } else {
+                Button(action: onTapBullet) {
+                    Image(systemName: "square")
+                        .font(.system(size: 11 * scale))
+                        .foregroundColor(.secondary.opacity(0.4))
+                        .frame(width: 14)
+                }
+                .buttonStyle(.borderless)
+            }
+
+            Text(text)
+                .font(.captionFont(scale))
+                .foregroundColor(isPushed ? .secondary : .primary)
+                .strikethrough(isPushed)
+                .lineLimit(2)
+        }
+        .padding(.leading, 2)
+    }
+}
+
