@@ -51,7 +51,7 @@ struct ProjectDashboardView: View {
                             ProjectCardView(project: project)
                                 .environmentObject(projectBriefing)
                                 .environmentObject(projectService)
-                            Divider().opacity(0.15)
+                            Divider().opacity(0.3)
                         }
                     }
                     .padding(.horizontal, 10)
@@ -239,7 +239,7 @@ private struct ProjectDetailView: View {
                 }
             }
 
-            Divider().opacity(0.2).padding(.vertical, 2)
+            Divider().opacity(0.3).padding(.vertical, 2)
 
             // === People & Emails (lazy loaded) ===
             if let intel = projectIntel {
@@ -415,7 +415,7 @@ private struct ProjectEmailRow: View {
                 Spacer()
                 if !email.body.isEmpty {
                     Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 8 * scale, weight: .semibold))
+                        .font(.system(size: 9 * scale, weight: .semibold))
                         .foregroundColor(.secondary.opacity(0.3))
                 }
             }
@@ -468,7 +468,7 @@ private struct CollapsibleSection<Content: View>: View {
                     .foregroundColor(.secondary.opacity(0.3))
                 Spacer()
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 8 * scale, weight: .semibold))
+                    .font(.system(size: 9 * scale, weight: .semibold))
                     .foregroundColor(.secondary.opacity(0.3))
             }
             .contentShape(Rectangle())

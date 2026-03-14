@@ -30,7 +30,7 @@ struct ToolCallInfo: Identifiable {
 
 struct ConversationTab: Identifiable {
     let id = UUID()
-    var title: String = "New"
+    var title: String = "Chat"
 }
 
 // MARK: - Tab Manager

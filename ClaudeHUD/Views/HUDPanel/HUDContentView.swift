@@ -750,7 +750,7 @@ struct TimeSectionView: View {
         // Section header
         HStack(spacing: 4) {
             Image(systemName: collapsed ? "chevron.right" : "chevron.down")
-                .font(.system(size: 8 * scale, weight: .bold))
+                .font(.system(size: 9 * scale, weight: .semibold))
                 .foregroundColor(.secondary.opacity(0.5))
             Text(title)
                 .font(.captionFont(scale).weight(.semibold))
