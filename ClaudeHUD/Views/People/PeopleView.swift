@@ -263,10 +263,10 @@ private struct InboxEmailRow: View {
 
         do {
             try process.run()
-            process.waitUntilExit()
+            // Read data BEFORE waitUntilExit to avoid pipe buffer deadlock
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
             guard let raw = String(data: data, encoding: .utf8), !raw.isEmpty else { return nil }
-            // Strip PTY artifacts
             let cleaned = raw
                 .replacingOccurrences(of: "\r", with: "")
                 .replacingOccurrences(of: "\\x1b\\[[0-9;]*[a-zA-Z]", with: "", options: .regularExpression)
