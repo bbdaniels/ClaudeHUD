@@ -171,10 +171,12 @@ private struct InboxEmailRow: View {
             .onTapGesture {
                 withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
                 if expanded && briefing == nil {
-                    Task.detached {
-                        let result = await Self.generateBriefingStatic(email: email)
-                        await MainActor.run {
-                            if let r = result { briefings[email.pk] = r }
+                    let pk = email.pk
+                    let emailCopy = email
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        let result = Self.generateBriefingSync(email: emailCopy)
+                        DispatchQueue.main.async {
+                            if let r = result { briefings[pk] = r }
                         }
                     }
                 }
@@ -204,8 +206,8 @@ private struct InboxEmailRow: View {
         }
     }
 
-    /// Static method for pre-generating briefings from PeopleView.onAppear
-    static func generateBriefingStatic(email: SparkEmailResult) async -> String? {
+    /// Synchronous briefing generation (call from background queue only)
+    static func generateBriefingSync(email: SparkEmailResult) -> String? {
         let priorEmails = SparkService.searchEmails(
             terms: [email.from.split(separator: " ").first.map(String.init) ?? email.from],
             limit: 5,
@@ -235,38 +237,32 @@ private struct InboxEmailRow: View {
         \(context)
         """
 
-        return await runClaudeInline(prompt: prompt)
-    }
+        let claudePaths = [
+            "\(NSHomeDirectory())/.local/bin/claude",
+            "/usr/local/bin/claude",
+            "/opt/homebrew/bin/claude",
+            "\(NSHomeDirectory())/.npm-global/bin/claude",
+            "\(NSHomeDirectory())/.claude/local/claude",
+        ]
+        let claudePath = claudePaths.first { FileManager.default.fileExists(atPath: $0) } ?? "claude"
 
-    private static func runClaudeInline(prompt: String) async -> String? {
-        await withCheckedContinuation { continuation in
-            let claudePaths = [
-                "\(NSHomeDirectory())/.local/bin/claude",
-                "/usr/local/bin/claude",
-                "/opt/homebrew/bin/claude",
-                "\(NSHomeDirectory())/.npm-global/bin/claude",
-                "\(NSHomeDirectory())/.claude/local/claude",
-            ]
-            let claudePath = claudePaths.first { FileManager.default.fileExists(atPath: $0) } ?? "claude"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: claudePath)
+        process.arguments = ["-p", prompt, "--model", "haiku", "--max-turns", "1"]
 
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: claudePath)
-            process.arguments = ["-p", prompt, "--model", "haiku", "--max-turns", "1"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
 
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = Pipe()
-
-            do {
-                try process.run()
-                process.waitUntilExit()
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let output = String(data: data, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                continuation.resume(returning: output?.isEmpty == false ? output : nil)
-            } catch {
-                continuation.resume(returning: nil)
-            }
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return output?.isEmpty == false ? output : nil
+        } catch {
+            return nil
         }
     }
 }
