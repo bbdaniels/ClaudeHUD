@@ -143,10 +143,13 @@ struct TodayView: View {
             calendarService.loadEvents(for: date)
             remindersService.loadReminders(for: date)
             vaultManager.ensureDailyNote(for: date)
+            let obsidianTodos = vaultManager.scanTodos(for: date, includeRecent: Calendar.current.isDateInToday(date))
+            let allTodos = remindersService.todos + obsidianTodos
             briefingService.clearDaySummary()
             briefingService.generateDaySummary(
                 events: calendarService.todayEvents,
-                date: date
+                date: date,
+                todos: allTodos
             )
             briefingService.preloadAll(
                 events: calendarService.todayEvents,

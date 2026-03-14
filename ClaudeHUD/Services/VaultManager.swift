@@ -221,12 +221,13 @@ class VaultManager: ObservableObject {
         let dailyNotePath = (vaultPath as NSString).appendingPathComponent("Daily Notes/\(dateStr).md")
         let noteName = dateStr
 
-        items += extractTodos(from: dailyNotePath, noteName: noteName)
+        let dailyNoteItems = extractTodos(from: dailyNotePath, noteName: noteName)
+        items += dailyNoteItems
 
-        // Secondary (today only): recently modified .md files
-        if includeRecent {
+        // Secondary (today only): recently modified .md files — but only if no daily note exists
+        if includeRecent && dailyNoteItems.isEmpty {
             let fm = FileManager.default
-            let cutoff = Date().addingTimeInterval(-86400) // 24 hours ago
+            let cutoff = Date().addingTimeInterval(-86400)
             let excludePrefixes = ["Daily Notes/", "Templates/", ".obsidian/"]
 
             if let enumerator = fm.enumerator(atPath: vaultPath) {
@@ -242,7 +243,6 @@ class VaultManager: ObservableObject {
                         recentFiles.append((full, mod))
                     }
                 }
-                // Sort by most recent, take top 3
                 recentFiles.sort { $0.mod > $1.mod }
                 for file in recentFiles.prefix(3) {
                     let name = URL(fileURLWithPath: file.path).deletingPathExtension().lastPathComponent
