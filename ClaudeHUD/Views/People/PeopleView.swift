@@ -246,9 +246,16 @@ private struct InboxEmailRow: View {
         ]
         let claudePath = claudePaths.first { FileManager.default.fileExists(atPath: $0) } ?? "claude"
 
+        let args = ["-p", prompt, "--model", "haiku", "--max-turns", "1", "--output-format", "text"]
+
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: claudePath)
-        process.arguments = ["-p", prompt, "--model", "haiku", "--max-turns", "1"]
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
+        process.arguments = ["-q", "/dev/null", claudePath] + args
+        process.currentDirectoryURL = URL(fileURLWithPath: NSHomeDirectory())
+
+        var env = ProcessInfo.processInfo.environment
+        env.removeValue(forKey: "CLAUDECODE")
+        process.environment = env
 
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -258,9 +265,13 @@ private struct InboxEmailRow: View {
             try process.run()
             process.waitUntilExit()
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8)?
+            guard let raw = String(data: data, encoding: .utf8), !raw.isEmpty else { return nil }
+            // Strip PTY artifacts
+            let cleaned = raw
+                .replacingOccurrences(of: "\r", with: "")
+                .replacingOccurrences(of: "\\x1b\\[[0-9;]*[a-zA-Z]", with: "", options: .regularExpression)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            return output?.isEmpty == false ? output : nil
+            return cleaned.isEmpty ? nil : cleaned
         } catch {
             return nil
         }
