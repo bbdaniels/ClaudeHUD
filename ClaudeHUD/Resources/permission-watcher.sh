@@ -54,6 +54,7 @@ except Exception as e:
 trap 'rm -f "$PENDING_DIR/$ID.json"' EXIT INT TERM HUP PIPE
 
 # Poll for decision (timeout 90s, poll every 0.3s)
+# Touch the pending file each iteration as a heartbeat for the HUD.
 POLLS=300
 for i in $(seq 1 $POLLS); do
     DECISION_FILE="$DECISION_DIR/$ID.json"
@@ -62,6 +63,7 @@ for i in $(seq 1 $POLLS); do
         rm -f "$DECISION_FILE" "$PENDING_DIR/$ID.json"
         exit 0
     fi
+    touch "$PENDING_DIR/$ID.json" 2>/dev/null
     sleep 0.3
 done
 
