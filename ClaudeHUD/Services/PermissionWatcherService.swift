@@ -100,10 +100,23 @@ class PermissionWatcherService: ObservableObject {
         guard let files = try? fm.contentsOfDirectory(atPath: pendingDir) else { return }
 
         let jsonFiles = files.filter { $0.hasSuffix(".json") }
+        let now = Date()
 
         // Remove stale entries that no longer have pending files
         let activeIds = Set(jsonFiles.map { String($0.dropLast(5)) }) // remove .json
         pending.removeAll { !activeIds.contains($0.id) }
+
+        // Detect requests that were resolved in the terminal: when the user
+        // approves in terminal, Claude Code writes new events to the session
+        // JSONL file. If we see the session directory has new activity after
+        // the permission request was created, the request was handled.
+        let resolvedIds = pending.filter { entry in
+            sessionHasProgressedSince(projectPath: entry.projectPath, since: entry.timestamp)
+        }.map(\.id)
+        for id in resolvedIds {
+            try? fm.removeItem(atPath: "\(pendingDir)/\(id).json")
+        }
+        pending.removeAll { resolvedIds.contains($0.id) }
 
         // Add new entries
         let existingIds = Set(pending.map(\.id))
@@ -136,6 +149,37 @@ class PermissionWatcherService: ObservableObject {
 
         // Sort newest first
         pending.sort { $0.timestamp > $1.timestamp }
+    }
+
+    /// Check if the Claude session for a project has written new events since a given time.
+    /// When the user approves in terminal, Claude proceeds and writes to the session JSONL,
+    /// making the most recent file's mtime advance past the permission request time.
+    private func sessionHasProgressedSince(projectPath: String, since: Date) -> Bool {
+        let fm = FileManager.default
+        // Claude stores sessions in ~/.claude/projects/<encoded-path>/
+        // The encoded path replaces / with -
+        let encoded = projectPath.replacingOccurrences(of: "/", with: "-")
+        let sessionDir = "\(NSHomeDirectory())/.claude/projects/\(encoded)"
+
+        guard let files = try? fm.contentsOfDirectory(atPath: sessionDir) else { return false }
+        let jsonlFiles = files.filter { $0.hasSuffix(".jsonl") }
+
+        // Find the most recently modified JSONL file
+        var latestMtime: Date?
+        for file in jsonlFiles {
+            let path = "\(sessionDir)/\(file)"
+            if let attrs = try? fm.attributesOfItem(atPath: path),
+               let mtime = attrs[.modificationDate] as? Date {
+                if latestMtime == nil || mtime > latestMtime! {
+                    latestMtime = mtime
+                }
+            }
+        }
+
+        // If the latest session file was modified after the permission request
+        // (with a small buffer for the hook write), Claude has moved on
+        guard let mtime = latestMtime else { return false }
+        return mtime.timeIntervalSince(since) > 1.0
     }
 
     private func writeDecision(id: String, decision: [String: Any]) {
