@@ -27,10 +27,14 @@ struct ObsidianBrowserView: View {
             } else {
                 // Vault selector + actions
                 HStack(spacing: 6) {
-                    VaultSelectorMenu()
-                        .environmentObject(vaultManager)
+                    Text("Notes")
+                        .font(.smallMedium(scale))
+                        .foregroundColor(.primary)
 
                     Spacer()
+
+                    VaultSelectorMenu()
+                        .environmentObject(vaultManager)
 
                     Button(action: { createNewNote() }) {
                         Image(systemName: "plus.circle")
@@ -49,7 +53,7 @@ struct ObsidianBrowserView: View {
                     .help("Today's note")
                 }
                 .padding(.horizontal, 14)
-                .padding(.vertical, 6)
+                .padding(.vertical, 8)
 
                 // Search bar
                 HStack(spacing: 6) {
@@ -84,7 +88,7 @@ struct ObsidianBrowserView: View {
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(filteredFiles) { file in
+                            ForEach(Array(filteredFiles.enumerated()), id: \.element.id) { idx, file in
                                 if file.isDirectory {
                                     ObsidianFolderView(
                                         folder: file,
@@ -93,6 +97,9 @@ struct ObsidianBrowserView: View {
                                     )
                                 } else {
                                     ObsidianFileRow(file: file)
+                                }
+                                if idx < filteredFiles.count - 1 {
+                                    Divider().opacity(0.3)
                                 }
                             }
                         }
@@ -181,16 +188,9 @@ struct VaultSelectorMenu: View {
                 }
             }
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "folder")
-                    .font(.system(size: 11 * scale))
-                Text(vaultManager.currentVault?.name ?? "Select Vault")
-                    .font(.smallFont(scale))
-                    .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8 * scale))
-                    .foregroundColor(.secondary)
-            }
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 13 * scale))
+                .foregroundColor(.secondary)
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
@@ -220,7 +220,7 @@ struct ObsidianFolderView: View {
                         .font(.system(size: 12 * scale))
                         .foregroundColor(.secondary)
                     Text(folder.name)
-                        .font(.smallFont(scale))
+                        .font(.smallMedium(scale))
                         .foregroundColor(.primary)
                         .lineLimit(1)
                     Spacer()

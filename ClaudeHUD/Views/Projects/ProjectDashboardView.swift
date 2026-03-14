@@ -117,7 +117,7 @@ private struct ProjectCardView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(project.name)
-                        .font(.smallFont(scale))
+                        .font(.smallMedium(scale))
                         .foregroundColor(.primary)
                         .lineLimit(1)
 
