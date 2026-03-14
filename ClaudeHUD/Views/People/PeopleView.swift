@@ -80,13 +80,6 @@ struct PeopleView: View {
             Task.detached {
                 let emails = SparkService.fetchInboxEmails(limit: 10)
                 await MainActor.run { inboxEmails = emails }
-                // Pre-generate briefings for all inbox emails
-                for email in emails {
-                    let briefing = await InboxEmailRow.generateBriefingStatic(email: email)
-                    await MainActor.run {
-                        if let b = briefing { inboxBriefings[email.pk] = b }
-                    }
-                }
             }
         }
     }
@@ -177,6 +170,14 @@ private struct InboxEmailRow: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+                if expanded && briefing == nil {
+                    Task.detached {
+                        let result = await Self.generateBriefingStatic(email: email)
+                        await MainActor.run {
+                            if let r = result { briefings[email.pk] = r }
+                        }
+                    }
+                }
             }
 
             if expanded {
