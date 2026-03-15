@@ -96,33 +96,39 @@ class ProjectService: ObservableObject {
         let terms = project.folderTerms
         let events = project.upcomingEvents
 
-        Task.detached(priority: .userInitiated) {
-            // Single batched query via SparkService
-            let sparkResults = SparkService.searchEmails(terms: terms, limit: 5, includeBody: true)
+        Task.detached(priority: .userInitiated) { [weak self] in
+            do {
+                // Single batched query via SparkService
+                let sparkResults = SparkService.searchEmails(terms: terms, limit: 5, includeBody: true)
 
-            // Look up actual sender email addresses from messages table
-            var senderEmails: [String: String] = [:]
-            if let msgPath = SparkService.msgPath, !sparkResults.isEmpty {
-                let pks = sparkResults.map(\.pk).joined(separator: ",")
-                let sql = "SELECT pk, messageFromMailbox, messageFromDomain FROM messages WHERE pk IN (\(pks))"
-                if let rows = SparkService.runSQLite(dbPath: msgPath, sql: sql) {
-                    for row in rows {
-                        let cols = row.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false)
-                        if cols.count >= 3 {
-                            senderEmails[String(cols[0])] = "\(cols[1])@\(cols[2])".lowercased()
+                // Look up actual sender email addresses from messages table
+                var senderEmails: [String: String] = [:]
+                if let msgPath = SparkService.msgPath, !sparkResults.isEmpty {
+                    let pks = sparkResults.map(\.pk).joined(separator: ",")
+                    let sql = "SELECT pk, messageFromMailbox, messageFromDomain FROM messages WHERE pk IN (\(pks))"
+                    if let rows = SparkService.runSQLite(dbPath: msgPath, sql: sql) {
+                        for row in rows {
+                            let cols = row.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false)
+                            if cols.count >= 3 {
+                                senderEmails[String(cols[0])] = "\(cols[1])@\(cols[2])".lowercased()
+                            }
                         }
                     }
                 }
-            }
 
-            let emails = sparkResults.map { r in
-                ProjectEmail(subject: r.subject, from: r.from,
-                             fromEmail: senderEmails[r.pk] ?? "",
-                             date: r.date, epoch: r.epoch, body: r.body, messagePk: r.pk)
-            }
-            let people = Self.aggregatePeople(events: events, emails: emails)
-            await MainActor.run { [weak self] in
-                self?.intel[project.id] = ProjectIntel(id: project.id, emails: emails, people: people)
+                let emails = sparkResults.map { r in
+                    ProjectEmail(subject: r.subject, from: r.from,
+                                 fromEmail: senderEmails[r.pk] ?? "",
+                                 date: r.date, epoch: r.epoch, body: r.body, messagePk: r.pk)
+                }
+                let people = Self.aggregatePeople(events: events, emails: emails)
+                await MainActor.run {
+                    self?.intel[project.id] = ProjectIntel(id: project.id, emails: emails, people: people)
+                }
+            } catch {
+                await MainActor.run {
+                    self?.intel[project.id] = ProjectIntel(id: project.id, emails: [], people: [])
+                }
             }
         }
     }

@@ -239,9 +239,8 @@ class ProjectBriefingService: ObservableObject {
 
         do {
             try process.run()
-            process.waitUntilExit()
-
             let data = stdout.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
             guard let raw = String(data: data, encoding: .utf8), !raw.isEmpty else {
                 return errorBriefing(projectName, "No response from Claude")
             }
