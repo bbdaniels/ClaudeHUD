@@ -130,9 +130,13 @@ class TerminalService: ObservableObject {
 
             // Use `open -na` as recommended by Ghostty docs for macOS.
             // Opens a new Ghostty window running the resume command.
+            // --quit-after-last-window-closed ensures the instance exits (and its
+            // dock icon disappears) once the user closes the window.
             let open = Process()
             open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            open.arguments = ["-na", appPath, "--args", "--command=\(tmpScript)"]
+            open.arguments = ["-na", appPath, "--args",
+                              "--quit-after-last-window-closed",
+                              "--command=\(tmpScript)"]
             try? open.run()
             return true
         }
