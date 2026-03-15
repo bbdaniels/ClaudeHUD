@@ -213,8 +213,8 @@ class BriefingService: ObservableObject {
 
             do {
                 try process.run()
-                process.waitUntilExit()
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
                 let output = String(data: data, encoding: .utf8)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 continuation.resume(returning: output?.isEmpty == false ? output : nil)
@@ -386,8 +386,8 @@ class BriefingService: ObservableObject {
 
             do {
                 try process.run()
-                process.waitUntilExit()
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
                 let output = String(data: data, encoding: .utf8)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 continuation.resume(returning: output?.isEmpty == false ? output : nil)
@@ -713,8 +713,8 @@ class BriefingService: ObservableObject {
 
         do {
             try process.run()
-            process.waitUntilExit()
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
             guard let output = String(data: data, encoding: .utf8) else { return [] }
 
             return output.components(separatedBy: "\n")

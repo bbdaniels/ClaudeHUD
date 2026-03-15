@@ -197,8 +197,8 @@ enum SparkService {
 
         do {
             try process.run()
-            process.waitUntilExit()
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
             guard let output = String(data: data, encoding: .utf8), !output.isEmpty else { return nil }
             return output.components(separatedBy: "\n").filter { !$0.isEmpty }
         } catch {
