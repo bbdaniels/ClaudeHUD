@@ -468,6 +468,7 @@ struct EventDetailView: View {
                         title: "People",
                         icon: "person.2",
                         color: .secondary,
+                        count: event.attendees.count,
                         isExpanded: $showPeople
                     ) {
                         ForEach(event.attendees.filter { !ContactService.isCurrentUser($0) }) { person in
@@ -497,9 +498,10 @@ struct EventDetailView: View {
                 // Email threads
                 if !briefing.emailThreads.isEmpty {
                     CollapsibleSection(
-                        title: "Threads (\(briefing.emailThreads.count))",
+                        title: "Threads",
                         icon: "envelope",
                         color: .blue,
+                        count: briefing.emailThreads.count,
                         isExpanded: $showThreads
                     ) {
                         ForEach(briefing.emailThreads) { thread in
@@ -511,9 +513,10 @@ struct EventDetailView: View {
                 // Related notes
                 if !briefing.relatedNotes.isEmpty {
                     CollapsibleSection(
-                        title: "Notes (\(briefing.relatedNotes.count))",
+                        title: "Notes",
                         icon: "doc.text",
                         color: .orange,
+                        count: briefing.relatedNotes.count,
                         isExpanded: $showNotes
                     ) {
                         ForEach(briefing.relatedNotes) { note in
@@ -537,6 +540,7 @@ struct EventDetailView: View {
                                                   path: note.path,
                                                   relativePath: note.name,
                                                   isDirectory: false,
+                                                  modificationDate: nil,
                                                   children: nil))
                             }
                         }
@@ -578,6 +582,7 @@ private struct CollapsibleSection<Content: View>: View {
     let title: String
     let icon: String
     let color: Color
+    var count: Int? = nil
     @Binding var isExpanded: Bool
     @ViewBuilder let content: () -> Content
     @Environment(\.fontScale) private var scale
@@ -593,6 +598,14 @@ private struct CollapsibleSection<Content: View>: View {
                     Image(systemName: icon)
                         .font(.system(size: 9 * scale))
                         .foregroundColor(color)
+                    if let count {
+                        Text("\(count)")
+                            .font(.custom("Fira Code", size: 10 * scale))
+                            .foregroundColor(.secondary.opacity(0.6))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
+                    }
                     Text(title)
                         .font(.captionFont(scale).weight(.semibold))
                         .foregroundColor(.secondary.opacity(0.6))

@@ -118,7 +118,10 @@ private struct InboxSection: View {
                         .foregroundColor(.secondary.opacity(0.7))
                     Text("\(emails.count)")
                         .font(.custom("Fira Code", size: 10 * scale))
-                        .foregroundColor(.secondary.opacity(0.4))
+                        .foregroundColor(.secondary.opacity(0.6))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
                     Spacer()
                 }
             }

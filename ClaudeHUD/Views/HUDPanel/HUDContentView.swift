@@ -800,8 +800,11 @@ struct TimeSectionView: View {
                 .textCase(.uppercase)
             if collapsed {
                 Text("\(groups.count)")
-                    .font(.custom("Fira Code", size: 9 * scale))
-                    .foregroundColor(.secondary.opacity(0.4))
+                    .font(.custom("Fira Code", size: 10 * scale))
+                    .foregroundColor(.secondary.opacity(0.6))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
             }
             Spacer()
         }
@@ -991,15 +994,6 @@ struct ProjectRow: View {
                 .buttonStyle(.borderless)
                 .help("Effort: \(effort) (click to cycle)")
 
-                Text(projectName)
-                    .font(.smallMedium(scale))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-
-                Text(latest.timestamp.relativeString)
-                    .font(.custom("Fira Sans", size: 11.5 * scale))
-                    .foregroundColor(.secondary)
-
                 if sessions.count > 1 {
                     Text("\(sessions.count)")
                         .font(.custom("Fira Code", size: 10 * scale))
@@ -1009,7 +1003,16 @@ struct ProjectRow: View {
                         .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
                 }
 
+                Text(projectName)
+                    .font(.smallMedium(scale))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+
                 Spacer()
+
+                Text(latest.timestamp.relativeString)
+                    .font(.custom("Fira Code", size: 10 * scale))
+                    .foregroundColor(.secondary.opacity(0.5))
 
                 if let feedback {
                     Text(feedback)
@@ -1102,9 +1105,15 @@ struct SessionDetailRow: View {
                         .lineLimit(2)
                 }
 
-                Text("\(session.id.prefix(8)) · \(session.timestamp.relativeString)")
-                    .font(.custom("Fira Code", size: 10 * scale))
-                    .foregroundColor(.secondary.opacity(0.5))
+                HStack {
+                    Text(String(session.id.prefix(8)))
+                        .font(.custom("Fira Code", size: 10 * scale))
+                        .foregroundColor(.secondary.opacity(0.5))
+                    Spacer()
+                    Text(session.timestamp.relativeString)
+                        .font(.custom("Fira Code", size: 10 * scale))
+                        .foregroundColor(.secondary.opacity(0.5))
+                }
             }
 
             Spacer()

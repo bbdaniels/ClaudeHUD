@@ -5,7 +5,9 @@ struct ObsidianBrowserView: View {
     @EnvironmentObject var vaultManager: VaultManager
     @Environment(\.fontScale) private var scale
     @State private var searchText = ""
+    @State private var contentQuery = ""  // debounced version for content search
     @State private var expandedFolders: Set<String> = []
+    @State private var sortByDate = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -45,6 +47,14 @@ struct ObsidianBrowserView: View {
                     VaultSelectorMenu()
                         .environmentObject(vaultManager)
 
+                    Button(action: { sortByDate.toggle() }) {
+                        Image(systemName: sortByDate ? "clock.fill" : "textformat.abc")
+                            .font(.system(size: 13 * scale))
+                            .foregroundColor(sortByDate ? .accentColor : .secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(sortByDate ? "Sorted by date (click for A-Z)" : "Sorted A-Z (click for date)")
+
                     Button(action: { createNewNote() }) {
                         Image(systemName: "plus.circle")
                             .font(.system(size: 13 * scale))
@@ -74,22 +84,34 @@ struct ObsidianBrowserView: View {
                         .font(.smallFont(scale))
                         .foregroundColor(.secondary)
                     Spacer()
-                } else {
+                } else if searchText.isEmpty {
+                    // Browse mode: show folder tree
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(Array(filteredFiles.enumerated()), id: \.element.id) { idx, file in
-                                if file.isDirectory {
+                            ForEach(Array(filteredFiles.enumerated()), id: \.element.file.id) { idx, entry in
+                                if entry.file.isDirectory {
                                     ObsidianFolderView(
-                                        folder: file,
+                                        folder: entry.file,
                                         expandedFolders: $expandedFolders,
-                                        level: 0
+                                        level: 0,
+                                        sortByDate: sortByDate
                                     )
                                 } else {
-                                    ObsidianFileRow(file: file)
+                                    ObsidianFileRow(file: entry.file, snippet: entry.snippet)
                                 }
                                 if idx < filteredFiles.count - 1 {
                                     Divider().opacity(0.3)
                                 }
+                            }
+                        }
+                        .padding(.horizontal, 6)
+                    }
+                } else {
+                    // Search mode: group results by parent folder
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(searchGroups, id: \.folder) { group in
+                                SearchFolderGroup(folder: group.folder, files: group.files)
                             }
                         }
                         .padding(.horizontal, 6)
@@ -99,21 +121,84 @@ struct ObsidianBrowserView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { vaultManager.loadVaultContents() }
+        .task(id: searchText) {
+            if searchText.isEmpty {
+                contentQuery = ""
+                return
+            }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            contentQuery = searchText
+        }
     }
 
-    private var filteredFiles: [NoteFile] {
+    private func noteSort(_ a: NoteFile, _ b: NoteFile) -> Bool {
+        if a.isDirectory && !b.isDirectory { return true }
+        if !a.isDirectory && b.isDirectory { return false }
+        if sortByDate {
+            let aDate = a.latestModification ?? .distantPast
+            let bDate = b.latestModification ?? .distantPast
+            return aDate > bDate
+        }
+        return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+    }
+
+    private var filteredFiles: [(file: NoteFile, snippet: String?)] {
         if searchText.isEmpty {
-            return vaultManager.vaultFiles.sorted { a, b in
-                if a.isDirectory && !b.isDirectory { return true }
-                if !a.isDirectory && b.isDirectory { return false }
-                return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-            }
+            return vaultManager.vaultFiles.sorted(by: noteSort).map { ($0, nil) }
         }
 
         let terms = searchText.lowercased().split(separator: " ")
+        let doContentSearch = !contentQuery.isEmpty
+
         return flattenFiles(vaultManager.vaultFiles)
-            .filter { $0.name.lowercased().containsAllTerms(terms) }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .compactMap { file -> (file: NoteFile, snippet: String?)? in
+                if file.name.lowercased().containsAllTerms(terms) {
+                    let snippet = doContentSearch ? Self.contentSnippet(path: file.path, query: contentQuery) : nil
+                    return (file, snippet)
+                }
+                if doContentSearch, let snippet = Self.contentSnippet(path: file.path, query: contentQuery) {
+                    return (file, snippet)
+                }
+                return nil
+            }
+            .sorted { noteSort($0.file, $1.file) }
+    }
+
+    /// Search results grouped by parent folder.
+    private var searchGroups: [(folder: String, files: [(file: NoteFile, snippet: String?)])] {
+        let grouped = Dictionary(grouping: filteredFiles) { entry -> String in
+            let url = URL(fileURLWithPath: entry.file.path)
+            let parent = url.deletingLastPathComponent().lastPathComponent
+            return parent
+        }
+        return grouped.map { (folder: $0.key, files: $0.value) }
+            .sorted {
+                if sortByDate {
+                    let aDate = $0.files.compactMap { $0.file.modificationDate }.max() ?? .distantPast
+                    let bDate = $1.files.compactMap { $0.file.modificationDate }.max() ?? .distantPast
+                    return aDate > bDate
+                }
+                return $0.folder.localizedCaseInsensitiveCompare($1.folder) == .orderedAscending
+            }
+    }
+
+    /// Extract a ~80-char snippet around the first match of `query` in the file at `path`.
+    private static func contentSnippet(path: String, query: String) -> String? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let content = String(data: data, encoding: .utf8) else { return nil }
+        guard let range = content.range(of: query, options: .caseInsensitive) else { return nil }
+
+        let center = content.distance(from: content.startIndex, to: range.lowerBound)
+        let start = max(0, center - 40)
+        let end = min(content.count, center + query.count + 40)
+        let startIdx = content.index(content.startIndex, offsetBy: start)
+        let endIdx = content.index(content.startIndex, offsetBy: end)
+        var snippet = String(content[startIdx..<endIdx])
+            .replacingOccurrences(of: "\n", with: " ")
+        if start > 0 { snippet = "…" + snippet }
+        if end < content.count { snippet += "…" }
+        return snippet
     }
 
     private func flattenFiles(_ files: [NoteFile]) -> [NoteFile] {
@@ -139,6 +224,57 @@ struct ObsidianBrowserView: View {
            let encoded = vault.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
            let url = URL(string: "obsidian://new?vault=\(encoded)") {
             NSWorkspace.shared.open(url)
+        }
+    }
+}
+
+// MARK: - Search Folder Group (collapsible)
+
+struct SearchFolderGroup: View {
+    let folder: String
+    let files: [(file: NoteFile, snippet: String?)]
+    @State private var expanded = true
+    @Environment(\.fontScale) private var scale
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: { withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() } }) {
+                HStack(spacing: 4) {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9 * scale, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .frame(width: 12)
+                    Image(systemName: expanded ? "folder.fill" : "folder")
+                        .font(.system(size: 11 * scale))
+                        .foregroundColor(.secondary)
+                    Text("\(files.count)")
+                        .font(.custom("Fira Code", size: 10 * scale))
+                        .foregroundColor(.secondary.opacity(0.6))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
+                    Text(folder)
+                        .font(.captionFont(scale).weight(.semibold))
+                        .foregroundColor(.secondary.opacity(0.7))
+                    Spacer()
+                    if let date = files.compactMap({ $0.file.modificationDate }).max() {
+                        Text(date.relativeString)
+                            .font(.custom("Fira Code", size: 10 * scale))
+                            .foregroundColor(.secondary.opacity(0.4))
+                    }
+                }
+                .padding(.vertical, 4)
+                .padding(.horizontal, 6)
+            }
+            .buttonStyle(.plain)
+
+            if expanded {
+                ForEach(files, id: \.file.id) { entry in
+                    ObsidianFileRow(file: entry.file, snippet: entry.snippet)
+                        .padding(.leading, 16)
+                    Divider().opacity(0.3)
+                }
+            }
         }
     }
 }
@@ -192,6 +328,7 @@ struct ObsidianFolderView: View {
     let folder: NoteFile
     @Binding var expandedFolders: Set<String>
     let level: Int
+    let sortByDate: Bool
     @State private var isHovered = false
     @Environment(\.fontScale) private var scale
 
@@ -208,14 +345,22 @@ struct ObsidianFolderView: View {
                     Image(systemName: isExpanded ? "folder.fill" : "folder")
                         .font(.system(size: 12 * scale))
                         .foregroundColor(.secondary)
+                    Text("\(folder.children?.count ?? 0)")
+                        .font(.custom("Fira Code", size: 10 * scale))
+                        .foregroundColor(.secondary.opacity(0.6))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
                     Text(folder.name)
                         .font(.smallMedium(scale))
                         .foregroundColor(.primary)
                         .lineLimit(1)
                     Spacer()
-                    Text("\(folder.children?.count ?? 0)")
-                        .font(.captionFont(scale))
-                        .foregroundColor(.secondary.opacity(0.5))
+                    if let date = folder.latestModification {
+                        Text(date.relativeString)
+                            .font(.custom("Fira Code", size: 10 * scale))
+                            .foregroundColor(.secondary.opacity(0.5))
+                    }
                 }
                 .padding(.vertical, 4)
                 .padding(.horizontal, 6)
@@ -230,10 +375,13 @@ struct ObsidianFolderView: View {
                 ForEach(children.sorted { a, b in
                     if a.isDirectory && !b.isDirectory { return true }
                     if !a.isDirectory && b.isDirectory { return false }
+                    if sortByDate {
+                        return (a.latestModification ?? .distantPast) > (b.latestModification ?? .distantPast)
+                    }
                     return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
                 }) { child in
                     if child.isDirectory {
-                        ObsidianFolderView(folder: child, expandedFolders: $expandedFolders, level: level + 1)
+                        ObsidianFolderView(folder: child, expandedFolders: $expandedFolders, level: level + 1, sortByDate: sortByDate)
                     } else {
                         ObsidianFileRow(file: child)
                             .padding(.leading, CGFloat(level + 1) * 16)
@@ -256,6 +404,7 @@ struct ObsidianFolderView: View {
 
 struct ObsidianFileRow: View {
     let file: NoteFile
+    var snippet: String? = nil
     @State private var isHovered = false
     @Environment(\.fontScale) private var scale
 
@@ -264,10 +413,26 @@ struct ObsidianFileRow: View {
             Image(systemName: "doc.text")
                 .font(.system(size: 11 * scale))
                 .foregroundColor(.secondary)
-            Text(file.name.replacingOccurrences(of: ".md", with: ""))
-                .font(.smallFont(scale))
-                .foregroundColor(.primary)
-                .lineLimit(1)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(file.name.replacingOccurrences(of: ".md", with: ""))
+                        .font(.smallFont(scale))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                    Spacer()
+                    if let date = file.modificationDate {
+                        Text(date.relativeString)
+                            .font(.custom("Fira Code", size: 10 * scale))
+                            .foregroundColor(.secondary.opacity(0.5))
+                    }
+                }
+                if let snippet {
+                    Text(snippet)
+                        .font(.custom("Fira Sans", size: 11 * scale))
+                        .foregroundColor(.accentColor.opacity(0.8))
+                        .lineLimit(2)
+                }
+            }
             Spacer()
         }
         .padding(.vertical, 4)
