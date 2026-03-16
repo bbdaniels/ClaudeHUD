@@ -23,13 +23,14 @@ class SubstackService: ObservableObject {
     private static let keychainAccount = "substack.sid"
 
     var unreadCount: Int {
-        feedPosts.filter { !readPostIDs.contains($0.id) }.count
+        activePosts.filter { !readPostIDs.contains($0.id) }.count
     }
 
     init() {
         hasCookie = Self.loadCookie() != nil
         readPostIDs = Self.loadReadState()
         savedPostIDs = Self.loadSavedState()
+        dismissedPostIDs = Self.loadDismissedState()
         if let cached = Self.loadCachedFeed() {
             feedPosts = cached
         }
@@ -59,6 +60,39 @@ class SubstackService: ObservableObject {
             readPostIDs.insert(post.id)
         }
         Self.saveReadState(readPostIDs)
+    }
+
+    // MARK: - Dismiss (Archive)
+
+    @Published var dismissedPostIDs: Set<Int> = []
+
+    func dismiss(_ postId: Int) {
+        dismissedPostIDs.insert(postId)
+        markRead(postId)
+        Self.saveDismissedState(dismissedPostIDs)
+    }
+
+    func undismiss(_ postId: Int) {
+        dismissedPostIDs.remove(postId)
+        Self.saveDismissedState(dismissedPostIDs)
+    }
+
+    var activePosts: [SubstackPost] {
+        feedPosts.filter { !dismissedPostIDs.contains($0.id) }
+    }
+
+    nonisolated private static func dismissedStatePath() -> String {
+        "\(cacheDir)/dismissed.json"
+    }
+
+    nonisolated private static func loadDismissedState() -> Set<Int> {
+        guard let data = FileManager.default.contents(atPath: dismissedStatePath()) else { return [] }
+        return (try? JSONDecoder().decode(Set<Int>.self, from: data)) ?? []
+    }
+
+    nonisolated private static func saveDismissedState(_ ids: Set<Int>) {
+        guard let data = try? JSONEncoder().encode(ids) else { return }
+        FileManager.default.createFile(atPath: dismissedStatePath(), contents: data)
     }
 
     // MARK: - Save State

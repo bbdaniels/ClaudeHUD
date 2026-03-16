@@ -8,7 +8,7 @@ struct SubstackView: View {
     @State private var showingSaved = false
 
     private var filteredPosts: [SubstackPost] {
-        let posts = showingSaved ? substackService.savedPosts : substackService.feedPosts
+        let posts = showingSaved ? substackService.savedPosts : substackService.activePosts
         if searchText.isEmpty { return posts }
         let query = searchText.lowercased()
         return posts.filter {
@@ -108,6 +108,14 @@ struct SubstackView: View {
                                 onMarkUnread: { substackService.markUnread(post.id) },
                                 onOpen: { openInBrowser(post) },
                                 onToggleSave: { substackService.toggleSaved(post.id) },
+                                onDismiss: {
+                                    withAnimation(.easeInOut(duration: 0.15)) {
+                                        if expandedPostId == post.id {
+                                            expandedPostId = nil
+                                        }
+                                        substackService.dismiss(post.id)
+                                    }
+                                },
                                 isSaved: substackService.isSaved(post.id)
                             )
                             Divider().opacity(0.2).padding(.leading, 12)
@@ -185,6 +193,7 @@ struct SubstackPostRow: View {
     let onMarkUnread: () -> Void
     let onOpen: () -> Void
     let onToggleSave: () -> Void
+    let onDismiss: () -> Void
     let isSaved: Bool
     @EnvironmentObject var substackService: SubstackService
     @Environment(\.fontScale) private var scale
@@ -210,20 +219,38 @@ struct SubstackPostRow: View {
                         .padding(.top, 6)
 
                     VStack(alignment: .leading, spacing: 3) {
-                        // Publication + date
-                        HStack {
+                        // Publication + date + hover actions
+                        HStack(spacing: 4) {
                             Text(post.publicationName ?? post.authorName ?? "Unknown")
                                 .font(.captionFont(scale))
                                 .foregroundColor(.secondary)
                             Spacer()
-                            if let time = post.readingTime {
-                                Text(time)
+                            if isHovered && !isExpanded {
+                                // Hover action buttons
+                                Button(action: { onToggleSave() }) {
+                                    Image(systemName: isSaved ? "bookmark.fill" : "bookmark")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(isSaved ? .accentColor : .secondary.opacity(0.6))
+                                }
+                                .buttonStyle(.borderless)
+                                .help(isSaved ? "Unsave" : "Save")
+                                Button(action: { onDismiss() }) {
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 9, weight: .medium))
+                                        .foregroundColor(.secondary.opacity(0.6))
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Dismiss")
+                            } else {
+                                if let time = post.readingTime {
+                                    Text(time)
+                                        .font(.captionFont(scale))
+                                        .foregroundColor(.secondary.opacity(0.5))
+                                }
+                                Text(Self.relativeDateFormatter.localizedString(for: post.postDate, relativeTo: Date()))
                                     .font(.captionFont(scale))
                                     .foregroundColor(.secondary.opacity(0.5))
                             }
-                            Text(Self.relativeDateFormatter.localizedString(for: post.postDate, relativeTo: Date()))
-                                .font(.captionFont(scale))
-                                .foregroundColor(.secondary.opacity(0.5))
                         }
 
                         // Title -- bold if unread
@@ -328,6 +355,13 @@ struct SubstackPostRow: View {
                                 .font(.captionFont(scale))
                                 .foregroundColor(.secondary.opacity(0.5))
                         }
+
+                        Button(action: onDismiss) {
+                            Label("Dismiss", systemImage: "xmark")
+                                .font(.captionFont(scale))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.borderless)
                     }
                     .padding(.top, 4)
                 }
