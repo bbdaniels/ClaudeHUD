@@ -20,6 +20,7 @@ class AppState: ObservableObject {
     let projectBriefingService = ProjectBriefingService()
     let contactService = ContactService()
     let remindersService = RemindersService()
+    let substackService = SubstackService()
 
     init() {
         self.tabManager = TabManager(cliClient: cliClient)

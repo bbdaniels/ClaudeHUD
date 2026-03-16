@@ -54,6 +54,9 @@
 		BB1000000000000000000002 /* TodoItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB1000000000000000000001 /* TodoItem.swift */; };
 		BB2000000000000000000002 /* RemindersService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2000000000000000000001 /* RemindersService.swift */; };
 		BB3000000000000000000002 /* WhatsNextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB3000000000000000000001 /* WhatsNextView.swift */; };
+		CC1000000000000000000002 /* SubstackModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC1000000000000000000001 /* SubstackModels.swift */; };
+		CC2000000000000000000002 /* SubstackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2000000000000000000001 /* SubstackService.swift */; };
+		CC3000000000000000000002 /* SubstackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC3000000000000000000001 /* SubstackView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -106,6 +109,9 @@
 		BB1000000000000000000001 /* TodoItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoItem.swift; sourceTree = "<group>"; };
 		BB2000000000000000000001 /* RemindersService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemindersService.swift; sourceTree = "<group>"; };
 		BB3000000000000000000001 /* WhatsNextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhatsNextView.swift; sourceTree = "<group>"; };
+		CC1000000000000000000001 /* SubstackModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstackModels.swift; sourceTree = "<group>"; };
+		CC2000000000000000000001 /* SubstackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstackService.swift; sourceTree = "<group>"; };
+		CC3000000000000000000001 /* SubstackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstackView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -125,6 +131,7 @@
 				C97BB9EE58B0DBF8AA04FDE7 /* SessionHistoryService.swift */,
 				2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */,
 				BB2000000000000000000001 /* RemindersService.swift */,
+				CC2000000000000000000001 /* SubstackService.swift */,
 				ECF4D0E046CD2AE96517B5AC /* VaultManager.swift */,
 			);
 			path = Services;
@@ -143,6 +150,7 @@
 			isa = PBXGroup;
 			children = (
 				94F002554690052369E931AE /* NoteFile.swift */,
+				CC1000000000000000000001 /* SubstackModels.swift */,
 				BB1000000000000000000001 /* TodoItem.swift */,
 				644D06080D4C60BFCF2637FE /* VaultSettings.swift */,
 			);
@@ -216,6 +224,7 @@
 				DB36E8D3AF61BCB4DB487E7A /* Today */,
 				AA1000000000000000000005 /* Projects */,
 				AA5000000000000000000003 /* People */,
+				CC4000000000000000000001 /* Substack */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -290,6 +299,14 @@
 				AA5000000000000000000001 /* PeopleView.swift */,
 			);
 			path = People;
+			sourceTree = "<group>";
+		};
+		CC4000000000000000000001 /* Substack */ = {
+			isa = PBXGroup;
+			children = (
+				CC3000000000000000000001 /* SubstackView.swift */,
+			);
+			path = Substack;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -405,6 +422,9 @@
 				BB1000000000000000000002 /* TodoItem.swift in Sources */,
 				BB2000000000000000000002 /* RemindersService.swift in Sources */,
 				BB3000000000000000000002 /* WhatsNextView.swift in Sources */,
+				CC1000000000000000000002 /* SubstackModels.swift in Sources */,
+				CC2000000000000000000002 /* SubstackService.swift in Sources */,
+				CC3000000000000000000002 /* SubstackView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

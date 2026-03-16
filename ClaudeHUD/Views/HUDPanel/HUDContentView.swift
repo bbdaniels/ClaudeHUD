@@ -28,12 +28,75 @@ extension Font {
     static func codeLarge(_ s: CGFloat) -> Font { .custom(codeFamily, size: 16.5 * s) }
 }
 
-enum FixedTab: String {
+enum FixedTab: String, CaseIterable {
     case history
     case obsidian
     case today
     case projects
     case people
+    case substack
+
+    var icon: String {
+        switch self {
+        case .history: return "clock.arrow.circlepath"
+        case .obsidian: return "archivebox"
+        case .today: return "calendar"
+        case .projects: return "briefcase"
+        case .people: return "person.2"
+        case .substack: return "newspaper"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .history: return "History"
+        case .obsidian: return "Notes"
+        case .today: return "Today"
+        case .projects: return "Projects"
+        case .people: return "People"
+        case .substack: return "Substack"
+        }
+    }
+
+    var help: String {
+        switch self {
+        case .history: return "Session history"
+        case .obsidian: return "Notes"
+        case .today: return "Today's schedule"
+        case .projects: return "Projects"
+        case .people: return "People"
+        case .substack: return "Substack feed"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .history: return "Browse and resume past Claude Code sessions"
+        case .obsidian: return "Browse vault notes, preview, edit"
+        case .today: return "AI daily briefing with schedule and meeting prep"
+        case .projects: return "Cross-reference notes, sessions, calendar, email"
+        case .people: return "Contact directory from calendar, email, Contacts"
+        case .substack: return "Aggregated feed from your subscriptions"
+        }
+    }
+
+    /// Tabs that cannot be hidden
+    var isRequired: Bool { self == .history }
+
+    static func hiddenTabs() -> Set<String> {
+        let raw = UserDefaults.standard.string(forKey: "hiddenTabs") ?? ""
+        return Set(raw.split(separator: ",").map(String.init)).subtracting([""])
+    }
+
+    static func setHidden(_ tab: FixedTab, hidden: Bool) {
+        var current = hiddenTabs()
+        if hidden { current.insert(tab.rawValue) } else { current.remove(tab.rawValue) }
+        UserDefaults.standard.set(current.sorted().joined(separator: ","), forKey: "hiddenTabs")
+    }
+
+    static func isHidden(_ tab: FixedTab) -> Bool {
+        hiddenTabs().contains(tab.rawValue)
+    }
 }
 
 struct HUDContentView: View {
@@ -176,6 +239,9 @@ struct HUDContentView: View {
                 case .people:
                     PeopleView()
                         .environmentObject(appState.contactService)
+                case .substack:
+                    SubstackView()
+                        .environmentObject(appState.substackService)
                 }
             } else {
                 ChatView()
@@ -242,79 +308,30 @@ struct TabBar: View {
     @Binding var activeFixedTab: FixedTab?
     @EnvironmentObject var tabManager: TabManager
     @Environment(\.fontScale) private var scale
+    @AppStorage("hiddenTabs") private var hiddenTabsRaw: String = ""
+
+    private var visibleTabs: [FixedTab] {
+        let hidden = FixedTab.hiddenTabs()
+        return FixedTab.allCases.filter { !hidden.contains($0.rawValue) }
+    }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
-                // History tab (fixed)
-                Button(action: { activeFixedTab = .history }) {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .font(.captionFont(scale))
-                        .foregroundColor(activeFixedTab == .history ? .primary : .secondary)
-                        .frame(width: 28, height: 24)
+                ForEach(visibleTabs, id: \.rawValue) { tab in
+                    Button(action: { activeFixedTab = tab }) {
+                        Image(systemName: tab.icon)
+                            .font(.captionFont(scale))
+                            .foregroundColor(activeFixedTab == tab ? .primary : .secondary)
+                            .frame(width: 28, height: 24)
+                    }
+                    .buttonStyle(.borderless)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(activeFixedTab == tab ? Color.accentColor.opacity(0.12) : Color.clear)
+                    )
+                    .help(tab.help)
                 }
-                .buttonStyle(.borderless)
-                .background(
-                    RoundedRectangle(cornerRadius: 5)
-                        .fill(activeFixedTab == .history ? Color.accentColor.opacity(0.12) : Color.clear)
-                )
-                .help("Session history")
-
-                // Obsidian tab (fixed)
-                Button(action: { activeFixedTab = .obsidian }) {
-                    Image(systemName: "archivebox")
-                        .font(.captionFont(scale))
-                        .foregroundColor(activeFixedTab == .obsidian ? .primary : .secondary)
-                        .frame(width: 28, height: 24)
-                }
-                .buttonStyle(.borderless)
-                .background(
-                    RoundedRectangle(cornerRadius: 5)
-                        .fill(activeFixedTab == .obsidian ? Color.accentColor.opacity(0.12) : Color.clear)
-                )
-                .help("Notes")
-
-                // Today tab (fixed)
-                Button(action: { activeFixedTab = .today }) {
-                    Image(systemName: "calendar")
-                        .font(.captionFont(scale))
-                        .foregroundColor(activeFixedTab == .today ? .primary : .secondary)
-                        .frame(width: 28, height: 24)
-                }
-                .buttonStyle(.borderless)
-                .background(
-                    RoundedRectangle(cornerRadius: 5)
-                        .fill(activeFixedTab == .today ? Color.accentColor.opacity(0.12) : Color.clear)
-                )
-                .help("Today's schedule")
-
-                // Projects tab (fixed)
-                Button(action: { activeFixedTab = .projects }) {
-                    Image(systemName: "briefcase")
-                        .font(.captionFont(scale))
-                        .foregroundColor(activeFixedTab == .projects ? .primary : .secondary)
-                        .frame(width: 28, height: 24)
-                }
-                .buttonStyle(.borderless)
-                .background(
-                    RoundedRectangle(cornerRadius: 5)
-                        .fill(activeFixedTab == .projects ? Color.accentColor.opacity(0.12) : Color.clear)
-                )
-                .help("Projects")
-
-                // People tab (fixed)
-                Button(action: { activeFixedTab = .people }) {
-                    Image(systemName: "person.2")
-                        .font(.captionFont(scale))
-                        .foregroundColor(activeFixedTab == .people ? .primary : .secondary)
-                        .frame(width: 28, height: 24)
-                }
-                .buttonStyle(.borderless)
-                .background(
-                    RoundedRectangle(cornerRadius: 5)
-                        .fill(activeFixedTab == .people ? Color.accentColor.opacity(0.12) : Color.clear)
-                )
-                .help("People")
 
                 Divider()
                     .frame(height: 16)
@@ -1241,17 +1258,12 @@ struct InfoPopover: View {
             Divider()
 
             // Tabs
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Tabs")
-                    .font(.custom("Fira Sans", size: 12).weight(.semibold))
-                    .foregroundColor(.secondary)
+            TabToggleSection()
 
-                InfoRow(icon: "clock.arrow.circlepath", text: "**History:** Browse and resume past Claude Code sessions across all projects")
-                InfoRow(icon: "archivebox", text: "**Notes:** Browse vault notes. Click to preview, pencil to edit. Multi-vault support")
-                InfoRow(icon: "calendar", text: "**Today:** AI daily briefing with date navigation. Claude summarizes your schedule and preps each meeting")
-                InfoRow(icon: "briefcase", text: "**Projects:** Cross-references notes, sessions, calendar, and email for project intelligence")
-                InfoRow(icon: "person.2", text: "**People:** Contact directory resolved from calendar, email, and macOS Contacts")
-            }
+            Divider()
+
+            // Substack cookie
+            SubstackCookieSection()
 
             Divider()
 
@@ -1324,6 +1336,106 @@ private struct InfoRow: View {
             Text(text)
                 .font(.custom("Fira Sans", size: 12))
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+// MARK: - Tab Toggle Settings
+
+private struct TabToggleSection: View {
+    @AppStorage("hiddenTabs") private var hiddenTabsRaw: String = ""
+    @State private var hiddenTabs: Set<String> = FixedTab.hiddenTabs()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Tabs")
+                .font(.custom("Fira Sans", size: 12).weight(.semibold))
+                .foregroundColor(.secondary)
+
+            ForEach(FixedTab.allCases, id: \.rawValue) { tab in
+                HStack(spacing: 8) {
+                    Image(systemName: tab.icon)
+                        .font(.system(size: 11))
+                        .foregroundColor(hiddenTabs.contains(tab.rawValue) ? .secondary.opacity(0.3) : .secondary)
+                        .frame(width: 14, alignment: .center)
+                    Text("**\(tab.label):**")
+                        .font(.custom("Fira Sans", size: 12))
+                        .foregroundColor(hiddenTabs.contains(tab.rawValue) ? .secondary.opacity(0.4) : .primary)
+                    Text(tab.detail)
+                        .font(.custom("Fira Sans", size: 11))
+                        .foregroundColor(.secondary.opacity(0.7))
+                        .lineLimit(1)
+                    Spacer()
+                    if !tab.isRequired {
+                        Toggle("", isOn: Binding(
+                            get: { !hiddenTabs.contains(tab.rawValue) },
+                            set: { enabled in
+                                if enabled {
+                                    hiddenTabs.remove(tab.rawValue)
+                                } else {
+                                    hiddenTabs.insert(tab.rawValue)
+                                }
+                                FixedTab.setHidden(tab, hidden: !enabled)
+                                // Trigger @AppStorage refresh in TabBar
+                                hiddenTabsRaw = hiddenTabs.sorted().joined(separator: ",")
+                            }
+                        ))
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Substack Cookie Settings
+
+private struct SubstackCookieSection: View {
+    @State private var cookieText: String = ""
+    @State private var hasCookie: Bool = SubstackService.loadCookie() != nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Substack")
+                .font(.custom("Fira Sans", size: 12).weight(.semibold))
+                .foregroundColor(.secondary)
+
+            if hasCookie {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(.green)
+                    Text("Cookie configured")
+                        .font(.custom("Fira Sans", size: 12))
+                    Spacer()
+                    Button("Remove") {
+                        SubstackService.deleteCookie()
+                        hasCookie = false
+                    }
+                    .font(.custom("Fira Sans", size: 11))
+                    .buttonStyle(.borderless)
+                    .foregroundColor(.red)
+                }
+            } else {
+                Text("Paste your substack.sid cookie to enable the feed:")
+                    .font(.custom("Fira Sans", size: 11))
+                    .foregroundColor(.secondary)
+                HStack(spacing: 6) {
+                    TextField("substack.sid value", text: $cookieText)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.custom("Fira Code", size: 10))
+                    Button("Save") {
+                        guard !cookieText.isEmpty else { return }
+                        SubstackService.saveCookie(cookieText)
+                        hasCookie = true
+                        cookieText = ""
+                    }
+                    .font(.custom("Fira Sans", size: 11))
+                    .buttonStyle(.borderless)
+                    .disabled(cookieText.isEmpty)
+                }
+            }
         }
     }
 }
