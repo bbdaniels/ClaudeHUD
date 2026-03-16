@@ -31,11 +31,40 @@ class CalendarService: ObservableObject {
     @Published var todayEvents: [CalendarEvent] = []
     @Published var accessGranted = false
     @Published var displayDate: Date = Date()
+    @Published var excludedCalendarIDs: Set<String> {
+        didSet { saveExcluded(); loadEvents(for: displayDate) }
+    }
 
     private let store = EKEventStore()
     private var observer: NSObjectProtocol?
 
+    /// All calendars the user has in EventKit
+    var allCalendars: [EKCalendar] {
+        store.calendars(for: .event).sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    func isExcluded(_ calendar: EKCalendar) -> Bool {
+        excludedCalendarIDs.contains(calendar.calendarIdentifier)
+    }
+
+    func toggleCalendar(_ calendar: EKCalendar) {
+        if excludedCalendarIDs.contains(calendar.calendarIdentifier) {
+            excludedCalendarIDs.remove(calendar.calendarIdentifier)
+        } else {
+            excludedCalendarIDs.insert(calendar.calendarIdentifier)
+        }
+    }
+
+    private func saveExcluded() {
+        UserDefaults.standard.set(Array(excludedCalendarIDs), forKey: "calendar.excludedIDs")
+    }
+
+    private static func loadExcluded() -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: "calendar.excludedIDs") ?? [])
+    }
+
     init() {
+        self.excludedCalendarIDs = Self.loadExcluded()
         requestAccess()
     }
 
@@ -63,7 +92,8 @@ class CalendarService: ObservableObject {
         let startOfDay = cal.startOfDay(for: date)
         let endOfDay = cal.date(byAdding: .day, value: 1, to: startOfDay)!
 
-        let predicate = store.predicateForEvents(withStart: startOfDay, end: endOfDay, calendars: nil)
+        let calendars = allCalendars.filter { !excludedCalendarIDs.contains($0.calendarIdentifier) }
+        let predicate = store.predicateForEvents(withStart: startOfDay, end: endOfDay, calendars: calendars.isEmpty ? nil : calendars)
         let ekEvents = store.events(matching: predicate)
 
         todayEvents = ekEvents.map { convert($0) }
