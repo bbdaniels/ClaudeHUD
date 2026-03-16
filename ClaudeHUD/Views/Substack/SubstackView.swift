@@ -120,7 +120,36 @@ struct SubstackView: View {
                             )
                             Divider().opacity(0.2).padding(.leading, 12)
                         }
+
                     }
+                }
+
+                // Load more -- outside ScrollView so taps always register
+                if !showingSaved && substackService.hasMore && !substackService.feedPosts.isEmpty {
+                    Divider().opacity(0.3)
+                    Button {
+                        Task { await substackService.loadMore() }
+                    } label: {
+                        HStack {
+                            Spacer()
+                            if substackService.isLoadingMore {
+                                ProgressView().controlSize(.small)
+                                Text("Loading...")
+                                    .font(.captionFont(scale))
+                                    .foregroundColor(.secondary)
+                            } else {
+                                Image(systemName: "arrow.down.circle")
+                                    .font(.captionFont(scale))
+                                Text("Load more")
+                                    .font(.captionFont(scale))
+                            }
+                            Spacer()
+                        }
+                        .foregroundColor(.accentColor)
+                        .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(substackService.isLoadingMore)
                 }
             }
         }
@@ -242,10 +271,13 @@ struct SubstackPostRow: View {
                                 .buttonStyle(.borderless)
                                 .help("Dismiss")
                             } else {
-                                if let time = post.readingTime {
-                                    Text(time)
+                                if let wc = post.wordCount, wc > 0 {
+                                    Text("\(wc) words")
                                         .font(.captionFont(scale))
                                         .foregroundColor(.secondary.opacity(0.5))
+                                    Text("·")
+                                        .font(.captionFont(scale))
+                                        .foregroundColor(.secondary.opacity(0.3))
                                 }
                                 Text(Self.relativeDateFormatter.localizedString(for: post.postDate, relativeTo: Date()))
                                     .font(.captionFont(scale))
