@@ -91,6 +91,8 @@ struct TodayView: View {
                     }
 
                     Spacer()
+
+                    CalendarFilterMenu()
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 6)
@@ -153,6 +155,8 @@ struct TodayView: View {
                     Text(dayShape)
                         .font(.captionFont(scale))
                         .foregroundColor(.secondary.opacity(0.5))
+
+                    CalendarFilterMenu()
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 6)
@@ -677,6 +681,42 @@ private struct EmailThreadRow: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Calendar Filter Menu
+
+private struct CalendarFilterMenu: View {
+    @EnvironmentObject var calendarService: CalendarService
+    @Environment(\.fontScale) private var scale
+
+    private var hasExclusions: Bool { !calendarService.excludedCalendarIDs.isEmpty }
+
+    var body: some View {
+        Menu {
+            ForEach(calendarService.allCalendars, id: \.calendarIdentifier) { cal in
+                Button(action: { calendarService.toggleCalendar(cal) }) {
+                    HStack {
+                        Image(systemName: calendarService.isExcluded(cal) ? "circle" : "checkmark.circle.fill")
+                        Text(cal.title)
+                    }
+                }
+            }
+
+            if hasExclusions {
+                Divider()
+                Button("Show All") {
+                    calendarService.excludedCalendarIDs.removeAll()
+                }
+            }
+        } label: {
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.system(size: 10 * scale, weight: .medium))
+                .foregroundColor(hasExclusions ? .blue : .secondary.opacity(0.5))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
     }
 }
 
