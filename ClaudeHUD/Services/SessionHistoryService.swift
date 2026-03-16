@@ -12,6 +12,14 @@ struct SessionInfo: Identifiable {
     let projectName: String  // last component (e.g. "ClaudeHUD")
     let preview: String      // first user message preview
     let timestamp: Date      // file modification time
+    let filePath: String     // full path to .jsonl file (for on-demand search)
+}
+
+// MARK: - Search Result
+
+struct SessionSearchResult: Identifiable {
+    let id: String           // session ID
+    let snippet: String      // ~80 chars around the match
 }
 
 // MARK: - Session History Service
@@ -20,8 +28,11 @@ struct SessionInfo: Identifiable {
 class SessionHistoryService: ObservableObject {
     @Published var sessions: [SessionInfo] = []
     @Published var isLoading = false
+    @Published var searchResults: [String: SessionSearchResult] = [:]  // sessionId -> result
+    @Published var isSearching = false
 
     private let claudeProjectsDir = "\(NSHomeDirectory())/.claude/projects"
+    private var searchTask: Task<Void, Never>?
 
     func refresh() async {
         isLoading = true
@@ -32,6 +43,53 @@ class SessionHistoryService: ObservableObject {
         }.value
 
         sessions = result
+    }
+
+    /// Full-text search across all session files. Binary pre-filter then targeted parse.
+    func search(query: String) {
+        searchTask?.cancel()
+        searchResults = [:]
+
+        guard !query.isEmpty else {
+            isSearching = false
+            return
+        }
+
+        isSearching = true
+        let sessions = self.sessions
+        let q = query
+
+        searchTask = Task { [weak self] in
+            // Concurrent search with progressive results
+            await withTaskGroup(of: (String, SessionSearchResult)?.self) { group in
+                for session in sessions {
+                    group.addTask {
+                        // Phase 1: binary pre-filter — check raw bytes, no JSON parsing
+                        guard let data = try? Data(contentsOf: URL(fileURLWithPath: session.filePath)) else { return nil }
+                        guard let raw = String(data: data, encoding: .utf8) else { return nil }
+                        guard raw.range(of: q, options: .caseInsensitive) != nil else { return nil }
+
+                        // Phase 2: targeted parse — find snippet in actual message content
+                        guard let snippet = Self.extractSnippet(from: raw, query: q) else { return nil }
+                        return (session.id, SessionSearchResult(id: session.id, snippet: snippet))
+                    }
+                }
+
+                // Stream results to UI as they arrive
+                for await result in group {
+                    if Task.isCancelled { return }
+                    guard let (id, searchResult) = result else { continue }
+                    await MainActor.run { [weak self] in
+                        self?.searchResults[id] = searchResult
+                    }
+                }
+            }
+
+            await MainActor.run { [weak self] in
+                guard let self, !Task.isCancelled else { return }
+                self.isSearching = false
+            }
+        }
     }
 
     /// Delete a session's JSONL file and remove it from the list.
@@ -83,12 +141,66 @@ class SessionHistoryService: ObservableObject {
                     projectPath: projectPath,
                     projectName: projectName,
                     preview: preview,
-                    timestamp: modDate
+                    timestamp: modDate,
+                    filePath: filePath
                 ))
             }
         }
 
         return found.sorted { $0.timestamp > $1.timestamp }
+    }
+
+    // MARK: - Snippet Extraction (for search results)
+
+    /// Extract a snippet from raw JSONL text around the first message content match.
+    nonisolated private static func extractSnippet(from raw: String, query: String) -> String? {
+        for line in raw.components(separatedBy: "\n") {
+            guard !line.isEmpty,
+                  let lineData = line.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any]
+            else { continue }
+
+            let content = extractMessageContent(from: json)
+            guard let content, !content.isEmpty else { continue }
+            guard content.localizedCaseInsensitiveContains(query) else { continue }
+
+            // Found a match — build snippet
+            let lower = content.lowercased()
+            let q = query.lowercased()
+            guard let range = lower.range(of: q) else { continue }
+
+            let center = lower.distance(from: lower.startIndex, to: range.lowerBound)
+            let start = max(0, center - 40)
+            let end = min(content.count, center + q.count + 40)
+            let startIdx = content.index(content.startIndex, offsetBy: start)
+            let endIdx = content.index(content.startIndex, offsetBy: end)
+            var snippet = String(content[startIdx..<endIdx])
+                .replacingOccurrences(of: "\n", with: " ")
+            if start > 0 { snippet = "…" + snippet }
+            if end < content.count { snippet += "…" }
+            return snippet
+        }
+        return nil
+    }
+
+    /// Extract user/assistant text content from a JSONL line (any format).
+    nonisolated private static func extractMessageContent(from json: [String: Any]) -> String? {
+        // Format 1: {"role": "user"/"assistant", "content": "..."}
+        if let role = json["role"] as? String, role == "user" || role == "assistant" {
+            return extractTextContent(json["content"])
+        }
+        // Format 2: {"type": "human"/"assistant", "message": {...}}
+        if let type = json["type"] as? String, (type == "human" || type == "assistant") {
+            if let msg = json["message"] as? [String: Any] {
+                return extractTextContent(msg["content"])
+            }
+        }
+        // Format 3: {"message": {"role": "user"/"assistant", ...}}
+        if let msg = json["message"] as? [String: Any],
+           let role = msg["role"] as? String, role == "user" || role == "assistant" {
+            return extractTextContent(msg["content"])
+        }
+        return nil
     }
 
     // MARK: - Project Path Decoding
@@ -209,31 +321,25 @@ class SessionHistoryService: ObservableObject {
                   let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any]
             else { continue }
 
-            // Format 1: {"role": "user", "content": "..."}
-            if let role = json["role"] as? String, role == "user" {
-                if let content = extractTextContent(json["content"]) {
-                    return String(content.prefix(100))
-                }
-            }
-
-            // Format 2: {"type": "human", "message": {...}}
-            if let type = json["type"] as? String, type == "human" {
-                if let msg = json["message"] as? [String: Any],
-                   let content = extractTextContent(msg["content"]) {
-                    return String(content.prefix(100))
-                }
-            }
-
-            // Format 3: {"message": {"role": "user", ...}}
-            if let msg = json["message"] as? [String: Any],
-               let role = msg["role"] as? String, role == "user" {
-                if let content = extractTextContent(msg["content"]) {
-                    return String(content.prefix(100))
-                }
+            if let content = extractMessageContent(from: json), let role = messageRole(from: json),
+               role == "user" {
+                return String(content.prefix(100))
             }
         }
 
         return "Session"
+    }
+
+    /// Get the role from a JSONL message line.
+    nonisolated private static func messageRole(from json: [String: Any]) -> String? {
+        if let role = json["role"] as? String { return role }
+        if let type = json["type"] as? String {
+            if type == "human" { return "user" }
+            if type == "assistant" { return "assistant" }
+        }
+        if let msg = json["message"] as? [String: Any],
+           let role = msg["role"] as? String { return role }
+        return nil
     }
 
     /// Extract text from content that may be a string or an array of content blocks.
