@@ -50,6 +50,20 @@ A macOS menu bar app that puts Claude at your fingertips. ClaudeHUD is a lightwe
 - Vault-relative image rendering
 - Right-click any note to open in Obsidian
 
+**Substack reader** -- Read your Substack feed inline without leaving the app:
+- Authenticated via `substack.sid` cookie (configure in the info popover)
+- Inbox-style feed with unread/read tracking (seeded from Substack's own read state)
+- Click to expand -- fetches full post body from Substack's API, renders as plain text
+- Save/bookmark posts locally with persistent state
+- Search across post titles, authors, and publications
+- Paginated feed (up to 100 posts), with 1-hour cache
+- Reaction and comment counts shown on expanded posts
+- "Mark all read" for inbox zero
+
+**Tab visibility** -- Toggle tabs on and off from the info popover. Each tab has a switch to show or hide it from the tab bar. History is always visible.
+
+**People tab** -- Contact directory resolved from calendar attendees, Spark email headers, and macOS Contacts.
+
 **Push notifications** -- Get notified when Claude needs attention. Click the bell icon to configure:
 - **Desktop** -- macOS notification banners via the system notification center
 - **Mobile** -- Push to iPhone and Apple Watch via [ntfy.sh](https://ntfy.sh)
@@ -127,6 +141,7 @@ ClaudeHUD/
     ConversationManager.swift  # Conversations, tabs, messaging
   Models/
     NoteFile.swift         # Obsidian file tree model
+    SubstackModels.swift   # Substack publication, post, API response types
     VaultSettings.swift    # Vault config, security-scoped bookmarks
   Views/
     HUDPanel/
@@ -146,6 +161,8 @@ ClaudeHUD/
       TodayView.swift                 # Daily calendar with AI meeting briefings
     Projects/
       ProjectDashboardView.swift      # Project intelligence dashboard
+    Substack/
+      SubstackView.swift              # Inbox-style Substack reader
     Settings/
       SettingsView.swift   # Settings UI
   Services/
@@ -155,6 +172,7 @@ ClaudeHUD/
     ProjectService.swift           # Project discovery and cross-referencing
     VaultManager.swift             # Obsidian vault state, file loading
     PushNotificationManager.swift  # Hook install, settings.json management
+    SubstackService.swift          # Substack API client, cookie auth, caching
     SessionHistoryService.swift    # Scan ~/.claude/projects/ for past sessions
     TerminalService.swift          # Terminal app detection, selection, command launch
     PermissionWatcherService.swift # Monitor pending permission requests
