@@ -18,6 +18,7 @@ A macOS menu bar app that puts Claude at your fingertips. ClaudeHUD is a lightwe
 - **Unsafe** -- No guardrails; Claude executes anything without asking
 
 **Session history** -- Browse all past Claude Code sessions across every project on your machine. Sessions are grouped by project and parent folder with collapsible dropdowns. Launch a new session in any project with one click, or expand to resume a specific past session. Per-project controls include:
+- **Full-text search** -- Search across all message content in your chat history. Uses a two-phase approach: binary pre-filter eliminates non-matching files without JSON parsing, then concurrent targeted parsing extracts context snippets. Results stream in progressively with ~80-char snippets showing the match in context.
 - **Safe/Unsafe toggle** -- Persistent per-project, controls `--dangerously-skip-permissions`
 - **Effort level** -- Cycle through default/low/medium/high/max per project
 

@@ -580,6 +580,7 @@ struct SessionHistoryView: View {
     @EnvironmentObject var terminalService: TerminalService
     @Environment(\.fontScale) private var scale
     @State private var searchText = ""
+    @State private var searchDebounceTask: Task<Void, Never>?
     @State private var starredPaths: Set<String> = {
         Set(UserDefaults.standard.stringArray(forKey: "history.starredProjects") ?? [])
     }()
@@ -593,9 +594,11 @@ struct SessionHistoryView: View {
             filtered = sessionHistory.sessions
         } else {
             let q = searchText.lowercased()
+            let hasSearchResults = !sessionHistory.searchResults.isEmpty
             filtered = sessionHistory.sessions.filter {
                 $0.projectName.lowercased().contains(q) || $0.preview.lowercased().contains(q) ||
-                $0.projectPath.lowercased().contains(q)
+                $0.projectPath.lowercased().contains(q) ||
+                (hasSearchResults && sessionHistory.searchResults[$0.id] != nil)
             }
         }
 
@@ -665,6 +668,23 @@ struct SessionHistoryView: View {
                     TextField("Search chats...", text: $searchText)
                         .font(.smallFont(scale))
                         .textFieldStyle(.plain)
+                        .onChange(of: searchText) { newValue in
+                            searchDebounceTask?.cancel()
+                            if newValue.isEmpty {
+                                sessionHistory.search(query: "")
+                            } else {
+                                searchDebounceTask = Task {
+                                    try? await Task.sleep(nanoseconds: 300_000_000)
+                                    guard !Task.isCancelled else { return }
+                                    sessionHistory.search(query: newValue)
+                                }
+                            }
+                        }
+                    if sessionHistory.isSearching {
+                        ProgressView()
+                            .scaleEffect(0.5)
+                            .frame(width: 12, height: 12)
+                    }
                     if !searchText.isEmpty {
                         Button(action: { searchText = "" }) {
                             Image(systemName: "xmark.circle.fill")
@@ -694,6 +714,7 @@ struct SessionHistoryView: View {
                                     title: section.title,
                                     groups: section.groups,
                                     starredPaths: starredPaths,
+                                    searchResults: sessionHistory.searchResults,
                                     onToggleStar: { toggleStar($0) },
                                     onDeleteSession: { deleteSession($0, projectPath: $1) }
                                 )
@@ -747,6 +768,7 @@ struct TimeSectionView: View {
     let title: String
     let groups: [(name: String, path: String, parentPath: String, sessions: [SessionInfo])]
     let starredPaths: Set<String>
+    let searchResults: [String: SessionSearchResult]
     let onToggleStar: (String) -> Void
     let onDeleteSession: (String, String) -> Void
     @State private var collapsed = false
@@ -824,6 +846,7 @@ struct TimeSectionView: View {
                             projectPath: group.path,
                             sessions: group.sessions,
                             isStarred: starredPaths.contains(group.path),
+                            searchResults: searchResults,
                             onToggleStar: { onToggleStar(group.path) },
                             onDeleteSession: { sessionId in
                                 onDeleteSession(sessionId, group.path)
@@ -844,6 +867,7 @@ struct ProjectRow: View {
     let projectPath: String
     let sessions: [SessionInfo]
     let isStarred: Bool
+    let searchResults: [String: SessionSearchResult]
     let onToggleStar: () -> Void
     let onDeleteSession: (String) -> Void
     @EnvironmentObject var terminalService: TerminalService
@@ -868,6 +892,14 @@ struct ProjectRow: View {
 
     private var defaultsKey: String { "history.unsafe.\(projectPath)" }
     private var effortKey: String { "history.effort.\(projectPath)" }
+
+    /// Whether this project has any full-text search matches.
+    private var hasSearchMatches: Bool {
+        !searchResults.isEmpty && sessions.contains { searchResults[$0.id] != nil }
+    }
+
+    /// Whether sessions list should be shown (explicit expand or search match).
+    private var isExpanded: Bool { expanded || hasSearchMatches }
 
     private var visibleSessions: [SessionInfo] {
         if showAll || sessions.count <= sessionCap {
@@ -897,12 +929,14 @@ struct ProjectRow: View {
     }
 
     init(projectName: String, projectPath: String, sessions: [SessionInfo],
-         isStarred: Bool, onToggleStar: @escaping () -> Void,
+         isStarred: Bool, searchResults: [String: SessionSearchResult] = [:],
+         onToggleStar: @escaping () -> Void,
          onDeleteSession: @escaping (String) -> Void) {
         self.projectName = projectName
         self.projectPath = projectPath
         self.sessions = sessions
         self.isStarred = isStarred
+        self.searchResults = searchResults
         self.onToggleStar = onToggleStar
         self.onDeleteSession = onDeleteSession
         self._unsafeMode = State(initialValue: UserDefaults.standard.bool(forKey: "history.unsafe.\(projectPath)"))
@@ -913,8 +947,8 @@ struct ProjectRow: View {
         VStack(alignment: .leading, spacing: 0) {
             // Compact project line
             HStack(spacing: 6) {
-                if sessions.count > 1 {
-                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                if sessions.count > 1 || hasSearchMatches {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                         .font(.system(size: 10 * scale, weight: .semibold))
                         .foregroundColor(.secondary)
                         .frame(width: 14)
@@ -996,17 +1030,18 @@ struct ProjectRow: View {
             .padding(.vertical, 8)
             .contentShape(Rectangle())
             .onTapGesture {
-                if sessions.count > 1 {
+                if sessions.count > 1 || hasSearchMatches {
                     withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
                 }
             }
 
-            if expanded {
+            if isExpanded {
                 VStack(spacing: 0) {
                     ForEach(visibleSessions) { session in
                         SessionDetailRow(
                             session: session,
                             launchFlags: launchFlags,
+                            searchResult: searchResults[session.id],
                             onDelete: { onDeleteSession(session.id) }
                         )
                     }
@@ -1046,6 +1081,7 @@ struct ProjectRow: View {
 struct SessionDetailRow: View {
     let session: SessionInfo
     let launchFlags: String
+    let searchResult: SessionSearchResult?
     let onDelete: () -> Void
     @EnvironmentObject var terminalService: TerminalService
     @State private var feedback: String?
@@ -1058,6 +1094,13 @@ struct SessionDetailRow: View {
                     .font(.custom("Fira Sans", size: 12.5 * scale))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
+
+                if let snippet = searchResult?.snippet {
+                    Text(snippet)
+                        .font(.custom("Fira Sans", size: 11 * scale))
+                        .foregroundColor(.accentColor.opacity(0.8))
+                        .lineLimit(2)
+                }
 
                 Text("\(session.id.prefix(8)) · \(session.timestamp.relativeString)")
                     .font(.custom("Fira Code", size: 10 * scale))
