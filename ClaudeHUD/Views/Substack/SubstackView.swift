@@ -227,8 +227,9 @@ struct SubstackPostRow: View {
     @EnvironmentObject var substackService: SubstackService
     @Environment(\.fontScale) private var scale
     @State private var isHovered = false
-    @State private var fullBody: String?
+    @State private var fullBodyHTML: String?
     @State private var isLoadingBody = false
+    @State private var webViewHeight: CGFloat = 100
 
     private static let relativeDateFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
@@ -258,15 +259,19 @@ struct SubstackPostRow: View {
                                 // Hover action buttons
                                 Button(action: { onToggleSave() }) {
                                     Image(systemName: isSaved ? "bookmark.fill" : "bookmark")
-                                        .font(.system(size: 10))
-                                        .foregroundColor(isSaved ? .accentColor : .secondary.opacity(0.6))
+                                        .font(.system(size: 14 * scale))
+                                        .foregroundColor(isSaved ? .accentColor : .secondary.opacity(0.7))
+                                        .frame(width: 24 * scale, height: 24 * scale)
+                                        .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.borderless)
                                 .help(isSaved ? "Unsave" : "Save")
                                 Button(action: { onDismiss() }) {
                                     Image(systemName: "xmark")
-                                        .font(.system(size: 9, weight: .medium))
-                                        .foregroundColor(.secondary.opacity(0.6))
+                                        .font(.system(size: 13 * scale, weight: .medium))
+                                        .foregroundColor(.secondary.opacity(0.7))
+                                        .frame(width: 24 * scale, height: 24 * scale)
+                                        .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.borderless)
                                 .help("Dismiss")
@@ -329,19 +334,13 @@ struct SubstackPostRow: View {
                                 .foregroundColor(.secondary)
                         }
                         .padding(.top, 4)
-                    } else {
-                        let displayText = fullBody ?? post.bodyText ?? ""
-                        if !displayText.isEmpty {
-                            // Render in chunks to avoid SwiftUI layout stalls
-                            let paragraphs = displayText.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-                            ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, para in
-                                Text(para)
-                                    .font(.captionFont(scale))
-                                    .foregroundColor(.primary.opacity(0.85))
-                                    .lineSpacing(3)
-                                    .textSelection(.enabled)
-                            }
-                        }
+                    } else if let html = fullBodyHTML, !html.isEmpty {
+                        SubstackWebView(
+                            html: html,
+                            fontScale: scale,
+                            measuredHeight: $webViewHeight
+                        )
+                        .frame(height: webViewHeight)
                     }
 
                     // Action bar
@@ -400,9 +399,9 @@ struct SubstackPostRow: View {
                 .padding(.horizontal, 26) // aligned with text (12 + 6 dot + 8 spacing)
                 .padding(.bottom, 10)
                 .task {
-                    guard fullBody == nil, !isLoadingBody else { return }
+                    guard fullBodyHTML == nil, !isLoadingBody else { return }
                     isLoadingBody = true
-                    fullBody = await substackService.fetchPostBody(post: post)
+                    fullBodyHTML = await substackService.fetchPostBody(post: post)
                     isLoadingBody = false
                 }
             }
