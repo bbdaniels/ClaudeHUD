@@ -11,7 +11,6 @@ class VaultManager: ObservableObject {
     @Published var savedVaults: [VaultSettings] = []
     @Published var vaultFiles: [NoteFile] = []
     @Published var isVaultSelected = false
-
     /// Index mapping lowercased note name (without .md) to full path for wikilink resolution
     private(set) var noteIndex: [String: String] = [:]
 
@@ -361,12 +360,14 @@ class VaultManager: ObservableObject {
 
     private func loadDirectory(at url: URL, relativePath: String) -> [NoteFile]? {
         let fm = FileManager.default
-        guard let contents = try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey]) else {
+        guard let contents = try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey]) else {
             return nil
         }
 
         return contents.compactMap { itemURL -> NoteFile? in
-            let isDir = (try? itemURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            let resourceValues = try? itemURL.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey])
+            let isDir = resourceValues?.isDirectory ?? false
+            let modDate = resourceValues?.contentModificationDate
             let name = itemURL.lastPathComponent
 
             // Skip hidden dirs/files
@@ -377,10 +378,10 @@ class VaultManager: ObservableObject {
             if isDir {
                 let children = loadDirectory(at: itemURL, relativePath: itemRelative)
                 return NoteFile(name: name, path: itemURL.path, relativePath: itemRelative,
-                                isDirectory: true, children: children)
+                                isDirectory: true, modificationDate: modDate, children: children)
             } else {
                 return NoteFile(name: name, path: itemURL.path, relativePath: itemRelative,
-                                isDirectory: false, children: nil)
+                                isDirectory: false, modificationDate: modDate, children: nil)
             }
         }
     }

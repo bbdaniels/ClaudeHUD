@@ -6,7 +6,18 @@ struct NoteFile: Identifiable, Hashable {
     let path: String
     let relativePath: String
     let isDirectory: Bool
+    let modificationDate: Date?
     var children: [NoteFile]?
+
+    /// Most recent modification date among this file or any children.
+    var latestModification: Date? {
+        if let children {
+            let childDates = children.compactMap { $0.latestModification }
+            let dates = [modificationDate].compactMap { $0 } + childDates
+            return dates.max()
+        }
+        return modificationDate
+    }
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
