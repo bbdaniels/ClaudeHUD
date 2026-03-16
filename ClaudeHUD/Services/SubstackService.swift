@@ -8,6 +8,9 @@ class SubstackService: ObservableObject {
     @Published var publications: [SubstackPublication] = []
     @Published var feedPosts: [SubstackPost] = []
     @Published var isLoading = false
+    @Published var isLoadingMore = false
+    @Published var hasMore = true
+    private var currentOffset = 0
     @Published var errorMessage: String?
     @Published var hasCookie: Bool = false
     @Published var readPostIDs: Set<Int> = []
@@ -33,6 +36,8 @@ class SubstackService: ObservableObject {
         dismissedPostIDs = Self.loadDismissedState()
         if let cached = Self.loadCachedFeed() {
             feedPosts = cached
+            // Align to page boundary so pagination works
+            currentOffset = (cached.count / 20) * 20
         }
         if let cached = Self.loadCachedPublications() {
             publications = cached
@@ -196,16 +201,15 @@ class SubstackService: ObservableObject {
 
         isLoading = true
         errorMessage = nil
+        currentOffset = 0
+        hasMore = true
 
         do {
-            let posts = try await Self.fetchReaderPosts(cookie: cookie)
-            // Resolve publication names
-            var resolved = posts
-            let pubMap = Dictionary(uniqueKeysWithValues: publications.map { ($0.id, $0.name) })
-            for i in resolved.indices {
-                resolved[i].publicationName = pubMap[resolved[i].publicationId]
-                    ?? resolved[i].authorName
-            }
+            let posts = try await Self.fetchReaderPage(cookie: cookie, offset: 0)
+            currentOffset = posts.count
+            hasMore = posts.count >= 20
+
+            var resolved = resolvePubNames(posts)
             feedPosts = resolved.sorted { $0.postDate > $1.postDate }
             // Seed read state from Substack's is_viewed
             for post in feedPosts where post.isViewedOnSubstack {
@@ -220,6 +224,56 @@ class SubstackService: ObservableObject {
         }
 
         isLoading = false
+    }
+
+    func loadMore() async {
+        guard let cookie = Self.loadCookie(), !isLoadingMore, hasMore else { return }
+
+        isLoadingMore = true
+
+        // The reader/posts endpoint doesn't paginate, so fetch per-publication
+        // Use the earliest post date we have as the cutoff
+        let earliestDate = feedPosts.map(\.postDate).min() ?? Date()
+        let existingIDs = Set(feedPosts.map(\.id))
+
+        var newPosts: [SubstackPost] = []
+
+        // Fetch from up to 20 publications concurrently
+        let pubs = Array(publications.prefix(50))
+        await withTaskGroup(of: [SubstackPost].self) { group in
+            for pub in pubs {
+                group.addTask {
+                    (try? await Self.fetchPublicationPosts(
+                        subdomain: pub.subdomain, cookie: cookie, limit: 5
+                    )) ?? []
+                }
+            }
+            for await posts in group {
+                let older = posts.filter { !existingIDs.contains($0.id) && $0.postDate < earliestDate }
+                newPosts.append(contentsOf: older)
+            }
+        }
+
+        if newPosts.isEmpty {
+            hasMore = false
+        } else {
+            let resolved = resolvePubNames(newPosts)
+            feedPosts.append(contentsOf: resolved)
+            feedPosts.sort { $0.postDate > $1.postDate }
+            Self.saveCachedFeed(feedPosts)
+        }
+
+        isLoadingMore = false
+    }
+
+    private func resolvePubNames(_ posts: [SubstackPost]) -> [SubstackPost] {
+        let pubMap = Dictionary(uniqueKeysWithValues: publications.map { ($0.id, $0.name) })
+        var resolved = posts
+        for i in resolved.indices {
+            resolved[i].publicationName = pubMap[resolved[i].publicationId]
+                ?? resolved[i].authorName
+        }
+        return resolved
     }
 
     func fetchSubscriptions() async {
@@ -324,41 +378,36 @@ class SubstackService: ObservableObject {
 
     // MARK: - API Calls
 
-    nonisolated private static func fetchReaderPosts(cookie: String) async throws -> [SubstackPost] {
-        var allPosts: [SubstackPost] = []
-        var seenIDs: Set<Int> = []
-        let pageSize = 20
-        let maxPages = 5 // up to 100 posts
+    nonisolated private static func fetchReaderPage(cookie: String, offset: Int) async throws -> [SubstackPost] {
+        guard let url = URL(string: "https://substack.com/api/v1/reader/posts?limit=20&offset=\(offset)") else { return [] }
+        var request = URLRequest(url: url)
+        request.setValue("substack.sid=\(cookie)", forHTTPHeaderField: "Cookie")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        for page in 0..<maxPages {
-            let offset = page * pageSize
-            guard let url = URL(string: "https://substack.com/api/v1/reader/posts?limit=\(pageSize)&offset=\(offset)") else { break }
-            var request = URLRequest(url: url)
-            request.setValue("substack.sid=\(cookie)", forHTTPHeaderField: "Cookie")
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (data, response) = try await URLSession.shared.data(for: request)
 
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
-                if page == 0 { throw SubstackError.httpError(httpResponse.statusCode) }
-                break
-            }
-
-            let decoder = JSONDecoder()
-            let feedResponse = try decoder.decode(SubstackFeedResponse.self, from: data)
-            let posts = feedResponse.posts?.map { $0.toPost() } ?? []
-
-            // Deduplicate
-            for post in posts where !seenIDs.contains(post.id) {
-                seenIDs.insert(post.id)
-                allPosts.append(post)
-            }
-
-            // Stop if we got fewer than requested (no more pages)
-            if posts.count < pageSize { break }
+        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+            throw SubstackError.httpError(httpResponse.statusCode)
         }
 
-        return allPosts
+        let decoder = JSONDecoder()
+        let feedResponse = try decoder.decode(SubstackFeedResponse.self, from: data)
+        return feedResponse.posts?.map { $0.toPost() } ?? []
+    }
+
+    nonisolated private static func fetchPublicationPosts(subdomain: String, cookie: String, limit: Int) async throws -> [SubstackPost] {
+        guard !subdomain.isEmpty,
+              let url = URL(string: "https://\(subdomain).substack.com/api/v1/posts?limit=\(limit)") else { return [] }
+        var request = URLRequest(url: url)
+        request.setValue("substack.sid=\(cookie)", forHTTPHeaderField: "Cookie")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 10
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 { return [] }
+
+        let decoded = try JSONDecoder().decode([SubstackAPIPost].self, from: data)
+        return decoded.map { $0.toPost() }
     }
 
     nonisolated private static func fetchSubscriptionList(cookie: String) async throws -> [SubstackPublication] {
