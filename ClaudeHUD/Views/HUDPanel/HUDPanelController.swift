@@ -12,13 +12,13 @@ class HUDPanelController {
     func createPanel() {
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 600),
-            styleMask: [.titled, .closable, .resizable, .nonactivatingPanel, .hudWindow],
+            styleMask: [.titled, .closable, .resizable, .hudWindow],
             backing: .buffered,
             defer: false
         )
 
-        panel.level = .floating
-        panel.isFloatingPanel = true
+        panel.level = .normal
+        panel.isFloatingPanel = false
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
