@@ -57,6 +57,7 @@
 		CC1000000000000000000002 /* SubstackModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC1000000000000000000001 /* SubstackModels.swift */; };
 		CC2000000000000000000002 /* SubstackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2000000000000000000001 /* SubstackService.swift */; };
 		CC3000000000000000000002 /* SubstackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC3000000000000000000001 /* SubstackView.swift */; };
+		CC5000000000000000000002 /* SubstackWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC5000000000000000000001 /* SubstackWebView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -112,6 +113,7 @@
 		CC1000000000000000000001 /* SubstackModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstackModels.swift; sourceTree = "<group>"; };
 		CC2000000000000000000001 /* SubstackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstackService.swift; sourceTree = "<group>"; };
 		CC3000000000000000000001 /* SubstackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstackView.swift; sourceTree = "<group>"; };
+		CC5000000000000000000001 /* SubstackWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstackWebView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -305,6 +307,7 @@
 			isa = PBXGroup;
 			children = (
 				CC3000000000000000000001 /* SubstackView.swift */,
+				CC5000000000000000000001 /* SubstackWebView.swift */,
 			);
 			path = Substack;
 			sourceTree = "<group>";
@@ -425,6 +428,7 @@
 				CC1000000000000000000002 /* SubstackModels.swift in Sources */,
 				CC2000000000000000000002 /* SubstackService.swift in Sources */,
 				CC3000000000000000000002 /* SubstackView.swift in Sources */,
+				CC5000000000000000000002 /* SubstackWebView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

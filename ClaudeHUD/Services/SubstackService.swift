@@ -342,30 +342,12 @@ class SubstackService: ObservableObject {
 
         struct PostResponse: Codable { let body_html: String? }
         let decoded = try JSONDecoder().decode(PostResponse.self, from: data)
-        guard let html = decoded.body_html else { return nil }
-
-        // Strip HTML to readable plain text
-        var text = html
-            .replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
-            .replacingOccurrences(of: "</p>", with: "\n\n")
-            .replacingOccurrences(of: "</div>", with: "\n")
-            .replacingOccurrences(of: "</li>", with: "\n")
-            .replacingOccurrences(of: "</h[1-6]>", with: "\n\n", options: .regularExpression)
-            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-        text = text
-            .replacingOccurrences(of: "&amp;", with: "&")
-            .replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
-            .replacingOccurrences(of: "&quot;", with: "\"")
-            .replacingOccurrences(of: "&#39;", with: "'")
-            .replacingOccurrences(of: "&nbsp;", with: " ")
-        text = text.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return decoded.body_html
     }
 
     // Body cache (permanent, keyed by post ID)
     nonisolated private static func bodyCachePath(postId: Int) -> String {
-        "\(cacheDir)/body_\(postId).txt"
+        "\(cacheDir)/body_\(postId).html"
     }
 
     nonisolated private static func loadCachedBody(postId: Int) -> String? {
