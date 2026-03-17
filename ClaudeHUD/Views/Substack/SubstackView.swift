@@ -88,6 +88,7 @@ struct SubstackView: View {
             } else {
 
                 // Feed
+                ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                         ForEach(filteredPosts) { post in
@@ -105,6 +106,7 @@ struct SubstackView: View {
                                             withAnimation(.easeInOut(duration: 0.15)) {
                                                 if expandedPostId == post.id {
                                                     expandedPostId = nil
+                                                    proxy.scrollTo(post.id, anchor: .top)
                                                 } else {
                                                     expandedPostId = post.id
                                                     substackService.markRead(post.id)
@@ -118,6 +120,7 @@ struct SubstackView: View {
                                             withAnimation(.easeInOut(duration: 0.15)) {
                                                 if expandedPostId == post.id {
                                                     expandedPostId = nil
+                                                    proxy.scrollTo(post.id, anchor: .top)
                                                 }
                                                 substackService.dismiss(post.id)
                                             }
@@ -127,9 +130,11 @@ struct SubstackView: View {
                                     Divider().opacity(0.2).padding(.leading, 12)
                                 }
                                 .background(.ultraThinMaterial)
+                                .id(post.id)
                             }
                         }
                     }
+                }
                 }
 
                 // Load more -- outside ScrollView so taps always register
