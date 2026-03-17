@@ -89,38 +89,46 @@ struct SubstackView: View {
 
                 // Feed
                 ScrollView {
-                    VStack(spacing: 0) {
+                    LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                         ForEach(filteredPosts) { post in
-                            SubstackPostRow(
-                                post: post,
-                                isRead: substackService.isRead(post.id),
-                                isExpanded: expandedPostId == post.id,
-                                onTap: {
-                                    withAnimation(.easeInOut(duration: 0.15)) {
-                                        if expandedPostId == post.id {
-                                            expandedPostId = nil
-                                        } else {
-                                            expandedPostId = post.id
-                                            substackService.markRead(post.id)
-                                        }
-                                    }
-                                },
-                                onMarkUnread: { substackService.markUnread(post.id) },
-                                onOpen: { openInBrowser(post) },
-                                onToggleSave: { substackService.toggleSaved(post.id) },
-                                onDismiss: {
-                                    withAnimation(.easeInOut(duration: 0.15)) {
-                                        if expandedPostId == post.id {
-                                            expandedPostId = nil
-                                        }
-                                        substackService.dismiss(post.id)
-                                    }
-                                },
-                                isSaved: substackService.isSaved(post.id)
-                            )
-                            Divider().opacity(0.2).padding(.leading, 12)
+                            Section {
+                                if expandedPostId == post.id {
+                                    SubstackPostContent(post: post)
+                                }
+                            } header: {
+                                VStack(spacing: 0) {
+                                    SubstackPostRow(
+                                        post: post,
+                                        isRead: substackService.isRead(post.id),
+                                        isExpanded: expandedPostId == post.id,
+                                        onTap: {
+                                            withAnimation(.easeInOut(duration: 0.15)) {
+                                                if expandedPostId == post.id {
+                                                    expandedPostId = nil
+                                                } else {
+                                                    expandedPostId = post.id
+                                                    substackService.markRead(post.id)
+                                                }
+                                            }
+                                        },
+                                        onMarkUnread: { substackService.markUnread(post.id) },
+                                        onOpen: { openInBrowser(post) },
+                                        onToggleSave: { substackService.toggleSaved(post.id) },
+                                        onDismiss: {
+                                            withAnimation(.easeInOut(duration: 0.15)) {
+                                                if expandedPostId == post.id {
+                                                    expandedPostId = nil
+                                                }
+                                                substackService.dismiss(post.id)
+                                            }
+                                        },
+                                        isSaved: substackService.isSaved(post.id)
+                                    )
+                                    Divider().opacity(0.2).padding(.leading, 12)
+                                }
+                                .background(.ultraThinMaterial)
+                            }
                         }
-
                     }
                 }
 
@@ -227,9 +235,6 @@ struct SubstackPostRow: View {
     @EnvironmentObject var substackService: SubstackService
     @Environment(\.fontScale) private var scale
     @State private var isHovered = false
-    @State private var fullBodyHTML: String?
-    @State private var isLoadingBody = false
-    @State private var webViewHeight: CGFloat = 100
 
     private static let relativeDateFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
@@ -255,38 +260,45 @@ struct SubstackPostRow: View {
                                 .font(.captionFont(scale))
                                 .foregroundColor(.secondary)
                             Spacer()
-                            if isHovered && !isExpanded {
-                                // Hover action buttons
-                                Button(action: { onToggleSave() }) {
-                                    Image(systemName: isSaved ? "bookmark.fill" : "bookmark")
-                                        .font(.system(size: 14 * scale))
-                                        .foregroundColor(isSaved ? .accentColor : .secondary.opacity(0.7))
-                                        .frame(width: 24 * scale, height: 24 * scale)
-                                        .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.borderless)
-                                .help(isSaved ? "Unsave" : "Save")
-                                Button(action: { onDismiss() }) {
-                                    Image(systemName: "xmark")
-                                        .font(.system(size: 13 * scale, weight: .medium))
-                                        .foregroundColor(.secondary.opacity(0.7))
-                                        .frame(width: 24 * scale, height: 24 * scale)
-                                        .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.borderless)
-                                .help("Dismiss")
-                            } else {
-                                if let wc = post.wordCount, wc > 0 {
-                                    Text("\(wc) words")
+                            ZStack(alignment: .trailing) {
+                                // Meta text (hidden on hover)
+                                HStack(spacing: 4) {
+                                    if let wc = post.wordCount, wc > 0 {
+                                        Text("\(wc) words")
+                                            .font(.captionFont(scale))
+                                            .foregroundColor(.secondary.opacity(0.5))
+                                        Text("·")
+                                            .font(.captionFont(scale))
+                                            .foregroundColor(.secondary.opacity(0.3))
+                                    }
+                                    Text(Self.relativeDateFormatter.localizedString(for: post.postDate, relativeTo: Date()))
                                         .font(.captionFont(scale))
                                         .foregroundColor(.secondary.opacity(0.5))
-                                    Text("·")
-                                        .font(.captionFont(scale))
-                                        .foregroundColor(.secondary.opacity(0.3))
                                 }
-                                Text(Self.relativeDateFormatter.localizedString(for: post.postDate, relativeTo: Date()))
-                                    .font(.captionFont(scale))
-                                    .foregroundColor(.secondary.opacity(0.5))
+                                .opacity(isHovered && !isExpanded ? 0 : 1)
+
+                                // Hover action buttons (shown on hover)
+                                HStack(spacing: 0) {
+                                    Button(action: { onToggleSave() }) {
+                                        Image(systemName: isSaved ? "bookmark.fill" : "bookmark")
+                                            .font(.captionFont(scale))
+                                            .foregroundColor(isSaved ? .accentColor : .secondary.opacity(0.7))
+                                            .frame(width: 20 * scale, height: 20 * scale)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .help(isSaved ? "Unsave" : "Save")
+                                    Button(action: { onDismiss() }) {
+                                        Image(systemName: "xmark")
+                                            .font(.captionFont(scale))
+                                            .foregroundColor(.secondary.opacity(0.7))
+                                            .frame(width: 20 * scale, height: 20 * scale)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .help("Dismiss")
+                                }
+                                .opacity(isHovered && !isExpanded ? 1 : 0)
                             }
                         }
 
@@ -323,88 +335,109 @@ struct SubstackPostRow: View {
             )
             .onHover { isHovered = $0 }
 
-            // Expanded content
+            // Action bar (pinned with header when scrolling)
             if isExpanded {
-                VStack(alignment: .leading, spacing: 8) {
-                    if isLoadingBody {
-                        HStack(spacing: 6) {
-                            ProgressView().controlSize(.small)
-                            Text("Loading...")
-                                .font(.captionFont(scale))
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.top, 4)
-                    } else if let html = fullBodyHTML, !html.isEmpty {
-                        SubstackWebView(
-                            html: html,
-                            fontScale: scale,
-                            measuredHeight: $webViewHeight
-                        )
-                        .frame(height: webViewHeight)
+                HStack(spacing: 12) {
+                    Button(action: onOpen) {
+                        Label("Open", systemImage: "safari")
+                            .font(.captionFont(scale))
+                            .foregroundColor(.accentColor)
                     }
+                    .buttonStyle(.borderless)
 
-                    // Action bar
-                    HStack(spacing: 12) {
-                        Button(action: onOpen) {
-                            Label("Open in browser", systemImage: "safari")
-                                .font(.captionFont(scale))
-                                .foregroundColor(.accentColor)
-                        }
-                        .buttonStyle(.borderless)
+                    Button(action: onToggleSave) {
+                        Label(isSaved ? "Saved" : "Save", systemImage: isSaved ? "bookmark.fill" : "bookmark")
+                            .font(.captionFont(scale))
+                            .foregroundColor(isSaved ? .accentColor : .secondary)
+                    }
+                    .buttonStyle(.borderless)
 
-                        Button(action: onToggleSave) {
-                            Label(isSaved ? "Saved" : "Save", systemImage: isSaved ? "bookmark.fill" : "bookmark")
-                                .font(.captionFont(scale))
-                                .foregroundColor(isSaved ? .accentColor : .secondary)
-                        }
-                        .buttonStyle(.borderless)
-
-                        if isRead {
-                            Button(action: onMarkUnread) {
-                                Label("Mark unread", systemImage: "circle")
-                                    .font(.captionFont(scale))
-                                    .foregroundColor(.secondary)
-                            }
-                            .buttonStyle(.borderless)
-                        }
-
-                        if post.audience == "only_paid" {
-                            Label("Paid", systemImage: "lock.fill")
-                                .font(.captionFont(scale))
-                                .foregroundColor(.orange.opacity(0.7))
-                        }
-
-                        Spacer()
-
-                        if post.reactionCount > 0 {
-                            Label("\(post.reactionCount)", systemImage: "heart")
-                                .font(.captionFont(scale))
-                                .foregroundColor(.secondary.opacity(0.5))
-                        }
-                        if post.commentCount > 0 {
-                            Label("\(post.commentCount)", systemImage: "bubble.right")
-                                .font(.captionFont(scale))
-                                .foregroundColor(.secondary.opacity(0.5))
-                        }
-
-                        Button(action: onDismiss) {
-                            Label("Dismiss", systemImage: "xmark")
+                    if isRead {
+                        Button(action: onMarkUnread) {
+                            Label("Unread", systemImage: "circle")
                                 .font(.captionFont(scale))
                                 .foregroundColor(.secondary)
                         }
                         .buttonStyle(.borderless)
                     }
-                    .padding(.top, 4)
+
+                    if post.audience == "only_paid" {
+                        Label("Paid", systemImage: "lock.fill")
+                            .font(.captionFont(scale))
+                            .foregroundColor(.orange.opacity(0.7))
+                    }
+
+                    Spacer()
+
+                    if post.reactionCount > 0 {
+                        Label("\(post.reactionCount)", systemImage: "heart")
+                            .font(.captionFont(scale))
+                            .foregroundColor(.secondary.opacity(0.5))
+                    }
+                    if post.commentCount > 0 {
+                        Label("\(post.commentCount)", systemImage: "bubble.right")
+                            .font(.captionFont(scale))
+                            .foregroundColor(.secondary.opacity(0.5))
+                    }
+
+                    Button(action: onTap) {
+                        Image(systemName: "chevron.up")
+                            .font(.captionFont(scale))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Collapse")
+
+                    Button(action: onDismiss) {
+                        Label("Dismiss", systemImage: "xmark")
+                            .font(.captionFont(scale))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.borderless)
                 }
-                .padding(.horizontal, 26) // aligned with text (12 + 6 dot + 8 spacing)
-                .padding(.bottom, 10)
-                .task {
-                    guard fullBodyHTML == nil, !isLoadingBody else { return }
-                    isLoadingBody = true
-                    fullBodyHTML = await substackService.fetchPostBody(post: post)
-                    isLoadingBody = false
-                }
+                .padding(.horizontal, 26)
+                .padding(.vertical, 6)
             }
+        }
+    }
+}
+
+// MARK: - Post Content (scrolls under pinned header)
+
+struct SubstackPostContent: View {
+    let post: SubstackPost
+    @EnvironmentObject var substackService: SubstackService
+    @Environment(\.fontScale) private var scale
+    @State private var fullBodyHTML: String?
+    @State private var isLoadingBody = false
+    @State private var webViewHeight: CGFloat = 100
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if isLoadingBody {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading...")
+                        .font(.captionFont(scale))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.top, 4)
+            } else if let html = fullBodyHTML, !html.isEmpty {
+                SubstackWebView(
+                    html: html,
+                    fontScale: scale,
+                    measuredHeight: $webViewHeight
+                )
+                .frame(height: webViewHeight)
+            }
+        }
+        .padding(.horizontal, 26)
+        .padding(.bottom, 10)
+        .task {
+            guard fullBodyHTML == nil, !isLoadingBody else { return }
+            isLoadingBody = true
+            fullBodyHTML = await substackService.fetchPostBody(post: post)
+            isLoadingBody = false
         }
     }
 }
