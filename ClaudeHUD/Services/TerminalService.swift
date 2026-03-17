@@ -117,7 +117,7 @@ class TerminalService: ObservableObject {
             // Write a temp script that cd's, runs the command, then drops into zsh.
             let scriptId = UUID().uuidString.prefix(8)
             let tmpScript = "/tmp/claude-resume-\(scriptId).sh"
-            let scriptContent = "#!/bin/zsh\nunset CLAUDECODE\n\(fullCommand)\nrm -f \"$0\"\nexec zsh\n"
+            let scriptContent = "#!/bin/zsh\nsource ~/.zshrc 2>/dev/null\nunset CLAUDECODE\n\(fullCommand)\nrm -f \"$0\"\nexec zsh\n"
 
             guard (try? scriptContent.write(toFile: tmpScript, atomically: true, encoding: .utf8)) != nil,
                   (try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tmpScript)) != nil
