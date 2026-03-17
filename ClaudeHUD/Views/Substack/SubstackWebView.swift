@@ -125,11 +125,18 @@ struct SubstackWebView: NSViewRepresentable {
         </style>
         </head>
         <body>
-        \(html)
+        <div id="content-wrapper">\(html)</div>
         <script>
+            var lastH = 0;
             function reportSize() {
-                var h = document.body.scrollHeight;
-                if (h > 0) {
+                var wrapper = document.getElementById('content-wrapper');
+                var h = Math.max(
+                    wrapper ? wrapper.offsetHeight : 0,
+                    document.body.scrollHeight,
+                    document.documentElement.scrollHeight
+                );
+                if (h > 0 && h !== lastH) {
+                    lastH = h;
                     window.webkit.messageHandlers.sizeChange.postMessage(String(h));
                 }
             }
@@ -140,6 +147,11 @@ struct SubstackWebView: NSViewRepresentable {
                 img.addEventListener('load', reportSize);
                 img.addEventListener('error', function() { this.style.display = 'none'; reportSize(); });
             });
+            // Safety net: re-measure after resources finish and with delays
+            window.onload = reportSize;
+            setTimeout(reportSize, 300);
+            setTimeout(reportSize, 800);
+            setTimeout(reportSize, 2000);
         </script>
         </body>
         </html>
@@ -162,7 +174,7 @@ struct SubstackWebView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            webView.evaluateJavaScript("document.body.scrollHeight") { [weak self] result, _ in
+            webView.evaluateJavaScript("Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)") { [weak self] result, _ in
                 if let h = result as? CGFloat, h > 0 {
                     DispatchQueue.main.async {
                         self?.heightBinding?.wrappedValue = h
