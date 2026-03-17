@@ -51,7 +51,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let button = statusItem?.button {
             let icon = NSImage(named: "MenuBarIcon")
-            icon?.isTemplate = false
+            icon?.isTemplate = true
             button.image = icon
             button.action = #selector(statusItemClicked(_:))
             button.target = self
