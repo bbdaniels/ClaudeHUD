@@ -3,9 +3,25 @@ import WebKit
 
 /// A WKWebView subclass that forwards scroll events to the parent scroll view.
 class ScrollPassthroughWebView: WKWebView {
+    private weak var parentScrollView: NSScrollView?
+
     override func scrollWheel(with event: NSEvent) {
-        // Forward all scroll events to the next responder (parent ScrollView)
-        nextResponder?.scrollWheel(with: event)
+        // Forward scroll events directly to the enclosing NSScrollView,
+        // bypassing the responder chain. Using nextResponder can create a
+        // feedback loop when the parent re-dispatches events back to us.
+        if parentScrollView == nil {
+            var view: NSView? = superview
+            while let v = view {
+                if let sv = v as? NSScrollView {
+                    parentScrollView = sv
+                    break
+                }
+                view = v.superview
+            }
+        }
+        if let sv = parentScrollView {
+            sv.scrollWheel(with: event)
+        }
     }
 }
 
@@ -56,6 +72,7 @@ struct SubstackWebView: NSViewRepresentable {
                 padding: 0;
                 word-wrap: break-word;
                 overflow-wrap: break-word;
+                overflow: hidden;
             }
             p { margin: 0.6em 0; }
             a { color: #5ac8fa; text-decoration: none; }
