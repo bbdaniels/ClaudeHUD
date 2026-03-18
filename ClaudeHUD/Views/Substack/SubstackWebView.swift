@@ -154,6 +154,7 @@ struct SubstackWebView: NSViewRepresentable {
         <div id="content-wrapper">\(html)</div>
         <script>
             var lastH = 0;
+            var debounceTimer = null;
             function reportSize() {
                 var wrapper = document.getElementById('content-wrapper');
                 var h = Math.max(
@@ -166,17 +167,24 @@ struct SubstackWebView: NSViewRepresentable {
                     window.webkit.messageHandlers.sizeChange.postMessage(String(h));
                 }
             }
+            // Debounced version — collapses rapid-fire image loads into one
+            // height update so we don't thrash SwiftUI layout.
+            function debouncedReportSize() {
+                if (debounceTimer) clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(reportSize, 120);
+            }
             reportSize();
-            new ResizeObserver(reportSize).observe(document.body);
-            // Report after images load
+            new ResizeObserver(debouncedReportSize).observe(document.body);
+            // Lazy-load and async-decode images to avoid blocking the main thread
             document.querySelectorAll('img').forEach(function(img) {
-                img.addEventListener('load', reportSize);
-                img.addEventListener('error', function() { this.style.display = 'none'; reportSize(); });
+                img.loading = 'lazy';
+                img.decoding = 'async';
+                img.addEventListener('load', debouncedReportSize);
+                img.addEventListener('error', function() { this.style.display = 'none'; debouncedReportSize(); });
             });
             // Safety net: re-measure after resources finish and with delays
             window.onload = reportSize;
-            setTimeout(reportSize, 300);
-            setTimeout(reportSize, 800);
+            setTimeout(reportSize, 500);
             setTimeout(reportSize, 2000);
         </script>
         </body>
