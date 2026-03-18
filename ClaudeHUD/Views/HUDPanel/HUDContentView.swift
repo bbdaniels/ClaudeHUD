@@ -598,6 +598,7 @@ struct SessionHistoryView: View {
     @Environment(\.fontScale) private var scale
     @State private var searchText = ""
     @State private var searchDebounceTask: Task<Void, Never>?
+    @State private var useColors = UserDefaults.standard.bool(forKey: "history.useColors")
     @State private var starredPaths: Set<String> = {
         Set(UserDefaults.standard.stringArray(forKey: "history.starredProjects") ?? [])
     }()
@@ -710,6 +711,16 @@ struct SessionHistoryView: View {
                         }
                         .buttonStyle(.borderless)
                     }
+                    Button(action: {
+                        useColors.toggle()
+                        UserDefaults.standard.set(useColors, forKey: "history.useColors")
+                    }) {
+                        Image(systemName: useColors ? "paintpalette.fill" : "paintpalette")
+                            .font(.system(size: 11 * scale))
+                            .foregroundColor(useColors ? .accentColor : .secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(useColors ? "Project colors ON" : "Project colors OFF")
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 6)
@@ -1090,7 +1101,9 @@ struct ProjectRow: View {
 
     private func newSession(usingApp appPath: String) {
         let command = "claude\(launchFlags)"
-        let auto = terminalService.launchWithCommand(command, inDirectory: projectPath, usingApp: appPath)
+        let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
+        let bg = useColors ? TerminalService.projectColor(for: projectName) : nil
+        let auto = terminalService.launchWithCommand(command, inDirectory: projectPath, usingApp: appPath, backgroundColor: bg)
         feedback = auto ? "Opened!" : "Cmd+V"
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
     }
@@ -1161,7 +1174,10 @@ struct SessionDetailRow: View {
 
     private func resume(usingApp appPath: String) {
         let command = "claude --resume \(session.id)\(launchFlags)"
-        let auto = terminalService.launchWithCommand(command, inDirectory: session.projectPath, usingApp: appPath)
+        let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
+        let projectName = URL(fileURLWithPath: session.projectPath).lastPathComponent
+        let bg = useColors ? TerminalService.projectColor(for: projectName) : nil
+        let auto = terminalService.launchWithCommand(command, inDirectory: session.projectPath, usingApp: appPath, backgroundColor: bg)
         feedback = auto ? "Opened!" : "Cmd+V"
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
     }
