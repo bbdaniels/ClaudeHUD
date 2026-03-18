@@ -4,11 +4,17 @@ import WebKit
 /// A WKWebView subclass that forwards scroll events to the parent scroll view.
 class ScrollPassthroughWebView: WKWebView {
     private weak var parentScrollView: NSScrollView?
+    private var isForwardingScroll = false
+    private var lastForwardedTimestamp: TimeInterval = 0
 
     override func scrollWheel(with event: NSEvent) {
-        // Forward scroll events directly to the enclosing NSScrollView,
-        // bypassing the responder chain. Using nextResponder can create a
-        // feedback loop when the parent re-dispatches events back to us.
+        // Two-layer guard against feedback loops where the parent
+        // NSScrollView re-dispatches the event back to us:
+        //  1. Synchronous re-entry (same call stack)
+        //  2. Async re-dispatch (next runloop) — same event timestamp
+        guard !isForwardingScroll,
+              event.timestamp != lastForwardedTimestamp else { return }
+
         if parentScrollView == nil {
             var view: NSView? = superview
             while let v = view {
@@ -20,7 +26,10 @@ class ScrollPassthroughWebView: WKWebView {
             }
         }
         if let sv = parentScrollView {
+            lastForwardedTimestamp = event.timestamp
+            isForwardingScroll = true
             sv.scrollWheel(with: event)
+            isForwardingScroll = false
         }
     }
 }
