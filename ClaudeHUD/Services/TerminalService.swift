@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 
 // MARK: - Terminal Service
@@ -74,7 +75,7 @@ class TerminalService: ObservableObject {
     /// When `usingApp` is provided, that app is used instead of the global selection.
     /// Returns `true` if auto-executed, `false` if copied to clipboard.
     @discardableResult
-    func launchWithCommand(_ command: String, inDirectory: String? = nil, usingApp overridePath: String? = nil) -> Bool {
+    func launchWithCommand(_ command: String, inDirectory: String? = nil, usingApp overridePath: String? = nil, backgroundColor: String? = nil) -> Bool {
         let appPath = overridePath ?? selectedPath
         guard !appPath.isEmpty else { return false }
 
@@ -132,11 +133,18 @@ class TerminalService: ObservableObject {
             // Opens a new Ghostty window running the resume command.
             // --quit-after-last-window-closed ensures the instance exits (and its
             // dock icon disappears) once the user closes the window.
+            // --title sets the window title to the project name for easy identification.
+            let projectName = inDirectory.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? "Claude Code"
+            var ghosttyArgs = ["-na", appPath, "--args",
+                               "--quit-after-last-window-closed",
+                               "--title=\(projectName)"]
+            if let bg = backgroundColor {
+                ghosttyArgs.append("--background=\(bg)")
+            }
+            ghosttyArgs.append("--command=\(tmpScript)")
             let open = Process()
             open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            open.arguments = ["-na", appPath, "--args",
-                              "--quit-after-last-window-closed",
-                              "--command=\(tmpScript)"]
+            open.arguments = ghosttyArgs
             try? open.run()
             return true
         }
@@ -179,5 +187,30 @@ class TerminalService: ObservableObject {
         let script = NSAppleScript(source: source)
         var error: NSDictionary?
         script?.executeAndReturnError(&error)
+    }
+
+    /// Derive a stable, distinct background color from a project name.
+    /// Uses golden-ratio hue spacing seeded by SHA-256 for maximum spread.
+    static func projectNSColor(for name: String) -> NSColor {
+        let digest = SHA256.hash(data: Data(name.utf8))
+        let bytes = Array(digest)
+
+        let seed = Double(UInt32(bytes[0]) << 24 | UInt32(bytes[1]) << 16
+                        | UInt32(bytes[2]) << 8  | UInt32(bytes[3]))
+        let golden = 0.618033988749895
+        let hue = (seed * golden).truncatingRemainder(dividingBy: 1.0)
+
+        let saturation = 0.55 + (Double(bytes[4]) / 255.0) * 0.35   // 0.55–0.90
+        let lightness  = 0.20 + (Double(bytes[5]) / 255.0) * 0.06   // 0.20–0.26
+
+        return NSColor(hue: hue, saturation: saturation, brightness: lightness * 2, alpha: 1.0)
+    }
+
+    static func projectColor(for name: String) -> String {
+        let color = projectNSColor(for: name)
+        let r = Int(color.redComponent * 255)
+        let g = Int(color.greenComponent * 255)
+        let b = Int(color.blueComponent * 255)
+        return String(format: "%02x%02x%02x", r, g, b)
     }
 }
