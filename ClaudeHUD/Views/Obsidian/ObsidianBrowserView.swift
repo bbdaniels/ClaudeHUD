@@ -7,7 +7,7 @@ struct ObsidianBrowserView: View {
     @State private var searchText = ""
     @State private var contentQuery = ""  // debounced version for content search
     @State private var expandedFolders: Set<String> = []
-    @State private var sortByDate = false
+    @State private var sortByDate = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -50,7 +50,7 @@ struct ObsidianBrowserView: View {
                     Button(action: { sortByDate.toggle() }) {
                         Image(systemName: sortByDate ? "clock.fill" : "textformat.abc")
                             .font(.system(size: 13 * scale))
-                            .foregroundColor(sortByDate ? .accentColor : .secondary)
+                            .foregroundColor(.secondary)
                     }
                     .buttonStyle(.borderless)
                     .help(sortByDate ? "Sorted by date (click for A-Z)" : "Sorted A-Z (click for date)")
@@ -330,8 +330,10 @@ struct ObsidianFolderView: View {
     let level: Int
     let sortByDate: Bool
     @State private var isHovered = false
+    @State private var displayCount = 10
     @Environment(\.fontScale) private var scale
 
+    private static let pageSize = 10
     private var isExpanded: Bool { expandedFolders.contains(folder.path) }
 
     var body: some View {
@@ -372,20 +374,33 @@ struct ObsidianFolderView: View {
             .onHover { isHovered = $0 }
 
             if isExpanded, let children = folder.children {
-                ForEach(children.sorted { a, b in
+                let sorted = children.sorted { a, b in
                     if a.isDirectory && !b.isDirectory { return true }
                     if !a.isDirectory && b.isDirectory { return false }
                     if sortByDate {
                         return (a.latestModification ?? .distantPast) > (b.latestModification ?? .distantPast)
                     }
                     return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-                }) { child in
+                }
+                let visible = Array(sorted.prefix(displayCount))
+                ForEach(visible) { child in
                     if child.isDirectory {
                         ObsidianFolderView(folder: child, expandedFolders: $expandedFolders, level: level + 1, sortByDate: sortByDate)
                     } else {
                         ObsidianFileRow(file: child)
                             .padding(.leading, CGFloat(level + 1) * 16)
                     }
+                }
+                if sorted.count > displayCount {
+                    Button(action: { displayCount += Self.pageSize }) {
+                        Text("Show \(min(Self.pageSize, sorted.count - displayCount)) more (\(sorted.count - displayCount) remaining)…")
+                            .font(.custom("Fira Code", size: 10 * scale))
+                            .foregroundColor(.accentColor.opacity(0.7))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.vertical, 4)
+                    .padding(.leading, CGFloat(level + 1) * 16 + 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
@@ -394,6 +409,7 @@ struct ObsidianFolderView: View {
     private func toggleExpanded() {
         if isExpanded {
             expandedFolders.remove(folder.path)
+            displayCount = Self.pageSize
         } else {
             expandedFolders.insert(folder.path)
         }
