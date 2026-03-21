@@ -621,13 +621,20 @@ struct SessionHistoryView: View {
         }
 
         let home = NSHomeDirectory()
-        let grouped = Dictionary(grouping: filtered) { $0.projectPath }
+        // Merge worktree sessions into their parent project
+        let grouped = Dictionary(grouping: filtered) { session -> String in
+            if let range = session.projectPath.range(of: "/.claude/worktrees/") {
+                return String(session.projectPath[..<range.lowerBound])
+            }
+            return session.projectPath
+        }
         return grouped.map { entry in
             // Home dir project: group under "~" instead of "/Users"
             let parentPath = entry.key == home
                 ? home
                 : URL(fileURLWithPath: entry.key).deletingLastPathComponent().path
-            return (name: entry.value.first!.projectName, path: entry.key, parentPath: parentPath, sessions: entry.value)
+            let name = URL(fileURLWithPath: entry.key).lastPathComponent
+            return (name: name, path: entry.key, parentPath: parentPath, sessions: entry.value)
         }
         .filter { $0.path != "/" && $0.parentPath != "/" }
         .sorted { $0.sessions.first!.timestamp > $1.sessions.first!.timestamp }
@@ -1123,7 +1130,7 @@ struct SessionDetailRow: View {
     var body: some View {
         HStack(spacing: 6) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(session.preview)
+                Text(session.projectPath.contains("/.claude/worktrees/") ? "worktree" : session.preview)
                     .font(.custom("Fira Sans", size: 12.5 * scale))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
