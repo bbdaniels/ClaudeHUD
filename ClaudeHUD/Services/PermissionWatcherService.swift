@@ -102,8 +102,21 @@ class PermissionWatcherService: ObservableObject {
         let jsonFiles = files.filter { $0.hasSuffix(".json") }
         let now = Date()
 
+        // Remove files older than 2 minutes (hook timeout is 90s, so these are stale)
+        for file in jsonFiles {
+            let path = "\(pendingDir)/\(file)"
+            if let attrs = try? fm.attributesOfItem(atPath: path),
+               let mtime = attrs[.modificationDate] as? Date,
+               now.timeIntervalSince(mtime) > 120 {
+                try? fm.removeItem(atPath: path)
+            }
+        }
+
+        // Re-read after cleanup
+        let liveFiles = (try? fm.contentsOfDirectory(atPath: pendingDir))?.filter { $0.hasSuffix(".json") } ?? []
+
         // Remove stale entries that no longer have pending files
-        let activeIds = Set(jsonFiles.map { String($0.dropLast(5)) }) // remove .json
+        let activeIds = Set(liveFiles.map { String($0.dropLast(5)) }) // remove .json
         pending.removeAll { !activeIds.contains($0.id) }
 
         // Detect requests that were resolved in the terminal: when the user
@@ -118,16 +131,21 @@ class PermissionWatcherService: ObservableObject {
         }
         pending.removeAll { resolvedIds.contains($0.id) }
 
-        // Add new entries
+        // Add new entries (and clean up empty/unparseable files)
         let existingIds = Set(pending.map(\.id))
-        for file in jsonFiles {
+        for file in liveFiles {
             let id = String(file.dropLast(5))
             guard !existingIds.contains(id) else { continue }
 
             let path = "\(pendingDir)/\(file)"
             guard let data = fm.contents(atPath: path),
+                  !data.isEmpty,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            else { continue }
+            else {
+                // Remove empty or unparseable files — they're stale
+                try? fm.removeItem(atPath: "\(pendingDir)/\(file)")
+                continue
+            }
 
             let toolName = json["tool_name"] as? String ?? "Unknown"
             let toolInput = json["tool_input"] as? [String: Any] ?? [:]

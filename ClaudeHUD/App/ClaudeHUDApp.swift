@@ -64,10 +64,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         if count > 0 {
             if badgeView == nil {
-                let badge = NSView(frame: NSRect(x: button.bounds.width - 10, y: button.bounds.height - 10, width: 9, height: 9))
+                let size: CGFloat = 12
+                let badge = NSView(frame: NSRect(x: button.bounds.width - size - 1, y: button.bounds.height - size - 1, width: size, height: size))
                 badge.wantsLayer = true
                 badge.layer?.backgroundColor = NSColor.systemRed.cgColor
-                badge.layer?.cornerRadius = 4.5
+                badge.layer?.cornerRadius = size / 2
+
+                let textLayer = CATextLayer()
+                textLayer.string = "!"
+                textLayer.fontSize = 9
+                textLayer.font = NSFont.systemFont(ofSize: 9, weight: .bold)
+                textLayer.foregroundColor = NSColor.white.cgColor
+                textLayer.alignmentMode = .center
+                textLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
+                textLayer.frame = CGRect(x: 0, y: 0, width: size, height: size)
+                badge.layer?.addSublayer(textLayer)
+
                 button.addSubview(badge)
                 badgeView = badge
             }

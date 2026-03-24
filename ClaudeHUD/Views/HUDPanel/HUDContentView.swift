@@ -206,8 +206,8 @@ struct HUDContentView: View {
             Divider()
                 .opacity(0.5)
 
-            // Permission approval banner
-            if !permissionWatcher.pending.isEmpty {
+            // Permission approval banner (hidden when notifications are off)
+            if !permissionWatcher.pending.isEmpty && pushManager.isEnabled {
                 PermissionBannerView()
                     .environmentObject(permissionWatcher)
             }
