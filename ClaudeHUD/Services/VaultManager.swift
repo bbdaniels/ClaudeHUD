@@ -160,21 +160,10 @@ class VaultManager: ObservableObject {
             guard fm.fileExists(atPath: folderPath, isDirectory: &isDir), isDir.boolValue else { continue }
             guard !folder.hasPrefix("."), !skipFolders.contains(folder) else { continue }
 
-            var projectTodos: [String] = []
-            guard let files = try? fm.contentsOfDirectory(atPath: folderPath) else { continue }
-
-            for file in files where file.hasSuffix(".md") {
-                let filePath = (folderPath as NSString).appendingPathComponent(file)
-                guard let content = try? String(contentsOfFile: filePath, encoding: .utf8) else { continue }
-                let lines = content.components(separatedBy: "\n")
-                for line in lines {
-                    guard ObsidianMarkdownView.isListLine(line) else { continue }
-                    let parsed = ObsidianMarkdownView.parseListItem(line, lineNumber: 0)
-                    if parsed.checkState == false {
-                        projectTodos.append(parsed.text)
-                    }
-                }
-            }
+            // Use the project's task file (Tasks.md preferred, with fallback)
+            guard let taskFile = findTaskFile(in: folderPath) else { continue }
+            let taskItems = extractActiveTasks(from: taskFile, noteName: folder, projectName: folder)
+            let projectTodos = taskItems.map(\.title)
 
             if !projectTodos.isEmpty {
                 sections.append((folder, projectTodos))
@@ -223,7 +212,7 @@ class VaultManager: ObservableObject {
         let dailyNoteItems = extractTodos(from: dailyNotePath, noteName: noteName)
         items += dailyNoteItems
 
-        // Scan Action Items.md from each project folder (today only)
+        // Scan Tasks.md (or legacy task files) from each project folder
         if includeRecent {
             let fm = FileManager.default
             let skipFolders: Set<String> = ["Templates", "Daily Notes", "Attachments", "Assets", "Archive"]
@@ -236,11 +225,10 @@ class VaultManager: ObservableObject {
                     guard fm.fileExists(atPath: folderPath, isDirectory: &isDir), isDir.boolValue else { continue }
                     guard !folder.hasPrefix("."), !skipFolders.contains(folder) else { continue }
 
-                    let actionPath = (folderPath as NSString).appendingPathComponent("Action Items.md")
-                    guard fm.fileExists(atPath: actionPath) else { continue }
+                    guard let taskFile = findTaskFile(in: folderPath) else { continue }
 
-                    let actionItems = extractTodos(from: actionPath, noteName: folder)
-                    for item in actionItems where !existingTitles.contains(item.title) {
+                    let taskItems = extractActiveTasks(from: taskFile, noteName: folder, projectName: folder)
+                    for item in taskItems where !existingTitles.contains(item.title) {
                         items.append(item)
                     }
                 }
@@ -283,7 +271,7 @@ class VaultManager: ObservableObject {
         guard let filePath = item.obsidianFilePath,
               let lineNumber = item.obsidianLineNumber else { return }
 
-        // 1. Toggle in the daily note
+        // 1. Toggle in the daily note (or whichever file the item came from)
         let url = URL(fileURLWithPath: filePath)
         guard let content = try? String(contentsOf: url, encoding: .utf8) else { return }
 
@@ -294,33 +282,172 @@ class VaultManager: ObservableObject {
         let newContent = lines.joined(separator: "\n")
         try? newContent.write(to: url, atomically: true, encoding: .utf8)
 
-        // 2. Cross-update the source project note
+        // 2. Cross-update the source Tasks.md (or legacy task file)
         guard let vault = currentVault else { return }
         if case .obsidian(let projectName) = item.source {
             let projectPath = (vault.path as NSString).appendingPathComponent(projectName)
-            let fm = FileManager.default
-            guard let files = try? fm.contentsOfDirectory(atPath: projectPath) else { return }
 
-            for file in files where file.hasSuffix(".md") {
-                let srcPath = (projectPath as NSString).appendingPathComponent(file)
-                guard let srcContent = try? String(contentsOfFile: srcPath, encoding: .utf8) else { continue }
-                let srcLines = srcContent.components(separatedBy: "\n")
+            // Find the project's task file
+            guard let taskFile = findTaskFile(in: projectPath),
+                  taskFile != filePath else { return } // Don't double-update if item came from the task file itself
 
+            guard let srcContent = try? String(contentsOfFile: taskFile, encoding: .utf8) else { return }
+            var srcLines = srcContent.components(separatedBy: "\n")
+
+            // For Tasks.md: move item from ## Active to ## Completed
+            if taskFile.hasSuffix("/Tasks.md") {
+                let fmt = DateFormatter()
+                fmt.dateFormat = "yyyy-MM-dd"
+                let today = fmt.string(from: Date())
+
+                // Find and remove the matching line in ## Active
+                var removedLine: String?
                 for (srcIdx, srcLine) in srcLines.enumerated() {
-                    // Match: same unchecked text on this line
                     guard srcLine.contains("[ ] ") else { continue }
                     guard ObsidianMarkdownView.isListLine(srcLine) else { continue }
                     let parsed = ObsidianMarkdownView.parseListItem(srcLine, lineNumber: srcIdx)
                     if parsed.checkState == false && parsed.text == item.title {
-                        var newSrcLines = srcLines
-                        newSrcLines[srcIdx] = srcLine.replacingOccurrences(of: "[ ] ", with: "[x] ")
-                        let newSrcContent = newSrcLines.joined(separator: "\n")
-                        try? newSrcContent.write(toFile: srcPath, atomically: true, encoding: .utf8)
+                        removedLine = srcLine
+                        srcLines.remove(at: srcIdx)
+                        break
+                    }
+                }
+
+                // Append to ## Completed section
+                if let removed = removedLine {
+                    let completedLine = removed
+                        .replacingOccurrences(of: "[ ] ", with: "[x] ")
+                        + " (\(today))"
+
+                    // Find the ## Completed heading and insert after it
+                    if let completedIdx = srcLines.firstIndex(where: {
+                        $0.trimmingCharacters(in: .whitespaces).hasPrefix("## Completed")
+                    }) {
+                        srcLines.insert(completedLine, at: completedIdx + 1)
+                    } else {
+                        // No ## Completed section — append one
+                        srcLines.append("")
+                        srcLines.append("## Completed")
+                        srcLines.append(completedLine)
+                    }
+
+                    // Update the updated: field in frontmatter
+                    for (i, line) in srcLines.enumerated() {
+                        if line.hasPrefix("updated:") {
+                            srcLines[i] = "updated: \(today)"
+                            break
+                        }
+                    }
+
+                    let newSrcContent = srcLines.joined(separator: "\n")
+                    try? newSrcContent.write(toFile: taskFile, atomically: true, encoding: .utf8)
+                }
+            } else {
+                // Legacy file: just toggle in place
+                for (srcIdx, srcLine) in srcLines.enumerated() {
+                    guard srcLine.contains("[ ] ") else { continue }
+                    guard ObsidianMarkdownView.isListLine(srcLine) else { continue }
+                    let parsed = ObsidianMarkdownView.parseListItem(srcLine, lineNumber: srcIdx)
+                    if parsed.checkState == false && parsed.text == item.title {
+                        srcLines[srcIdx] = srcLine.replacingOccurrences(of: "[ ] ", with: "[x] ")
+                        let newSrcContent = srcLines.joined(separator: "\n")
+                        try? newSrcContent.write(toFile: taskFile, atomically: true, encoding: .utf8)
                         return
                     }
                 }
             }
         }
+    }
+
+    // MARK: - Tasks.md Support
+
+    /// Known task file names in priority order
+    private static let taskFileNames = [
+        "Tasks.md",
+        "Action Items.md",
+        "To-Do List.md",
+        "Revision To-Do List.md"
+    ]
+
+    /// Find the task file in a project folder (Tasks.md preferred, with legacy fallback)
+    func findTaskFile(in folderPath: String) -> String? {
+        let fm = FileManager.default
+        // Check standard names first
+        for name in Self.taskFileNames {
+            let path = (folderPath as NSString).appendingPathComponent(name)
+            if fm.fileExists(atPath: path) { return path }
+        }
+        // Fallback: "Revisions for *.md" pattern
+        if let files = try? fm.contentsOfDirectory(atPath: folderPath) {
+            for file in files where file.hasPrefix("Revisions for ") && file.hasSuffix(".md") {
+                return (folderPath as NSString).appendingPathComponent(file)
+            }
+        }
+        return nil
+    }
+
+    /// Parse **bold**: prefix from task text, returning (boldTitle, cleanText)
+    private func parseBoldTitle(_ text: String) -> (boldTitle: String?, cleanText: String) {
+        // Match **Title**: rest of text
+        guard let starRange = text.range(of: "**"),
+              let endRange = text.range(of: "**:", range: starRange.upperBound..<text.endIndex) else {
+            return (nil, text)
+        }
+        let title = String(text[starRange.upperBound..<endRange.lowerBound])
+        let rest = String(text[endRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+        return (title, rest.isEmpty ? title : text)
+    }
+
+    /// Extract tasks from the ## Active section of a Tasks.md file
+    func extractActiveTasks(from filePath: String, noteName: String, projectName: String?) -> [TodoItem] {
+        guard let content = try? String(contentsOfFile: filePath, encoding: .utf8) else { return [] }
+        let lines = content.components(separatedBy: "\n")
+        var items: [TodoItem] = []
+        var currentHeading = noteName
+        var inActiveSection = false
+        let isTasksMd = filePath.hasSuffix("/Tasks.md")
+
+        for (idx, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            // For Tasks.md files, only parse the ## Active section
+            if isTasksMd {
+                if trimmed.hasPrefix("## Active") {
+                    inActiveSection = true
+                    continue
+                }
+                if inActiveSection && trimmed.hasPrefix("## ") {
+                    break // Hit ## Completed or ## Context — stop
+                }
+                guard inActiveSection else { continue }
+            }
+
+            // Track ### headings as group names
+            if trimmed.hasPrefix("### ") {
+                currentHeading = String(trimmed.dropFirst(4))
+                continue
+            }
+
+            guard ObsidianMarkdownView.isListLine(line) else { continue }
+            let parsed = ObsidianMarkdownView.parseListItem(line, lineNumber: idx)
+            guard parsed.checkState == false else { continue }
+
+            let (boldTitle, _) = parseBoldTitle(parsed.text)
+
+            items.append(TodoItem(
+                title: parsed.text,
+                source: .obsidian(noteName: currentHeading),
+                dueDate: nil,
+                isOverdue: false,
+                priority: 0,
+                reminderIdentifier: nil,
+                obsidianFilePath: filePath,
+                obsidianLineNumber: idx,
+                projectName: projectName,
+                boldTitle: boldTitle
+            ))
+        }
+        return items
     }
 
     /// Extract todos from a file, tracking headings as group names for daily notes
@@ -342,6 +469,8 @@ class VaultManager: ObservableObject {
             let parsed = ObsidianMarkdownView.parseListItem(line, lineNumber: idx)
             guard parsed.checkState == false else { continue }
 
+            let (boldTitle, _) = parseBoldTitle(parsed.text)
+
             items.append(TodoItem(
                 title: parsed.text,
                 source: .obsidian(noteName: currentHeading),
@@ -350,7 +479,9 @@ class VaultManager: ObservableObject {
                 priority: 0,
                 reminderIdentifier: nil,
                 obsidianFilePath: filePath,
-                obsidianLineNumber: idx
+                obsidianLineNumber: idx,
+                projectName: nil,
+                boldTitle: boldTitle
             ))
         }
         return items

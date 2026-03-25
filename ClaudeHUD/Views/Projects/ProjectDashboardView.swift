@@ -166,14 +166,54 @@ private struct ProjectDetailView: View {
     let project: Project
     @EnvironmentObject var projectBriefing: ProjectBriefingService
     @EnvironmentObject var projectService: ProjectService
+    @EnvironmentObject var vaultManager: VaultManager
     @Environment(\.fontScale) private var scale
+    @State private var projectTasks: [TodoItem] = []
 
     private var briefing: ProjectBriefing? { projectBriefing.briefings[project.id] }
     private var projectIntel: ProjectIntel? { projectService.intel[project.id] }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // === AI Briefing (always visible) ===
+            // === Authoritative Tasks from Tasks.md ===
+            if !projectTasks.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checklist")
+                            .font(.system(size: 9 * scale))
+                            .foregroundColor(.orange)
+                        Text("Tasks")
+                            .font(.captionFont(scale).weight(.semibold))
+                            .foregroundColor(.secondary.opacity(0.6))
+                        Text("\(projectTasks.count)")
+                            .font(.custom("Fira Code", size: 10 * scale))
+                            .foregroundColor(.secondary.opacity(0.6))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
+                    }
+
+                    ForEach(projectTasks) { task in
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Button(action: { completeTask(task) }) {
+                                Image(systemName: "square")
+                                    .font(.system(size: 12 * scale))
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.borderless)
+
+                            Text(LocalizedStringKey(task.displayTitle))
+                                .font(.captionFont(scale))
+                                .foregroundColor(.primary)
+                                .lineLimit(2)
+                        }
+                        .padding(.leading, 2)
+                    }
+                }
+                Divider().opacity(0.3).padding(.vertical, 2)
+            }
+
+            // === AI Briefing ===
             if let briefing = briefing {
                 if briefing.isLoading {
                     HStack(spacing: 6) {
@@ -358,6 +398,24 @@ private struct ProjectDetailView: View {
         .onAppear {
             projectService.loadIntel(for: project)
             projectBriefing.generateBriefing(for: project)
+            loadProjectTasks()
+        }
+    }
+
+    private func loadProjectTasks() {
+        guard let taskFile = vaultManager.findTaskFile(in: project.obsidianPath) else {
+            projectTasks = []
+            return
+        }
+        projectTasks = vaultManager.extractActiveTasks(
+            from: taskFile, noteName: project.name, projectName: project.name
+        )
+    }
+
+    private func completeTask(_ item: TodoItem) {
+        withAnimation(.easeOut(duration: 0.25)) {
+            vaultManager.toggleObsidianTodo(item)
+            loadProjectTasks()
         }
     }
 
@@ -543,12 +601,12 @@ private struct BriefingListSection: View {
         if !checked && pushed.contains(idx) { return }
         if checked && dismissed.contains(idx) { return }
 
-        let actionItemsPath = (projectPath as NSString).appendingPathComponent("Action Items.md")
+        let tasksPath = (projectPath as NSString).appendingPathComponent("Tasks.md")
         let fm = FileManager.default
         let checkbox = checked ? "[x]" : "[ ]"
 
-        if fm.fileExists(atPath: actionItemsPath) {
-            if var content = try? String(contentsOfFile: actionItemsPath, encoding: .utf8) {
+        if fm.fileExists(atPath: tasksPath) {
+            if var content = try? String(contentsOfFile: tasksPath, encoding: .utf8) {
                 // Don't add if already present (check raw text)
                 guard !content.contains("] \(item)") else {
                     withAnimation(.easeOut(duration: 0.2)) {
@@ -557,12 +615,45 @@ private struct BriefingListSection: View {
                     }
                     return
                 }
-                content += "\n- \(checkbox) \(item)"
-                try? content.write(toFile: actionItemsPath, atomically: true, encoding: .utf8)
+                // Insert under ## Active heading
+                if let activeRange = content.range(of: "## Active") {
+                    let insertPoint = content.index(activeRange.upperBound, offsetBy: 0)
+                    // Find end of the ## Active line
+                    if let lineEnd = content[insertPoint...].firstIndex(of: "\n") {
+                        content.insert(contentsOf: "\n- \(checkbox) \(item)", at: lineEnd)
+                    } else {
+                        content += "\n- \(checkbox) \(item)"
+                    }
+                } else {
+                    content += "\n- \(checkbox) \(item)"
+                }
+                try? content.write(toFile: tasksPath, atomically: true, encoding: .utf8)
             }
         } else {
-            let content = "# Action Items\n\n- \(checkbox) \(item)"
-            try? content.write(toFile: actionItemsPath, atomically: true, encoding: .utf8)
+            // Create a new Tasks.md with standard template
+            let projectName = URL(fileURLWithPath: projectPath).lastPathComponent
+            let fmt = DateFormatter()
+            fmt.dateFormat = "yyyy-MM-dd"
+            let today = fmt.string(from: Date())
+            let content = """
+            ---
+            project: \(projectName)
+            status: active
+            updated: \(today)
+            ---
+
+            # Tasks
+
+            ## Active
+
+            - \(checkbox) \(item)
+
+            ## Completed
+
+            ## Context
+
+            """
+            try? content.write(toFile: tasksPath, atomically: true, encoding: .utf8)
         }
 
         withAnimation(.easeOut(duration: 0.2)) {

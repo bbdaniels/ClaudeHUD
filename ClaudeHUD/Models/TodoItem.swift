@@ -13,6 +13,10 @@ struct TodoItem: Identifiable {
     let obsidianFilePath: String?
     let obsidianLineNumber: Int?
 
+    // Tasks.md extensions
+    let projectName: String?  // from frontmatter or folder name
+    let boldTitle: String?    // from **bold**: prefix, for compact display
+
     enum Source {
         case reminder(listName: String)
         case obsidian(noteName: String)
@@ -23,5 +27,10 @@ struct TodoItem: Identifiable {
         case .reminder(let list): return list
         case .obsidian(let note): return note
         }
+    }
+
+    /// Compact display: bold title if available, otherwise full title
+    var displayTitle: String {
+        boldTitle ?? title
     }
 }

@@ -190,7 +190,7 @@ private struct TodoRowView: View {
             .buttonStyle(.borderless)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(LocalizedStringKey(item.title))
+                Text(LocalizedStringKey(item.displayTitle))
                     .font(.captionFont(scale))
                     .foregroundColor(item.isOverdue ? .primary : .primary.opacity(0.85))
                     .lineLimit(2)

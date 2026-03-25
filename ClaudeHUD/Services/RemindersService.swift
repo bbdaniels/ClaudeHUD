@@ -76,7 +76,9 @@ class RemindersService: ObservableObject {
                     priority: reminder.priority,
                     reminderIdentifier: reminder.calendarItemIdentifier,
                     obsidianFilePath: nil,
-                    obsidianLineNumber: nil
+                    obsidianLineNumber: nil,
+                    projectName: nil,
+                    boldTitle: nil
                 )
             }
 

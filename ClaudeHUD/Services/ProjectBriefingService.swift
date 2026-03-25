@@ -157,10 +157,16 @@ class ProjectBriefingService: ObservableObject {
     private func gatherContext(for project: Project) -> String {
         var parts: [String] = []
 
-        // Obsidian notes content
+        // Tasks.md gets special treatment as the authoritative task source
         let fm = FileManager.default
+        let tasksPath = "\(project.obsidianPath)/Tasks.md"
+        if let tasksContent = try? String(contentsOfFile: tasksPath, encoding: .utf8) {
+            parts.append("## AUTHORITATIVE TASK LIST (Tasks.md)\n\(String(tasksContent.prefix(4000)))")
+        }
+
+        // Other Obsidian notes content
         if let files = try? fm.contentsOfDirectory(atPath: project.obsidianPath) {
-            for file in files.sorted() where file.hasSuffix(".md") {
+            for file in files.sorted() where file.hasSuffix(".md") && file != "Tasks.md" {
                 let path = "\(project.obsidianPath)/\(file)"
                 if let content = try? String(contentsOfFile: path, encoding: .utf8) {
                     let name = String(file.dropLast(3))
@@ -207,9 +213,13 @@ class ProjectBriefingService: ObservableObject {
 
         {"summary":"1-2 sentence overview of current project state","status":"one of: active, stalled, wrapping-up, starting","priorities":["priority 1","priority 2"],"blockers":["blocker 1"],"nextActions":["action 1","action 2"]}
 
-        If a field has no items, use an empty array []. Be concise — each string should be one short sentence max. \
-        If the context includes an "Action Items" note, do NOT re-suggest items that are already checked off \
-        (marked [x]). Unchecked items ([ ]) are still active and may appear as priorities or next actions.
+        If a "AUTHORITATIVE TASK LIST (Tasks.md)" section is present: \
+        - priorities: Identify the top 2-3 most important items from the active tasks. \
+        - blockers: Surface things preventing progress that are NOT already tasks. \
+        - nextActions: Suggest NEW actions that are NOT already in the Tasks.md active list. \
+          These should be things you infer from the project context (notes, sessions, calendar) \
+          that the user may have missed. Do NOT repeat existing tasks. If you have no new suggestions, use []. \
+        If a field has no items, use an empty array []. Be concise — each string should be one short sentence max.
 
         PROJECT CONTEXT:
         \(context)
