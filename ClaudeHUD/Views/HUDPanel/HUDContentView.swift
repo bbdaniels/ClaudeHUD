@@ -28,6 +28,64 @@ extension Font {
     static func codeLarge(_ s: CGFloat) -> Font { .custom(codeFamily, size: 16.5 * s) }
 }
 
+// MARK: - Link Highlight (Vox-style)
+
+extension View {
+    /// Vox-style warm highlight behind tappable text instead of blue foreground.
+    func linkHighlight() -> some View {
+        self
+            .foregroundColor(.primary)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.yellow.opacity(0.35))
+            )
+    }
+}
+
+// MARK: - Highlighted-Link Markdown Text
+
+/// Renders markdown text with Vox-style yellow-highlighted links instead of blue.
+struct HighlightedMarkdownText: View {
+    let markdown: String
+    let font: Font
+    private let attributed: AttributedString
+
+    init(_ markdown: String, font: Font = .body) {
+        self.markdown = markdown
+        self.font = font
+        self.attributed = Self.highlightLinks(in: markdown)
+    }
+
+    var body: some View {
+        Text(attributed)
+            .font(font)
+            .tint(Color.primary)
+            .textSelection(.enabled)
+            .lineSpacing(3)
+            .environment(\.openURL, OpenURLAction { url in
+                NSWorkspace.shared.open(url)
+                return .handled
+            })
+    }
+
+    static func highlightLinks(in markdown: String) -> AttributedString {
+        guard var result = try? AttributedString(markdown: markdown,
+                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) else {
+            return AttributedString(markdown)
+        }
+        let highlight = NSColor.systemYellow.withAlphaComponent(0.35)
+        for run in result.runs {
+            if run.link != nil {
+                result[run.range].backgroundColor = highlight
+                result[run.range].foregroundColor = NSColor.labelColor
+            }
+        }
+        return result
+    }
+}
+
 enum FixedTab: String, CaseIterable {
     case history
     case obsidian

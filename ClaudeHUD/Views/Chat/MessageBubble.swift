@@ -71,17 +71,20 @@ struct MessageBubble: View {
 
 struct MarkdownContentView: View {
     let content: String
+    let cachedBlocks: [ContentBlock]
     @Environment(\.fontScale) private var scale
+
+    init(content: String) {
+        self.content = content
+        self.cachedBlocks = Self.parseBlocks(from: content)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(parseBlocks().enumerated()), id: \.offset) { _, block in
+            ForEach(Array(cachedBlocks.enumerated()), id: \.offset) { _, block in
                 switch block {
                 case .text(let text):
-                    Text(LocalizedStringKey(Self.processInlineMath(text)))
-                        .font(.bodyFont(scale))
-                        .textSelection(.enabled)
-                        .lineSpacing(3)
+                    HighlightedMarkdownText(Self.processInlineMath(text), font: .bodyFont(scale))
                 case .table(let table):
                     MarkdownTableView(table: table)
                 case .code(let code):
@@ -166,7 +169,7 @@ struct MarkdownContentView: View {
         return ListItem(text: text, level: level, isOrdered: false, checkState: nil)
     }
 
-    private func parseBlocks() -> [ContentBlock] {
+    private static func parseBlocks(from content: String) -> [ContentBlock] {
         var blocks: [ContentBlock] = []
         var currentText = ""
         let lines = content.components(separatedBy: "\n")
@@ -303,7 +306,7 @@ struct MarkdownContentView: View {
         return blocks
     }
 
-    private func parseTable(_ lines: [String]) -> ParsedTable? {
+    private static func parseTable(_ lines: [String]) -> ParsedTable? {
         guard lines.count >= 2 else { return nil }
 
         func parseCells(_ line: String) -> [String] {
@@ -369,10 +372,7 @@ struct ListBlockView: View {
                             .frame(minWidth: 14, alignment: .trailing)
                     }
 
-                    Text(LocalizedStringKey(item.text))
-                        .font(.bodyFont(scale))
-                        .textSelection(.enabled)
-                        .lineSpacing(3)
+                    HighlightedMarkdownText(item.text, font: .bodyFont(scale))
                         .strikethrough(item.checkState == true, color: .secondary)
                 }
                 .padding(.leading, CGFloat(item.level) * 16)
@@ -754,12 +754,9 @@ struct BlockquoteView: View {
                 .fill(Color.secondary.opacity(0.4))
                 .frame(width: 3)
 
-            Text(LocalizedStringKey(text))
-                .font(.bodyFont(scale))
+            HighlightedMarkdownText(text, font: .bodyFont(scale))
                 .italic()
                 .foregroundColor(.secondary)
-                .textSelection(.enabled)
-                .lineSpacing(3)
                 .padding(.leading, 10)
         }
     }

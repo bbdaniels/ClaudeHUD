@@ -84,8 +84,14 @@ struct SubstackWebView: NSViewRepresentable {
                 overflow: hidden;
             }
             p { margin: 0.6em 0; }
-            a { color: #5ac8fa; text-decoration: none; }
-            a:hover { text-decoration: underline; }
+            a {
+                color: #000;
+                text-decoration: none;
+                background: #ffe600;
+                padding: 1px 4px;
+                border-radius: 4px;
+            }
+            a:hover { background: #ffd000; }
             img {
                 max-width: 100%;
                 height: auto;

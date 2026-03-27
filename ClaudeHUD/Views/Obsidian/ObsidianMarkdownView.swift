@@ -19,10 +19,7 @@ struct ObsidianMarkdownView: View {
             ForEach(Array(parseBlocks().enumerated()), id: \.offset) { _, block in
                 switch block {
                 case .text(let text):
-                    Text(LocalizedStringKey(processInlineForObsidian(text)))
-                        .font(.bodyFont(scale))
-                        .textSelection(.enabled)
-                        .lineSpacing(3)
+                    HighlightedMarkdownText(processInlineForObsidian(text), font: .bodyFont(scale))
                 case .table(let table):
                     MarkdownTableView(table: table)
                 case .code(let code):
@@ -396,10 +393,7 @@ struct ObsidianListBlockView: View {
                             .frame(minWidth: 14, alignment: .trailing)
                     }
 
-                    Text(LocalizedStringKey(item.text))
-                        .font(.bodyFont(scale))
-                        .textSelection(.enabled)
-                        .lineSpacing(3)
+                    HighlightedMarkdownText(item.text, font: .bodyFont(scale))
                         .strikethrough(item.checkState == true, color: .secondary)
                 }
                 .padding(.leading, CGFloat(item.level) * 16)
