@@ -89,51 +89,81 @@ struct SubstackView: View {
 
                 // Feed
                 ScrollViewReader { proxy in
+                ZStack(alignment: .top) {
                 ScrollView {
-                    LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                    LazyVStack(spacing: 0) {
                         ForEach(filteredPosts) { post in
-                            Section {
-                                if expandedPostId == post.id {
-                                    SubstackPostContent(post: post)
-                                }
-                            } header: {
-                                VStack(spacing: 0) {
-                                    SubstackPostRow(
-                                        post: post,
-                                        isRead: substackService.isRead(post.id),
-                                        isExpanded: expandedPostId == post.id,
-                                        onTap: {
-                                            withAnimation(.easeInOut(duration: 0.15)) {
-                                                if expandedPostId == post.id {
-                                                    expandedPostId = nil
-                                                    proxy.scrollTo(post.id, anchor: .top)
-                                                } else {
-                                                    expandedPostId = post.id
-                                                    substackService.markRead(post.id)
-                                                }
+                            VStack(spacing: 0) {
+                                SubstackPostRow(
+                                    post: post,
+                                    isRead: substackService.isRead(post.id),
+                                    isExpanded: expandedPostId == post.id,
+                                    onTap: {
+                                        withAnimation(.easeInOut(duration: 0.15)) {
+                                            if expandedPostId == post.id {
+                                                expandedPostId = nil
+                                                proxy.scrollTo(post.id, anchor: .top)
+                                            } else {
+                                                expandedPostId = post.id
+                                                substackService.markRead(post.id)
                                             }
-                                        },
-                                        onMarkUnread: { substackService.markUnread(post.id) },
-                                        onOpen: { openInBrowser(post) },
-                                        onToggleSave: { substackService.toggleSaved(post.id) },
-                                        onDismiss: {
-                                            withAnimation(.easeInOut(duration: 0.15)) {
-                                                if expandedPostId == post.id {
-                                                    expandedPostId = nil
-                                                    proxy.scrollTo(post.id, anchor: .top)
-                                                }
-                                                substackService.dismiss(post.id)
+                                        }
+                                    },
+                                    onMarkUnread: { substackService.markUnread(post.id) },
+                                    onOpen: { openInBrowser(post) },
+                                    onToggleSave: { substackService.toggleSaved(post.id) },
+                                    onDismiss: {
+                                        withAnimation(.easeInOut(duration: 0.15)) {
+                                            if expandedPostId == post.id {
+                                                expandedPostId = nil
+                                                proxy.scrollTo(post.id, anchor: .top)
                                             }
-                                        },
-                                        isSaved: substackService.isSaved(post.id)
-                                    )
-                                    Divider().opacity(0.2).padding(.leading, 12)
-                                }
-                                .background(.ultraThinMaterial)
-                                .id(post.id)
+                                            substackService.dismiss(post.id)
+                                        }
+                                    },
+                                    isSaved: substackService.isSaved(post.id)
+                                )
+                                Divider().opacity(0.2).padding(.leading, 12)
+                            }
+                            .id(post.id)
+
+                            if expandedPostId == post.id {
+                                SubstackPostContent(post: post)
                             }
                         }
                     }
+                }
+
+                // Sticky header overlay for expanded post
+                if let expandedId = expandedPostId,
+                   let post = filteredPosts.first(where: { $0.id == expandedId }) {
+                    VStack(spacing: 0) {
+                        SubstackPostRow(
+                            post: post,
+                            isRead: substackService.isRead(post.id),
+                            isExpanded: true,
+                            onTap: {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    expandedPostId = nil
+                                    proxy.scrollTo(post.id, anchor: .top)
+                                }
+                            },
+                            onMarkUnread: { substackService.markUnread(post.id) },
+                            onOpen: { openInBrowser(post) },
+                            onToggleSave: { substackService.toggleSaved(post.id) },
+                            onDismiss: {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    expandedPostId = nil
+                                    proxy.scrollTo(post.id, anchor: .top)
+                                    substackService.dismiss(post.id)
+                                }
+                            },
+                            isSaved: substackService.isSaved(post.id)
+                        )
+                        Divider().opacity(0.2).padding(.leading, 12)
+                    }
+                    .background(.ultraThinMaterial)
+                }
                 }
                 }
 
@@ -237,7 +267,6 @@ struct SubstackPostRow: View {
     let onToggleSave: () -> Void
     let onDismiss: () -> Void
     let isSaved: Bool
-    @EnvironmentObject var substackService: SubstackService
     @Environment(\.fontScale) private var scale
     @State private var isHovered = false
 
@@ -415,7 +444,8 @@ struct SubstackPostContent: View {
     @Environment(\.fontScale) private var scale
     @State private var fullBodyHTML: String?
     @State private var isLoadingBody = false
-    @State private var webViewHeight: CGFloat = 100
+    @State private var webViewHeight: CGFloat = 400
+    private let maxHeight: CGFloat = 500
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -433,7 +463,7 @@ struct SubstackPostContent: View {
                     fontScale: scale,
                     measuredHeight: $webViewHeight
                 )
-                .frame(height: webViewHeight)
+                .frame(height: min(webViewHeight, maxHeight))
             }
         }
         .padding(.horizontal, 26)

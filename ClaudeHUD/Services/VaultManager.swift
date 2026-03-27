@@ -398,6 +398,59 @@ class VaultManager: ObservableObject {
         return (title, rest.isEmpty ? title : text)
     }
 
+    /// Move any [x] items from ## Active to ## Completed in a Tasks.md file
+    func sweepCompletedFromActive(in filePath: String) {
+        guard filePath.hasSuffix("/Tasks.md") else { return }
+        guard var content = try? String(contentsOfFile: filePath, encoding: .utf8) else { return }
+        let lines = content.components(separatedBy: "\n")
+
+        // Find section boundaries
+        var activeStart: Int?
+        var activeEnd: Int?
+        var completedIdx: Int?
+        for (idx, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("## Active") { activeStart = idx }
+            else if activeStart != nil && activeEnd == nil && trimmed.hasPrefix("## ") { activeEnd = idx }
+            if trimmed.hasPrefix("## Completed") { completedIdx = idx }
+        }
+        guard let aStart = activeStart else { return }
+        let aEnd = activeEnd ?? lines.count
+
+        // Collect checked items from Active
+        var checkedLines: [String] = []
+        var keptLines = lines
+        // Walk backwards so indices stay valid during removal
+        for idx in stride(from: aEnd - 1, through: aStart + 1, by: -1) {
+            let trimmed = keptLines[idx].trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("- [x]") || trimmed.hasPrefix("- [X]") {
+                checkedLines.insert(keptLines[idx], at: 0)
+                keptLines.remove(at: idx)
+            }
+        }
+
+        guard !checkedLines.isEmpty else { return }
+
+        // Insert under ## Completed (adjust index since we removed lines above)
+        if let cIdx = completedIdx {
+            // Recalculate after removals
+            let newCompletedIdx = keptLines.firstIndex(where: {
+                $0.trimmingCharacters(in: .whitespaces).hasPrefix("## Completed")
+            }) ?? cIdx
+            for (offset, line) in checkedLines.enumerated() {
+                keptLines.insert(line, at: newCompletedIdx + 1 + offset)
+            }
+        } else {
+            // No ## Completed section — add one
+            keptLines.append("")
+            keptLines.append("## Completed")
+            keptLines.append(contentsOf: checkedLines)
+        }
+
+        let newContent = keptLines.joined(separator: "\n")
+        try? newContent.write(toFile: filePath, atomically: true, encoding: .utf8)
+    }
+
     /// Extract tasks from the ## Active section of a Tasks.md file
     func extractActiveTasks(from filePath: String, noteName: String, projectName: String?) -> [TodoItem] {
         guard let content = try? String(contentsOfFile: filePath, encoding: .utf8) else { return [] }

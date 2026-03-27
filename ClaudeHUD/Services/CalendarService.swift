@@ -92,9 +92,9 @@ class CalendarService: ObservableObject {
         let startOfDay = cal.startOfDay(for: date)
         let endOfDay = cal.date(byAdding: .day, value: 1, to: startOfDay)!
 
-        let calendars = allCalendars.filter { !excludedCalendarIDs.contains($0.calendarIdentifier) }
-        let predicate = store.predicateForEvents(withStart: startOfDay, end: endOfDay, calendars: calendars.isEmpty ? nil : calendars)
+        let predicate = store.predicateForEvents(withStart: startOfDay, end: endOfDay, calendars: nil)
         let ekEvents = store.events(matching: predicate)
+            .filter { !excludedCalendarIDs.contains($0.calendar.calendarIdentifier) }
 
         todayEvents = ekEvents.map { convert($0) }
             .sorted { $0.startDate < $1.startDate }

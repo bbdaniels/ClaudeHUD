@@ -114,25 +114,22 @@ class PermissionWatcherService: ObservableObject {
 
         // Re-read after cleanup
         let liveFiles = (try? fm.contentsOfDirectory(atPath: pendingDir))?.filter { $0.hasSuffix(".json") } ?? []
-
-        // Remove stale entries that no longer have pending files
         let activeIds = Set(liveFiles.map { String($0.dropLast(5)) }) // remove .json
-        pending.removeAll { !activeIds.contains($0.id) }
 
-        // Detect requests that were resolved in the terminal: when the user
-        // approves in terminal, Claude Code writes new events to the session
-        // JSONL file. If we see the session directory has new activity after
-        // the permission request was created, the request was handled.
-        let resolvedIds = pending.filter { entry in
+        // Build the new pending list without mutating @Published until the end
+        var newPending = pending.filter { activeIds.contains($0.id) }
+
+        // Detect requests that were resolved in the terminal
+        let resolvedIds = Set(newPending.filter { entry in
             sessionHasProgressedSince(projectPath: entry.projectPath, since: entry.timestamp)
-        }.map(\.id)
+        }.map(\.id))
         for id in resolvedIds {
             try? fm.removeItem(atPath: "\(pendingDir)/\(id).json")
         }
-        pending.removeAll { resolvedIds.contains($0.id) }
+        newPending.removeAll { resolvedIds.contains($0.id) }
 
         // Add new entries (and clean up empty/unparseable files)
-        let existingIds = Set(pending.map(\.id))
+        let existingIds = Set(newPending.map(\.id))
         for file in liveFiles {
             let id = String(file.dropLast(5))
             guard !existingIds.contains(id) else { continue }
@@ -142,7 +139,6 @@ class PermissionWatcherService: ObservableObject {
                   !data.isEmpty,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             else {
-                // Remove empty or unparseable files — they're stale
                 try? fm.removeItem(atPath: "\(pendingDir)/\(file)")
                 continue
             }
@@ -155,7 +151,7 @@ class PermissionWatcherService: ObservableObject {
 
             let summary = Self.summarize(tool: toolName, input: toolInput)
 
-            pending.append(PendingPermission(
+            newPending.append(PendingPermission(
                 id: id,
                 toolName: toolName,
                 summary: summary,
@@ -165,8 +161,15 @@ class PermissionWatcherService: ObservableObject {
             ))
         }
 
-        // Sort newest first
-        pending.sort { $0.timestamp > $1.timestamp }
+        newPending.sort { $0.timestamp > $1.timestamp }
+
+        // Only publish if the list actually changed — avoids triggering
+        // SwiftUI view graph updates every 0.5s when nothing changed
+        let newIds = newPending.map(\.id)
+        let oldIds = pending.map(\.id)
+        if newIds != oldIds {
+            pending = newPending
+        }
     }
 
     /// Check if the Claude session for a project has written new events since a given time.

@@ -216,9 +216,10 @@ class ProjectBriefingService: ObservableObject {
         If a "AUTHORITATIVE TASK LIST (Tasks.md)" section is present: \
         - priorities: Identify the top 2-3 most important items from the active tasks. \
         - blockers: Surface things preventing progress that are NOT already tasks. \
-        - nextActions: Suggest NEW actions that are NOT already in the Tasks.md active list. \
-          These should be things you infer from the project context (notes, sessions, calendar) \
-          that the user may have missed. Do NOT repeat existing tasks. If you have no new suggestions, use []. \
+        - nextActions: Suggest NEW actions that are NOT already in Tasks.md (check BOTH Active AND Completed sections). \
+          Do NOT suggest anything similar to a completed task — that work is done. \
+          These should be genuinely new things you infer from the project context (notes, sessions, calendar) \
+          that the user may have missed. If you have no truly new suggestions, return []. \
         If a field has no items, use an empty array []. Be concise — each string should be one short sentence max.
 
         PROJECT CONTEXT:
@@ -276,18 +277,49 @@ class ProjectBriefingService: ObservableObject {
                 return errorBriefing(projectName, "Could not parse response")
             }
 
+            let rawActions = json["nextActions"] as? [String] ?? []
+            // Dedup: strip suggestions that overlap with existing tasks in context
+            let dedupedActions = Self.dedup(suggestions: rawActions, context: context)
+
             return ProjectBriefing(
                 id: projectName,
                 summary: json["summary"] as? String ?? "",
                 status: json["status"] as? String ?? "unknown",
                 priorities: json["priorities"] as? [String] ?? [],
                 blockers: json["blockers"] as? [String] ?? [],
-                nextActions: json["nextActions"] as? [String] ?? [],
+                nextActions: dedupedActions,
                 isLoading: false
             )
         } catch {
             logger.error("Claude CLI error: \(error.localizedDescription)")
             return errorBriefing(projectName, error.localizedDescription)
+        }
+    }
+
+    /// Filter out suggestions that overlap with existing tasks (Active or Completed)
+    nonisolated private static func dedup(suggestions: [String], context: String) -> [String] {
+        // Extract all task lines from the context
+        let existingTasks = context.components(separatedBy: "\n")
+            .filter { $0.contains("- [") }
+            .map { line in
+                line.replacingOccurrences(of: "- \\[.\\] ", with: "", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespaces)
+                    .lowercased()
+            }
+        guard !existingTasks.isEmpty else { return suggestions }
+
+        return suggestions.filter { suggestion in
+            let suggestionLower = suggestion.lowercased()
+            let suggestionWords = Set(suggestionLower.split(separator: " ").map(String.init))
+            // Reject if >60% word overlap with any existing task
+            for task in existingTasks {
+                let taskWords = Set(task.split(separator: " ").map(String.init))
+                guard !taskWords.isEmpty && !suggestionWords.isEmpty else { continue }
+                let overlap = taskWords.intersection(suggestionWords).count
+                let smaller = min(taskWords.count, suggestionWords.count)
+                if smaller > 0 && Double(overlap) / Double(smaller) > 0.6 { return false }
+            }
+            return true
         }
     }
 

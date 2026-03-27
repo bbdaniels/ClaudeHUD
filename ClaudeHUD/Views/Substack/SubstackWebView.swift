@@ -1,35 +1,38 @@
 import SwiftUI
 import WebKit
 
-/// A WKWebView subclass that forwards scroll events to the parent scroll view.
-class ScrollPassthroughWebView: WKWebView {
+/// WKWebView subclass — scrolls internally when content overflows the frame,
+/// forwards to the parent scroll view only when content fits.
+class ArticleWebView: WKWebView {
     private weak var parentScrollView: NSScrollView?
     private var isForwardingScroll = false
     private var lastForwardedTimestamp: TimeInterval = 0
+    var contentFitsInFrame = true
 
     override func scrollWheel(with event: NSEvent) {
-        // Two-layer guard against feedback loops where the parent
-        // NSScrollView re-dispatches the event back to us:
-        //  1. Synchronous re-entry (same call stack)
-        //  2. Async re-dispatch (next runloop) — same event timestamp
-        guard !isForwardingScroll,
-              event.timestamp != lastForwardedTimestamp else { return }
-
-        if parentScrollView == nil {
-            var view: NSView? = superview
-            while let v = view {
-                if let sv = v as? NSScrollView {
-                    parentScrollView = sv
-                    break
+        if contentFitsInFrame {
+            // Content fits — forward scroll to the outer feed list
+            guard !isForwardingScroll,
+                  event.timestamp != lastForwardedTimestamp else { return }
+            if parentScrollView == nil {
+                var view: NSView? = superview
+                while let v = view {
+                    if let sv = v as? NSScrollView {
+                        parentScrollView = sv
+                        break
+                    }
+                    view = v.superview
                 }
-                view = v.superview
             }
-        }
-        if let sv = parentScrollView {
-            lastForwardedTimestamp = event.timestamp
-            isForwardingScroll = true
-            sv.scrollWheel(with: event)
-            isForwardingScroll = false
+            if let sv = parentScrollView {
+                lastForwardedTimestamp = event.timestamp
+                isForwardingScroll = true
+                sv.scrollWheel(with: event)
+                isForwardingScroll = false
+            }
+        } else {
+            // Content overflows — let the web view scroll internally
+            super.scrollWheel(with: event)
         }
     }
 }
@@ -39,22 +42,24 @@ struct SubstackWebView: NSViewRepresentable {
     let fontScale: CGFloat
     @Binding var measuredHeight: CGFloat
 
-    func makeNSView(context: Context) -> ScrollPassthroughWebView {
+    func makeNSView(context: Context) -> ArticleWebView {
         let config = WKWebViewConfiguration()
         config.userContentController.add(context.coordinator, name: "sizeChange")
-        let webView = ScrollPassthroughWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 1), configuration: config)
+        let webView = ArticleWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 1), configuration: config)
         webView.navigationDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
         context.coordinator.heightBinding = $measuredHeight
+        context.coordinator.webView = webView
         loadContent(webView)
         return webView
     }
 
-    func updateNSView(_ webView: ScrollPassthroughWebView, context: Context) {
+    func updateNSView(_ webView: ArticleWebView, context: Context) {
         let prev = context.coordinator
         if prev.lastHTML != html || prev.lastFontScale != fontScale {
             prev.lastHTML = html
             prev.lastFontScale = fontScale
+            prev.heightLocked = false
             loadContent(webView)
         }
     }
@@ -81,7 +86,6 @@ struct SubstackWebView: NSViewRepresentable {
                 padding: 0;
                 word-wrap: break-word;
                 overflow-wrap: break-word;
-                overflow: hidden;
             }
             p { margin: 0.6em 0; }
             a {
@@ -168,7 +172,7 @@ struct SubstackWebView: NSViewRepresentable {
                     document.body.scrollHeight,
                     document.documentElement.scrollHeight
                 );
-                if (h > 0 && h !== lastH) {
+                if (h > 0 && Math.abs(h - lastH) > 2) {
                     lastH = h;
                     window.webkit.messageHandlers.sizeChange.postMessage(String(h));
                 }
@@ -203,21 +207,34 @@ struct SubstackWebView: NSViewRepresentable {
         var lastHTML = ""
         var lastFontScale: CGFloat = 0
         var heightBinding: Binding<CGFloat>?
+        var heightLocked = false
+        weak var webView: ArticleWebView?
+        /// Max frame height — content taller than this scrolls inside the web view
+        var maxFrameHeight: CGFloat = 500
 
         func userContentController(_ userContentController: WKUserContentController,
                                    didReceive message: WKScriptMessage) {
+            guard !heightLocked else { return }
             if let str = message.body as? String, let h = Double(str), h > 0 {
                 DispatchQueue.main.async { [weak self] in
-                    self?.heightBinding?.wrappedValue = CGFloat(h)
+                    guard let self, !self.heightLocked else { return }
+                    self.heightBinding?.wrappedValue = CGFloat(h)
+                    self.webView?.contentFitsInFrame = CGFloat(h) <= self.maxFrameHeight
+                    // Lock after first real measurement to prevent layout churn
+                    self.heightLocked = true
                 }
             }
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            guard !heightLocked else { return }
             webView.evaluateJavaScript("Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)") { [weak self] result, _ in
+                guard let self, !self.heightLocked else { return }
                 if let h = result as? CGFloat, h > 0 {
                     DispatchQueue.main.async {
-                        self?.heightBinding?.wrappedValue = h
+                        self.heightBinding?.wrappedValue = h
+                        self.webView?.contentFitsInFrame = h <= self.maxFrameHeight
+                        self.heightLocked = true
                     }
                 }
             }
@@ -236,7 +253,7 @@ struct SubstackWebView: NSViewRepresentable {
         }
     }
 
-    static func dismantleNSView(_ nsView: ScrollPassthroughWebView, coordinator: Coordinator) {
+    static func dismantleNSView(_ nsView: ArticleWebView, coordinator: Coordinator) {
         nsView.configuration.userContentController.removeScriptMessageHandler(forName: "sizeChange")
     }
 }

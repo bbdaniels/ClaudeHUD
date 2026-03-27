@@ -407,6 +407,8 @@ private struct ProjectDetailView: View {
             projectTasks = []
             return
         }
+        // Sweep any [x] items from Active → Completed before reading
+        vaultManager.sweepCompletedFromActive(in: taskFile)
         projectTasks = vaultManager.extractActiveTasks(
             from: taskFile, noteName: project.name, projectName: project.name
         )
@@ -583,7 +585,7 @@ private struct BriefingListSection: View {
                         },
                         onPush: { pushToObsidian(item, idx: idx, checked: false) },
                         onDismiss: {
-                            pushToObsidian(item, idx: idx, checked: true)
+                            // Just hide locally — don't write to Tasks.md
                             withAnimation(.easeOut(duration: 0.2)) { _ = dismissed.insert(idx) }
                         },
                         onDone: {
@@ -607,18 +609,34 @@ private struct BriefingListSection: View {
 
         if fm.fileExists(atPath: tasksPath) {
             if var content = try? String(contentsOfFile: tasksPath, encoding: .utf8) {
-                // Don't add if already present (check raw text)
-                guard !content.contains("] \(item)") else {
+                // Don't add if already present (case-insensitive substring match)
+                let itemLower = item.lowercased()
+                let contentLower = content.lowercased()
+                let alreadyExists = contentLower.contains("] \(itemLower)") ||
+                    content.components(separatedBy: "\n")
+                        .filter { $0.contains("- [") }
+                        .contains { line in
+                            let taskText = line.replacingOccurrences(of: "- \\[.\\] ", with: "", options: .regularExpression).lowercased()
+                            // Check if >70% of words overlap (catches reworded duplicates)
+                            let existingWords = Set(taskText.split(separator: " ").map(String.init))
+                            let newWords = Set(itemLower.split(separator: " ").map(String.init))
+                            guard !existingWords.isEmpty && !newWords.isEmpty else { return false }
+                            let overlap = existingWords.intersection(newWords).count
+                            let smaller = min(existingWords.count, newWords.count)
+                            return smaller > 0 && Double(overlap) / Double(smaller) > 0.7
+                        }
+                guard !alreadyExists else {
                     withAnimation(.easeOut(duration: 0.2)) {
                         if !checked { _ = pushed.insert(idx) }
                         expandedItem = nil
                     }
                     return
                 }
-                // Insert under ## Active heading
-                if let activeRange = content.range(of: "## Active") {
-                    let insertPoint = content.index(activeRange.upperBound, offsetBy: 0)
-                    // Find end of the ## Active line
+                // Insert under the appropriate heading
+                let targetSection = checked ? "## Completed" : "## Active"
+                if let sectionRange = content.range(of: targetSection) {
+                    let insertPoint = content.index(sectionRange.upperBound, offsetBy: 0)
+                    // Find end of the heading line
                     if let lineEnd = content[insertPoint...].firstIndex(of: "\n") {
                         content.insert(contentsOf: "\n- \(checkbox) \(item)", at: lineEnd)
                     } else {
@@ -635,6 +653,8 @@ private struct BriefingListSection: View {
             let fmt = DateFormatter()
             fmt.dateFormat = "yyyy-MM-dd"
             let today = fmt.string(from: Date())
+            let activeEntry = checked ? "" : "\n- [ ] \(item)"
+            let completedEntry = checked ? "\n- [x] \(item)" : ""
             let content = """
             ---
             project: \(projectName)
@@ -645,10 +665,10 @@ private struct BriefingListSection: View {
             # Tasks
 
             ## Active
-
-            - \(checkbox) \(item)
+            \(activeEntry)
 
             ## Completed
+            \(completedEntry)
 
             ## Context
 
