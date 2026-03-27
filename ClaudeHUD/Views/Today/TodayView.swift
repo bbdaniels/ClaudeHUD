@@ -598,6 +598,9 @@ private struct CollapsibleSection<Content: View>: View {
                     Image(systemName: icon)
                         .font(.system(size: 9 * scale))
                         .foregroundColor(color)
+                    Text(title)
+                        .font(.captionFont(scale).weight(.semibold))
+                        .foregroundColor(.secondary.opacity(0.6))
                     if let count {
                         Text("\(count)")
                             .font(.custom("Fira Code", size: 10 * scale))
@@ -606,9 +609,6 @@ private struct CollapsibleSection<Content: View>: View {
                             .padding(.vertical, 1)
                             .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
                     }
-                    Text(title)
-                        .font(.captionFont(scale).weight(.semibold))
-                        .foregroundColor(.secondary.opacity(0.6))
                     Spacer()
                 }
             }

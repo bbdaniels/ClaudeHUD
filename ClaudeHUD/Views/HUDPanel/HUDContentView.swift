@@ -1087,6 +1087,11 @@ struct ProjectRow: View {
                 .buttonStyle(.borderless)
                 .help("Effort: \(effort) (click to cycle)")
 
+                Text(projectName)
+                    .font(.smallMedium(scale))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+
                 if sessions.count > 1 {
                     Text("\(sessions.count)")
                         .font(.custom("Fira Code", size: 10 * scale))
@@ -1095,11 +1100,6 @@ struct ProjectRow: View {
                         .padding(.vertical, 1)
                         .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
                 }
-
-                Text(projectName)
-                    .font(.smallMedium(scale))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
 
                 Spacer()
 
