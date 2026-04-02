@@ -307,19 +307,22 @@ class SubstackService: ObservableObject {
 
         // Resolve the API base URL
         let baseURL: String
+        let isTrustedHost: Bool
         if let pub = publications.first(where: { $0.id == post.publicationId }) {
             baseURL = "https://\(pub.subdomain).substack.com"
+            isTrustedHost = true
         } else if let url = post.url, let parsed = URL(string: url),
                   let host = parsed.host {
-            // Use the canonical URL's domain directly (works for custom domains too)
-            let scheme = parsed.scheme ?? "https"
-            baseURL = "\(scheme)://\(host)"
+            // Enforce HTTPS; only send cookie to *.substack.com or known publication custom domains
+            baseURL = "https://\(host)"
+            let knownCustomDomains = Set(publications.compactMap { $0.customDomain }.compactMap { URL(string: $0)?.host })
+            isTrustedHost = host.hasSuffix(".substack.com") || knownCustomDomains.contains(host)
         } else {
             return nil
         }
 
         do {
-            let body = try await Self.fetchPostHTML(baseURL: baseURL, slug: post.slug, cookie: cookie)
+            let body = try await Self.fetchPostHTML(baseURL: baseURL, slug: post.slug, cookie: isTrustedHost ? cookie : nil)
             if let body = body {
                 Self.saveCachedBody(postId: post.id, body: body)
             }
@@ -330,11 +333,13 @@ class SubstackService: ObservableObject {
         }
     }
 
-    nonisolated private static func fetchPostHTML(baseURL: String, slug: String, cookie: String) async throws -> String? {
+    nonisolated private static func fetchPostHTML(baseURL: String, slug: String, cookie: String?) async throws -> String? {
         let urlString = "\(baseURL)/api/v1/posts/\(slug)"
         guard let url = URL(string: urlString) else { return nil }
         var request = URLRequest(url: url)
-        request.setValue("substack.sid=\(cookie)", forHTTPHeaderField: "Cookie")
+        if let cookie = cookie {
+            request.setValue("substack.sid=\(cookie)", forHTTPHeaderField: "Cookie")
+        }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         let (data, response) = try await URLSession.shared.data(for: request)
