@@ -87,56 +87,10 @@ struct SubstackView: View {
                 emptyView
             } else {
 
-                // Feed
-                ScrollViewReader { proxy in
-                ZStack(alignment: .top) {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(filteredPosts) { post in
-                            VStack(spacing: 0) {
-                                SubstackPostRow(
-                                    post: post,
-                                    isRead: substackService.isRead(post.id),
-                                    isExpanded: expandedPostId == post.id,
-                                    onTap: {
-                                        withAnimation(.easeInOut(duration: 0.15)) {
-                                            if expandedPostId == post.id {
-                                                expandedPostId = nil
-                                                proxy.scrollTo(post.id, anchor: .top)
-                                            } else {
-                                                expandedPostId = post.id
-                                                substackService.markRead(post.id)
-                                            }
-                                        }
-                                    },
-                                    onMarkUnread: { substackService.markUnread(post.id) },
-                                    onOpen: { openInBrowser(post) },
-                                    onToggleSave: { substackService.toggleSaved(post.id) },
-                                    onDismiss: {
-                                        withAnimation(.easeInOut(duration: 0.15)) {
-                                            if expandedPostId == post.id {
-                                                expandedPostId = nil
-                                                proxy.scrollTo(post.id, anchor: .top)
-                                            }
-                                            substackService.dismiss(post.id)
-                                        }
-                                    },
-                                    isSaved: substackService.isSaved(post.id)
-                                )
-                                Divider().opacity(0.2).padding(.leading, 12)
-                            }
-                            .id(post.id)
-
-                            if expandedPostId == post.id {
-                                SubstackPostContent(post: post)
-                            }
-                        }
-                    }
-                }
-
-                // Sticky header overlay for expanded post
                 if let expandedId = expandedPostId,
                    let post = filteredPosts.first(where: { $0.id == expandedId }) {
+
+                    // Expanded article view
                     VStack(spacing: 0) {
                         SubstackPostRow(
                             post: post,
@@ -145,7 +99,6 @@ struct SubstackView: View {
                             onTap: {
                                 withAnimation(.easeInOut(duration: 0.15)) {
                                     expandedPostId = nil
-                                    proxy.scrollTo(post.id, anchor: .top)
                                 }
                             },
                             onMarkUnread: { substackService.markUnread(post.id) },
@@ -154,17 +107,47 @@ struct SubstackView: View {
                             onDismiss: {
                                 withAnimation(.easeInOut(duration: 0.15)) {
                                     expandedPostId = nil
-                                    proxy.scrollTo(post.id, anchor: .top)
                                     substackService.dismiss(post.id)
                                 }
                             },
                             isSaved: substackService.isSaved(post.id)
                         )
-                        Divider().opacity(0.2).padding(.leading, 12)
+                        Divider().opacity(0.3)
+
+                        SubstackPostContent(post: post)
+                            .id("content-\(post.id)")
                     }
-                    .background(.ultraThinMaterial)
-                }
-                }
+
+                } else {
+
+                    // Feed list
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(filteredPosts) { post in
+                                SubstackPostRow(
+                                    post: post,
+                                    isRead: substackService.isRead(post.id),
+                                    isExpanded: false,
+                                    onTap: {
+                                        withAnimation(.easeInOut(duration: 0.15)) {
+                                            expandedPostId = post.id
+                                            substackService.markRead(post.id)
+                                        }
+                                    },
+                                    onMarkUnread: { substackService.markUnread(post.id) },
+                                    onOpen: { openInBrowser(post) },
+                                    onToggleSave: { substackService.toggleSaved(post.id) },
+                                    onDismiss: {
+                                        withAnimation(.easeInOut(duration: 0.15)) {
+                                            substackService.dismiss(post.id)
+                                        }
+                                    },
+                                    isSaved: substackService.isSaved(post.id)
+                                )
+                                Divider().opacity(0.2).padding(.leading, 12)
+                            }
+                        }
+                    }
                 }
 
                 // Load more -- outside ScrollView so taps always register
@@ -444,11 +427,9 @@ struct SubstackPostContent: View {
     @Environment(\.fontScale) private var scale
     @State private var fullBodyHTML: String?
     @State private var isLoadingBody = false
-    @State private var webViewHeight: CGFloat = 400
-    private let maxHeight: CGFloat = 500
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        Group {
             if isLoadingBody {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
@@ -456,18 +437,13 @@ struct SubstackPostContent: View {
                         .font(.captionFont(scale))
                         .foregroundColor(.secondary)
                 }
-                .padding(.top, 4)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let html = fullBodyHTML, !html.isEmpty {
-                SubstackWebView(
-                    html: html,
-                    fontScale: scale,
-                    measuredHeight: $webViewHeight
-                )
-                .frame(height: min(webViewHeight, maxHeight))
+                SubstackWebView(html: html, fontScale: scale)
+            } else {
+                Spacer()
             }
         }
-        .padding(.horizontal, 26)
-        .padding(.bottom, 10)
         .task {
             guard fullBodyHTML == nil, !isLoadingBody else { return }
             isLoadingBody = true
