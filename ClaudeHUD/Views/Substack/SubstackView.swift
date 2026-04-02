@@ -354,33 +354,22 @@ struct SubstackPostRow: View {
 
             // Action bar (pinned with header when scrolling)
             if isExpanded {
-                HStack(spacing: 12) {
+                HStack(spacing: 8) {
                     Button(action: onOpen) {
                         Label("Open", systemImage: "safari")
-                            .font(.captionFont(scale))
-                            .foregroundColor(.accentColor)
                     }
-                    .buttonStyle(.borderless)
-
                     Button(action: onToggleSave) {
                         Label(isSaved ? "Saved" : "Save", systemImage: isSaved ? "bookmark.fill" : "bookmark")
-                            .font(.captionFont(scale))
                             .foregroundColor(isSaved ? .accentColor : .secondary)
                     }
-                    .buttonStyle(.borderless)
-
                     if isRead {
                         Button(action: onMarkUnread) {
                             Label("Unread", systemImage: "circle")
-                                .font(.captionFont(scale))
                                 .foregroundColor(.secondary)
                         }
-                        .buttonStyle(.borderless)
                     }
-
                     if post.audience == "only_paid" {
                         Label("Paid", systemImage: "lock.fill")
-                            .font(.captionFont(scale))
                             .foregroundColor(.orange.opacity(0.7))
                     }
 
@@ -388,31 +377,26 @@ struct SubstackPostRow: View {
 
                     if post.reactionCount > 0 {
                         Label("\(post.reactionCount)", systemImage: "heart")
-                            .font(.captionFont(scale))
                             .foregroundColor(.secondary.opacity(0.5))
                     }
                     if post.commentCount > 0 {
                         Label("\(post.commentCount)", systemImage: "bubble.right")
-                            .font(.captionFont(scale))
                             .foregroundColor(.secondary.opacity(0.5))
                     }
-
                     Button(action: onTap) {
                         Image(systemName: "chevron.up")
-                            .font(.captionFont(scale))
                             .foregroundColor(.secondary)
                     }
-                    .buttonStyle(.borderless)
                     .help("Collapse")
-
                     Button(action: onDismiss) {
                         Label("Dismiss", systemImage: "xmark")
-                            .font(.captionFont(scale))
                             .foregroundColor(.secondary)
                     }
-                    .buttonStyle(.borderless)
                 }
-                .padding(.horizontal, 26)
+                .buttonStyle(.borderless)
+                .font(.captionFont(scale))
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 12)
                 .padding(.vertical, 6)
             }
         }
@@ -428,10 +412,12 @@ struct SubstackPostContent: View {
     @State private var fullBodyHTML: String?
     @State private var isLoadingBody = false
 
+    @State private var loadFailed = false
+
     var body: some View {
         Group {
             if isLoadingBody {
-                HStack(spacing: 6) {
+                VStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("Loading...")
                         .font(.captionFont(scale))
@@ -440,15 +426,36 @@ struct SubstackPostContent: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let html = fullBodyHTML, !html.isEmpty {
                 SubstackWebView(html: html, fontScale: scale)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if loadFailed {
+                VStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.title3)
+                        .foregroundColor(.secondary.opacity(0.5))
+                    Text("Content unavailable")
+                        .font(.captionFont(scale))
+                        .foregroundColor(.secondary.opacity(0.5))
+                    Text("This post may require a paid subscription or use a custom domain.")
+                        .font(.captionFont(scale))
+                        .foregroundColor(.secondary.opacity(0.3))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                Spacer()
+                ProgressView().controlSize(.small)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .task {
             guard fullBodyHTML == nil, !isLoadingBody else { return }
             isLoadingBody = true
-            fullBodyHTML = await substackService.fetchPostBody(post: post)
+            let body = await substackService.fetchPostBody(post: post)
+            fullBodyHTML = body
             isLoadingBody = false
+            if body == nil || body?.isEmpty == true {
+                loadFailed = true
+            }
         }
     }
 }

@@ -309,16 +309,16 @@ struct HUDContentView: View {
         }
         .frame(minWidth: 380, minHeight: 420)
         .environment(\.fontScale, fontScale)
-        .background(
-            GeometryReader { geo in
-                Color.clear.onAppear {
-                    fontScale = max(0.85, min(1.4, geo.size.width / 420))
-                }
-                .onChange(of: geo.size.width) { _, w in
-                    fontScale = max(0.85, min(1.4, w / 420))
-                }
+        .onGeometryChange(for: CGFloat.self) { geo in
+            geo.size.width
+        } action: { width in
+            let newScale = max(0.85, min(1.4, width / 420))
+            // Only update if the change is meaningful (> 0.01) to avoid layout loops
+            // from sub-pixel width jitter (e.g., scrollbar show/hide)
+            if abs(newScale - fontScale) > 0.01 {
+                fontScale = newScale
             }
-        )
+        }
         .overlay(
             Group {
                 Button("") { tabManager.addTab() }

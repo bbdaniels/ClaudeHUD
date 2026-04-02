@@ -296,30 +296,30 @@ class SubstackService: ObservableObject {
 
     // MARK: - Post Body
 
-    /// Fetch full post body on demand (by slug + subdomain)
+    /// Fetch full post body on demand (by slug + base URL)
     func fetchPostBody(post: SubstackPost) async -> String? {
         guard let cookie = Self.loadCookie() else { return nil }
-
-        // Resolve subdomain from publications or from canonical URL
-        let subdomain: String
-        if let pub = publications.first(where: { $0.id == post.publicationId }) {
-            subdomain = pub.subdomain
-        } else if let url = post.url, url.contains(".substack.com") {
-            subdomain = url.components(separatedBy: "//").last?
-                .components(separatedBy: ".substack.com").first ?? ""
-        } else {
-            return nil
-        }
-
-        guard !subdomain.isEmpty else { return nil }
 
         // Check body cache
         if let cached = Self.loadCachedBody(postId: post.id) {
             return cached
         }
 
+        // Resolve the API base URL
+        let baseURL: String
+        if let pub = publications.first(where: { $0.id == post.publicationId }) {
+            baseURL = "https://\(pub.subdomain).substack.com"
+        } else if let url = post.url, let parsed = URL(string: url),
+                  let host = parsed.host {
+            // Use the canonical URL's domain directly (works for custom domains too)
+            let scheme = parsed.scheme ?? "https"
+            baseURL = "\(scheme)://\(host)"
+        } else {
+            return nil
+        }
+
         do {
-            let body = try await Self.fetchPostHTML(subdomain: subdomain, slug: post.slug, cookie: cookie)
+            let body = try await Self.fetchPostHTML(baseURL: baseURL, slug: post.slug, cookie: cookie)
             if let body = body {
                 Self.saveCachedBody(postId: post.id, body: body)
             }
@@ -330,8 +330,8 @@ class SubstackService: ObservableObject {
         }
     }
 
-    nonisolated private static func fetchPostHTML(subdomain: String, slug: String, cookie: String) async throws -> String? {
-        let urlString = "https://\(subdomain).substack.com/api/v1/posts/\(slug)"
+    nonisolated private static func fetchPostHTML(baseURL: String, slug: String, cookie: String) async throws -> String? {
+        let urlString = "\(baseURL)/api/v1/posts/\(slug)"
         guard let url = URL(string: urlString) else { return nil }
         var request = URLRequest(url: url)
         request.setValue("substack.sid=\(cookie)", forHTTPHeaderField: "Cookie")
