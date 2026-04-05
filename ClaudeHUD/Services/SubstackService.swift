@@ -22,8 +22,6 @@ class SubstackService: ObservableObject {
         return dir
     }()
 
-    private static let keychainService = "com.claudehud.substack"
-    private static let keychainAccount = "substack.sid"
 
     var unreadCount: Int {
         activePosts.filter { !readPostIDs.contains($0.id) }.count
@@ -150,45 +148,24 @@ class SubstackService: ObservableObject {
     // MARK: - Cookie Management
 
     static func saveCookie(_ cookie: String) {
-        let data = cookie.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8)!
-        try? deleteKeychainItem()
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: keychainAccount,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-        ]
-        SecItemAdd(query as CFDictionary, nil)
-        logger.info("Substack cookie saved to Keychain")
+        let trimmed = cookie.trimmingCharacters(in: .whitespacesAndNewlines)
+        SecretsVault.shared.write(\.substackCookie, trimmed.isEmpty ? nil : trimmed)
+        logger.info("Substack cookie saved to vault")
     }
 
     static func loadCookie() -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: keychainAccount,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        SecretsVault.shared.read(\.substackCookie)
     }
 
     static func deleteCookie() {
-        try? deleteKeychainItem()
-        logger.info("Substack cookie deleted from Keychain")
+        SecretsVault.shared.write(\.substackCookie, nil)
+        logger.info("Substack cookie deleted from vault")
     }
 
-    private static func deleteKeychainItem() throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: keychainAccount,
-        ]
-        SecItemDelete(query as CFDictionary)
+    /// Called after the vault unlocks, or after the UI updates the cookie.
+    func cookieDidChange() {
+        hasCookie = Self.loadCookie() != nil
+        Task { await fetchFeed() }
     }
 
     // MARK: - Fetch Feed

@@ -209,6 +209,8 @@ struct HUDContentView: View {
                     PermissionPopover(selection: $tabManager.permissionMode)
                 }
 
+                UsageBadge()
+
                 Spacer()
 
                 Button(action: {
@@ -242,6 +244,7 @@ struct HUDContentView: View {
                 .popover(isPresented: $showPushPopover) {
                     PushPopover()
                         .environmentObject(pushManager)
+                        .environmentObject(permissionWatcher)
                 }
 
                 Button(action: { showInfoPopover.toggle() }) {
@@ -264,8 +267,8 @@ struct HUDContentView: View {
             Divider()
                 .opacity(0.5)
 
-            // Permission approval banner (hidden when notifications are off)
-            if !permissionWatcher.pending.isEmpty && pushManager.isEnabled {
+            // Permission approval banner (only when watcher is enabled)
+            if permissionWatcher.isEnabled && !permissionWatcher.pending.isEmpty {
                 PermissionBannerView()
                     .environmentObject(permissionWatcher)
             }
@@ -533,6 +536,7 @@ struct PermissionOption: View {
 
 struct PushPopover: View {
     @EnvironmentObject var pushManager: PushNotificationManager
+    @EnvironmentObject var permissionWatcher: PermissionWatcherService
     @State private var topicDraft: String = ""
     @State private var testSent = false
 
@@ -613,6 +617,30 @@ struct PushPopover: View {
                     .font(.custom("Fira Sans", size: 12))
                     .buttonStyle(.bordered)
                 }
+            }
+
+            Divider()
+
+            // Permission approvals (separate from notifications — installs
+            // a PermissionRequest hook and shows an inline approve/deny banner)
+            HStack(spacing: 10) {
+                Image(systemName: "shield")
+                    .frame(width: 18)
+                    .foregroundColor(.secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Permission approvals")
+                        .font(.custom("Fira Sans", size: 13).weight(.medium))
+                    Text("Inline approve/deny banner in HUD")
+                        .font(.custom("Fira Sans", size: 11))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { permissionWatcher.isEnabled },
+                    set: { permissionWatcher.setEnabled($0) }
+                ))
+                .labelsHidden()
+                .toggleStyle(.switch)
             }
 
             Divider()
@@ -1343,6 +1371,11 @@ struct InfoPopover: View {
 
             Divider()
 
+            // claude.ai cookie (usage)
+            ClaudeAICookieSection()
+
+            Divider()
+
             // Substack cookie
             SubstackCookieSection()
 
@@ -1471,6 +1504,56 @@ private struct TabToggleSection: View {
 }
 
 // MARK: - Substack Cookie Settings
+
+private struct ClaudeAICookieSection: View {
+    @EnvironmentObject var usageService: UsageService
+    @State private var cookieText: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Claude.ai Usage")
+                .font(.custom("Fira Sans", size: 12).weight(.semibold))
+                .foregroundColor(.secondary)
+
+            if usageService.hasCookie {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(.green)
+                    Text("Cookie configured")
+                        .font(.custom("Fira Sans", size: 12))
+                    Spacer()
+                    Button("Remove") {
+                        UsageService.deleteCookie()
+                        usageService.cookieDidChange()
+                    }
+                    .font(.custom("Fira Sans", size: 11))
+                    .buttonStyle(.borderless)
+                    .foregroundColor(.red)
+                }
+            } else {
+                Text("Paste your claude.ai sessionKey cookie to track your 5-hour and weekly usage:")
+                    .font(.custom("Fira Sans", size: 11))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    TextField("sessionKey value", text: $cookieText)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.custom("Fira Code", size: 10))
+                    Button("Save") {
+                        guard !cookieText.isEmpty else { return }
+                        UsageService.saveCookie(cookieText)
+                        usageService.cookieDidChange()
+                        cookieText = ""
+                    }
+                    .font(.custom("Fira Sans", size: 11))
+                    .buttonStyle(.borderless)
+                    .disabled(cookieText.isEmpty)
+                }
+            }
+        }
+    }
+}
 
 private struct SubstackCookieSection: View {
     @State private var cookieText: String = ""

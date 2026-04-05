@@ -21,6 +21,7 @@ class AppState: ObservableObject {
     let contactService = ContactService()
     let remindersService = RemindersService()
     let substackService = SubstackService()
+    let usageService = UsageService()
 
     init() {
         self.tabManager = TabManager(cliClient: cliClient)
@@ -28,8 +29,16 @@ class AppState: ObservableObject {
     }
 
     func setup() async {
-        permissionWatcher.start()
+        permissionWatcher.setup()
         vaultManager.ensureDailyNote(for: Date())
+
+        // Unlock secrets vault — single Touch ID prompt for the whole session.
+        // Services were initialized before secrets were available, so notify
+        // them to re-read now.
+        await SecretsVault.shared.unlock()
+        substackService.cookieDidChange()
+        usageService.cookieDidChange()
+
         logger.info("AppState setup complete")
     }
 }

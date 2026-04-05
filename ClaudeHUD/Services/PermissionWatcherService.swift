@@ -20,6 +20,7 @@ struct PendingPermission: Identifiable {
 class PermissionWatcherService: ObservableObject {
     @Published var pending: [PendingPermission] = []
     @Published private(set) var hookInstalled = false
+    @Published private(set) var isEnabled: Bool
 
     private let hudDir = "\(NSHomeDirectory())/.claude/hud"
     private var pendingDir: String { "\(hudDir)/pending" }
@@ -32,7 +33,37 @@ class PermissionWatcherService: ObservableObject {
     private var pollTimer: Timer?
     private var heartbeatTimer: Timer?
 
-    func start() {
+    init() {
+        // Default off — users opt in via the toggle. The original use case
+        // (approving PermissionRequest dialogs inline) is rarely needed now.
+        isEnabled = UserDefaults.standard.object(forKey: "permission.watcherEnabled") as? Bool ?? false
+    }
+
+    /// Call once on app launch. Starts the watcher if enabled, otherwise
+    /// cleans up any lingering hook registration from prior sessions.
+    func setup() {
+        if isEnabled {
+            start()
+        } else {
+            uninstallHook()
+            try? FileManager.default.removeItem(atPath: heartbeatPath)
+        }
+    }
+
+    func setEnabled(_ val: Bool) {
+        guard val != isEnabled else { return }
+        isEnabled = val
+        UserDefaults.standard.set(val, forKey: "permission.watcherEnabled")
+        if val {
+            start()
+        } else {
+            stop()
+            uninstallHook()
+            pending.removeAll()
+        }
+    }
+
+    private func start() {
         let fm = FileManager.default
         try? fm.createDirectory(atPath: pendingDir, withIntermediateDirectories: true)
         try? fm.createDirectory(atPath: decisionsDir, withIntermediateDirectories: true)
@@ -52,7 +83,7 @@ class PermissionWatcherService: ObservableObject {
         }
     }
 
-    func stop() {
+    private func stop() {
         pollTimer?.invalidate()
         pollTimer = nil
         heartbeatTimer?.invalidate()
@@ -315,6 +346,60 @@ class PermissionWatcherService: ObservableObject {
             logger.info("Permission watcher hook installed in settings.json")
         } catch {
             logger.error("Failed to install hook: \(error)")
+        }
+    }
+
+    private func uninstallHook() {
+        let settingsURL = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".claude/settings.json")
+
+        guard let data = try? Data(contentsOf: settingsURL),
+              var settings = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var hooks = settings["hooks"] as? [String: Any] else {
+            hookInstalled = false
+            return
+        }
+
+        var changed = false
+
+        if var permReq = hooks["PermissionRequest"] as? [[String: Any]] {
+            let before = permReq.count
+            permReq.removeAll { entry in
+                guard let innerHooks = entry["hooks"] as? [[String: Any]] else { return false }
+                return innerHooks.contains { ($0["command"] as? String)?.contains("permission-watcher.sh") == true }
+            }
+            if permReq.count != before {
+                hooks["PermissionRequest"] = permReq.isEmpty ? [] : permReq
+                changed = true
+            }
+        }
+
+        // Also clean up any stale PreToolUse registration from older builds
+        if var preToolUse = hooks["PreToolUse"] as? [[String: Any]] {
+            let before = preToolUse.count
+            preToolUse.removeAll { entry in
+                guard let innerHooks = entry["hooks"] as? [[String: Any]] else { return false }
+                return innerHooks.contains { ($0["command"] as? String)?.contains("permission-watcher.sh") == true }
+            }
+            if preToolUse.count != before {
+                hooks["PreToolUse"] = preToolUse.isEmpty ? [] : preToolUse
+                changed = true
+            }
+        }
+
+        hookInstalled = false
+
+        guard changed else { return }
+
+        settings["hooks"] = hooks
+        do {
+            var opts: JSONSerialization.WritingOptions = [.prettyPrinted]
+            opts.insert(.sortedKeys)
+            let newData = try JSONSerialization.data(withJSONObject: settings, options: opts)
+            try newData.write(to: settingsURL)
+            logger.info("Permission watcher hook removed from settings.json")
+        } catch {
+            logger.error("Failed to remove hook: \(error)")
         }
     }
 }

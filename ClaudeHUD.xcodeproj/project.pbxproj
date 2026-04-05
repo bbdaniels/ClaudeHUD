@@ -8,18 +8,27 @@
 
 /* Begin PBXBuildFile section */
 		0525CFAB9F5770F3A9E10FBF /* VaultManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECF4D0E046CD2AE96517B5AC /* VaultManager.swift */; };
+		070D53ACBBF518BCE8753209 /* UsageBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDFA4853FA49C5845C653FC5 /* UsageBadge.swift */; };
+		07987A717E8EEC86178C718E /* UsageModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17F46482310A6FD0D702F970 /* UsageModels.swift */; };
+		0CA6998A6E162167B6449EA0 /* SubstackModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE1EE10B1C78DA325DB1406 /* SubstackModels.swift */; };
+		0D0369B1284F0428139DD123 /* ContactService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4DFFB6D6970128A8DD29E98 /* ContactService.swift */; };
 		100D1AE5FEA20720849E25EE /* HUDContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A8692269C30DC7C435CE107 /* HUDContentView.swift */; };
 		10839D1BC618E406833B95CC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C53EC70F3DA9CDD0CC4EA24F /* Assets.xcassets */; };
+		114085B9C5C00BE07FEEF084 /* PeopleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00DC319AB42713E44319B1D2 /* PeopleView.swift */; };
 		11D068D60F1FBC84E1D988EA /* ClaudeHUDApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E611364C25404DC27D5D60B /* ClaudeHUDApp.swift */; };
 		18C337C2013A07B85298D28F /* PermissionWatcherService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF91CF6EF11224D0DA07ECB9 /* PermissionWatcherService.swift */; };
 		2808B31571DA2A54C001878A /* NoteFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94F002554690052369E931AE /* NoteFile.swift */; };
 		2C29DFF9CEB92A300E5B2FE0 /* MCPServerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F610738B5C598F62048D6D9 /* MCPServerManager.swift */; };
 		2DC1704ACE2F286704A1DF5C /* TerminalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */; };
 		300F5B400249B3D84DBD6C1F /* permission-watcher.sh in Resources */ = {isa = PBXBuildFile; fileRef = AB272797EF5863C22BEFFDE7 /* permission-watcher.sh */; };
+		344F340CDF4EAE1B18B24EE1 /* SecretsVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E8596B647276D0A1586779 /* SecretsVault.swift */; };
 		3AC79C0378BBFE5D3C197E09 /* InputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A6ED39AD22EDDA61258DC0F /* InputBar.swift */; };
 		3D1E8016AF772DEC464B2404 /* ClaudeTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9537964108C725A1208851B5 /* ClaudeTypes.swift */; };
+		3E169BE12229516556AB41E4 /* ProjectDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20CBE976E7574FE2DD92FAD6 /* ProjectDashboardView.swift */; };
+		42864B88ABA61875B75A624B /* RemindersService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E97B3A1EBC63741CC858FC /* RemindersService.swift */; };
 		46302138FE115BA1187EBD3D /* FloatingNoteWindowManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CF31D45958F7B287926676 /* FloatingNoteWindowManager.swift */; };
 		4DEA00856BE8FFB74E36A917 /* NoteContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9236DD5E1930C1B92335C9C5 /* NoteContentView.swift */; };
+		4E15F066AF2BD94F369A7C5A /* ProjectBriefingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14436D6E425311899CF64373 /* ProjectBriefingService.swift */; };
 		5710CB25C0CEA83C5DA639BC /* BriefingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B895763A8BC8C627B83B2B8 /* BriefingService.swift */; };
 		5E6501CEBB9899408CB2A50E /* PushNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2801C79D6EE1B4B43ED6B5A4 /* PushNotificationManager.swift */; };
 		5E8249E75BC7071A42BD394B /* MCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5CC94E94375F63C3B1C6D3 /* MCPClient.swift */; };
@@ -28,6 +37,8 @@
 		73EADD2BE245DD1BB284422A /* ClaudeAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CE87221F1993D02C27C5E1B /* ClaudeAPIClient.swift */; };
 		763D915CF0FBE368DEE6A12F /* HotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */; };
 		7DC1D28210D31B38F3B6C51A /* ConversationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3256754C76CCAD0FA8F83274 /* ConversationManager.swift */; };
+		8123A352C357703346F0F832 /* TodoItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E0D64CF3689B9D885F9F313 /* TodoItem.swift */; };
+		81D79855CC684E2706696199 /* UsageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA7DC5B4103396ACB2B5F3F /* UsageService.swift */; };
 		85FAE3D9A1FB9C99E73D9A64 /* SessionHistoryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97BB9EE58B0DBF8AA04FDE7 /* SessionHistoryService.swift */; };
 		869D6B56DDA5181778D86A2B /* CalendarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E19D00F8370F4B9F6E48FE81 /* CalendarService.swift */; };
 		8992F9EEB5269203DC7AFD21 /* VaultSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 644D06080D4C60BFCF2637FE /* VaultSettings.swift */; };
@@ -43,25 +54,22 @@
 		AB52E8B15A0B2E94FDCFEAF0 /* ToolCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 502D6FDFD2A08657B013ED9B /* ToolCallView.swift */; };
 		AF44EBFA0AB87F2490D412F9 /* StdioMCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19A889B1D9FE0780BB3042FA /* StdioMCPClient.swift */; };
 		B28C401B5B93D1B0AE175BE3 /* ObsidianMarkdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EEBFE2793D1BE2364B60C89 /* ObsidianMarkdownView.swift */; };
+		B43937CF70E5CFD069E219B1 /* SubstackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8578388E6A6BFE744616BFBE /* SubstackView.swift */; };
 		BAC3A285D736D01662A6A794 /* ClaudeCLIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 369134DB1B8B42279EB5E1D8 /* ClaudeCLIClient.swift */; };
+		BEB2851E74A402D792BD5639 /* ProjectService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53F0B873471D8150D4E80657 /* ProjectService.swift */; };
+		C5E9E536A646C06F2516F91C /* WhatsNextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3DB0CDE2F55474431056C4A /* WhatsNextView.swift */; };
+		CD1C8D9F163004F3E1258C76 /* SubstackWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E787E0DBE8D9B6AFEA14285 /* SubstackWebView.swift */; };
+		CE4E2F71A72D383EE1B8DD07 /* SubstackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 531BEC5B44B150E8BF664105 /* SubstackService.swift */; };
+		DBBB0A53164615486398A791 /* SparkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 826E910DE6159C463592C533 /* SparkService.swift */; };
 		EEC5054A3B33EBA08F1A8D24 /* JSONRPCTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 620FB4690A1A9D7786A56696 /* JSONRPCTypes.swift */; };
-		AA1000000000000000000002 /* ProjectService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000001 /* ProjectService.swift */; };
-		AA1000000000000000000004 /* ProjectDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000003 /* ProjectDashboardView.swift */; };
-		AA2000000000000000000002 /* ProjectBriefingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000001 /* ProjectBriefingService.swift */; };
-		AA3000000000000000000002 /* SparkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA3000000000000000000001 /* SparkService.swift */; };
-		AA4000000000000000000002 /* ContactService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA4000000000000000000001 /* ContactService.swift */; };
-		AA5000000000000000000002 /* PeopleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5000000000000000000001 /* PeopleView.swift */; };
-		BB1000000000000000000002 /* TodoItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB1000000000000000000001 /* TodoItem.swift */; };
-		BB2000000000000000000002 /* RemindersService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2000000000000000000001 /* RemindersService.swift */; };
-		BB3000000000000000000002 /* WhatsNextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB3000000000000000000001 /* WhatsNextView.swift */; };
-		CC1000000000000000000002 /* SubstackModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC1000000000000000000001 /* SubstackModels.swift */; };
-		CC2000000000000000000002 /* SubstackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2000000000000000000001 /* SubstackService.swift */; };
-		CC3000000000000000000002 /* SubstackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC3000000000000000000001 /* SubstackView.swift */; };
-		CC5000000000000000000002 /* SubstackWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC5000000000000000000001 /* SubstackWebView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		00DC319AB42713E44319B1D2 /* PeopleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeopleView.swift; sourceTree = "<group>"; };
+		14436D6E425311899CF64373 /* ProjectBriefingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectBriefingService.swift; sourceTree = "<group>"; };
+		17F46482310A6FD0D702F970 /* UsageModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageModels.swift; sourceTree = "<group>"; };
 		19A889B1D9FE0780BB3042FA /* StdioMCPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StdioMCPClient.swift; sourceTree = "<group>"; };
+		20CBE976E7574FE2DD92FAD6 /* ProjectDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectDashboardView.swift; sourceTree = "<group>"; };
 		2801C79D6EE1B4B43ED6B5A4 /* PushNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationManager.swift; sourceTree = "<group>"; };
 		2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalService.swift; sourceTree = "<group>"; };
 		2EEBFE2793D1BE2364B60C89 /* ObsidianMarkdownView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianMarkdownView.swift; sourceTree = "<group>"; };
@@ -76,7 +84,12 @@
 		4CFD163F5056F20A18D23477 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		4E5CC94E94375F63C3B1C6D3 /* MCPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPClient.swift; sourceTree = "<group>"; };
 		502D6FDFD2A08657B013ED9B /* ToolCallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCallView.swift; sourceTree = "<group>"; };
+		531BEC5B44B150E8BF664105 /* SubstackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstackService.swift; sourceTree = "<group>"; };
+		53F0B873471D8150D4E80657 /* ProjectService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectService.swift; sourceTree = "<group>"; };
 		58276C1EA3EC3682B1C6FE36 /* ClaudeHUD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeHUD.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		59E8596B647276D0A1586779 /* SecretsVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecretsVault.swift; sourceTree = "<group>"; };
+		5AE1EE10B1C78DA325DB1406 /* SubstackModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstackModels.swift; sourceTree = "<group>"; };
+		5E0D64CF3689B9D885F9F313 /* TodoItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoItem.swift; sourceTree = "<group>"; };
 		5E611364C25404DC27D5D60B /* ClaudeHUDApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHUDApp.swift; sourceTree = "<group>"; };
 		620FB4690A1A9D7786A56696 /* JSONRPCTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONRPCTypes.swift; sourceTree = "<group>"; };
 		644D06080D4C60BFCF2637FE /* VaultSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSettings.swift; sourceTree = "<group>"; };
@@ -84,36 +97,31 @@
 		6FD67A81EBE058854F735069 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		74B1F357AF78627CADF262AA /* ObsidianBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianBrowserView.swift; sourceTree = "<group>"; };
 		7BF6467BABED6305C19A0C5C /* MessageBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubble.swift; sourceTree = "<group>"; };
+		7E787E0DBE8D9B6AFEA14285 /* SubstackWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstackWebView.swift; sourceTree = "<group>"; };
 		7EF50C40A513492539053988 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		826E910DE6159C463592C533 /* SparkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkService.swift; sourceTree = "<group>"; };
+		8578388E6A6BFE744616BFBE /* SubstackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstackView.swift; sourceTree = "<group>"; };
 		8A8692269C30DC7C435CE107 /* HUDContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUDContentView.swift; sourceTree = "<group>"; };
 		8F610738B5C598F62048D6D9 /* MCPServerManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPServerManager.swift; sourceTree = "<group>"; };
 		9236DD5E1930C1B92335C9C5 /* NoteContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteContentView.swift; sourceTree = "<group>"; };
 		94F002554690052369E931AE /* NoteFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteFile.swift; sourceTree = "<group>"; };
 		9537964108C725A1208851B5 /* ClaudeTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeTypes.swift; sourceTree = "<group>"; };
 		AB272797EF5863C22BEFFDE7 /* permission-watcher.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "permission-watcher.sh"; sourceTree = "<group>"; };
+		B4DFFB6D6970128A8DD29E98 /* ContactService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactService.swift; sourceTree = "<group>"; };
+		B9E97B3A1EBC63741CC858FC /* RemindersService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemindersService.swift; sourceTree = "<group>"; };
 		BBEE4757D18F462A43F672AB /* MCPConfigLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPConfigLoader.swift; sourceTree = "<group>"; };
 		BF91CF6EF11224D0DA07ECB9 /* PermissionWatcherService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionWatcherService.swift; sourceTree = "<group>"; };
 		C53EC70F3DA9CDD0CC4EA24F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C6D82DD1759F543B48C98E52 /* ntfy-notify.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "ntfy-notify.sh"; sourceTree = "<group>"; };
 		C97BB9EE58B0DBF8AA04FDE7 /* SessionHistoryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionHistoryService.swift; sourceTree = "<group>"; };
+		CDFA4853FA49C5845C653FC5 /* UsageBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageBadge.swift; sourceTree = "<group>"; };
 		CE31FD7228157DC53CDE8B9E /* KeychainService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainService.swift; sourceTree = "<group>"; };
+		D3DB0CDE2F55474431056C4A /* WhatsNextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhatsNextView.swift; sourceTree = "<group>"; };
 		D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyService.swift; sourceTree = "<group>"; };
 		E19D00F8370F4B9F6E48FE81 /* CalendarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarService.swift; sourceTree = "<group>"; };
 		ECF4D0E046CD2AE96517B5AC /* VaultManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultManager.swift; sourceTree = "<group>"; };
 		F5CF31D45958F7B287926676 /* FloatingNoteWindowManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingNoteWindowManager.swift; sourceTree = "<group>"; };
-		AA1000000000000000000001 /* ProjectService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectService.swift; sourceTree = "<group>"; };
-		AA1000000000000000000003 /* ProjectDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectDashboardView.swift; sourceTree = "<group>"; };
-		AA2000000000000000000001 /* ProjectBriefingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectBriefingService.swift; sourceTree = "<group>"; };
-		AA3000000000000000000001 /* SparkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkService.swift; sourceTree = "<group>"; };
-		AA4000000000000000000001 /* ContactService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactService.swift; sourceTree = "<group>"; };
-		AA5000000000000000000001 /* PeopleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeopleView.swift; sourceTree = "<group>"; };
-		BB1000000000000000000001 /* TodoItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoItem.swift; sourceTree = "<group>"; };
-		BB2000000000000000000001 /* RemindersService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemindersService.swift; sourceTree = "<group>"; };
-		BB3000000000000000000001 /* WhatsNextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhatsNextView.swift; sourceTree = "<group>"; };
-		CC1000000000000000000001 /* SubstackModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstackModels.swift; sourceTree = "<group>"; };
-		CC2000000000000000000001 /* SubstackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstackService.swift; sourceTree = "<group>"; };
-		CC3000000000000000000001 /* SubstackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstackView.swift; sourceTree = "<group>"; };
-		CC5000000000000000000001 /* SubstackWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstackWebView.swift; sourceTree = "<group>"; };
+		FAA7DC5B4103396ACB2B5F3F /* UsageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -122,21 +130,31 @@
 			children = (
 				4B895763A8BC8C627B83B2B8 /* BriefingService.swift */,
 				E19D00F8370F4B9F6E48FE81 /* CalendarService.swift */,
-				AA1000000000000000000001 /* ProjectService.swift */,
-				AA2000000000000000000001 /* ProjectBriefingService.swift */,
-				AA3000000000000000000001 /* SparkService.swift */,
-				AA4000000000000000000001 /* ContactService.swift */,
+				B4DFFB6D6970128A8DD29E98 /* ContactService.swift */,
 				D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */,
 				CE31FD7228157DC53CDE8B9E /* KeychainService.swift */,
 				BF91CF6EF11224D0DA07ECB9 /* PermissionWatcherService.swift */,
+				14436D6E425311899CF64373 /* ProjectBriefingService.swift */,
+				53F0B873471D8150D4E80657 /* ProjectService.swift */,
 				2801C79D6EE1B4B43ED6B5A4 /* PushNotificationManager.swift */,
+				B9E97B3A1EBC63741CC858FC /* RemindersService.swift */,
+				59E8596B647276D0A1586779 /* SecretsVault.swift */,
 				C97BB9EE58B0DBF8AA04FDE7 /* SessionHistoryService.swift */,
+				826E910DE6159C463592C533 /* SparkService.swift */,
+				531BEC5B44B150E8BF664105 /* SubstackService.swift */,
 				2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */,
-				BB2000000000000000000001 /* RemindersService.swift */,
-				CC2000000000000000000001 /* SubstackService.swift */,
+				FAA7DC5B4103396ACB2B5F3F /* UsageService.swift */,
 				ECF4D0E046CD2AE96517B5AC /* VaultManager.swift */,
 			);
 			path = Services;
+			sourceTree = "<group>";
+		};
+		1428430AFBD3D13084CDEB36 /* Projects */ = {
+			isa = PBXGroup;
+			children = (
+				20CBE976E7574FE2DD92FAD6 /* ProjectDashboardView.swift */,
+			);
+			path = Projects;
 			sourceTree = "<group>";
 		};
 		2A567E2E1C2CA7664A8D4CFE /* App */ = {
@@ -152,8 +170,9 @@
 			isa = PBXGroup;
 			children = (
 				94F002554690052369E931AE /* NoteFile.swift */,
-				CC1000000000000000000001 /* SubstackModels.swift */,
-				BB1000000000000000000001 /* TodoItem.swift */,
+				5AE1EE10B1C78DA325DB1406 /* SubstackModels.swift */,
+				5E0D64CF3689B9D885F9F313 /* TodoItem.swift */,
+				17F46482310A6FD0D702F970 /* UsageModels.swift */,
 				644D06080D4C60BFCF2637FE /* VaultSettings.swift */,
 			);
 			path = Models;
@@ -172,8 +191,26 @@
 			children = (
 				8A8692269C30DC7C435CE107 /* HUDContentView.swift */,
 				39C7242E2783A2815CB305E2 /* HUDPanelController.swift */,
+				CDFA4853FA49C5845C653FC5 /* UsageBadge.swift */,
 			);
 			path = HUDPanel;
+			sourceTree = "<group>";
+		};
+		8446420217BF7BA2786DFC90 /* People */ = {
+			isa = PBXGroup;
+			children = (
+				00DC319AB42713E44319B1D2 /* PeopleView.swift */,
+			);
+			path = People;
+			sourceTree = "<group>";
+		};
+		8F2E22B4A10D92CEA2755788 /* Substack */ = {
+			isa = PBXGroup;
+			children = (
+				8578388E6A6BFE744616BFBE /* SubstackView.swift */,
+				7E787E0DBE8D9B6AFEA14285 /* SubstackWebView.swift */,
+			);
+			path = Substack;
 			sourceTree = "<group>";
 		};
 		9B435E31995D5B29A482D8FA /* Settings */ = {
@@ -222,11 +259,11 @@
 				F567D485403F54C56BF3CE92 /* Chat */,
 				6AA81EE2EE9C0A51482701D9 /* HUDPanel */,
 				C397A64B546A235D0748698F /* Obsidian */,
+				8446420217BF7BA2786DFC90 /* People */,
+				1428430AFBD3D13084CDEB36 /* Projects */,
 				9B435E31995D5B29A482D8FA /* Settings */,
+				8F2E22B4A10D92CEA2755788 /* Substack */,
 				DB36E8D3AF61BCB4DB487E7A /* Today */,
-				AA1000000000000000000005 /* Projects */,
-				AA5000000000000000000003 /* People */,
-				CC4000000000000000000001 /* Substack */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -257,7 +294,7 @@
 			isa = PBXGroup;
 			children = (
 				330288F7F0E1F56443C80A74 /* TodayView.swift */,
-				BB3000000000000000000001 /* WhatsNextView.swift */,
+				D3DB0CDE2F55474431056C4A /* WhatsNextView.swift */,
 			);
 			path = Today;
 			sourceTree = "<group>";
@@ -285,31 +322,6 @@
 				502D6FDFD2A08657B013ED9B /* ToolCallView.swift */,
 			);
 			path = Chat;
-			sourceTree = "<group>";
-		};
-		AA1000000000000000000005 /* Projects */ = {
-			isa = PBXGroup;
-			children = (
-				AA1000000000000000000003 /* ProjectDashboardView.swift */,
-			);
-			path = Projects;
-			sourceTree = "<group>";
-		};
-		AA5000000000000000000003 /* People */ = {
-			isa = PBXGroup;
-			children = (
-				AA5000000000000000000001 /* PeopleView.swift */,
-			);
-			path = People;
-			sourceTree = "<group>";
-		};
-		CC4000000000000000000001 /* Substack */ = {
-			isa = PBXGroup;
-			children = (
-				CC3000000000000000000001 /* SubstackView.swift */,
-				CC5000000000000000000001 /* SubstackWebView.swift */,
-			);
-			path = Substack;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -384,15 +396,12 @@
 				A6CE6F13DE90FD2DB48C69A2 /* AppState.swift in Sources */,
 				5710CB25C0CEA83C5DA639BC /* BriefingService.swift in Sources */,
 				869D6B56DDA5181778D86A2B /* CalendarService.swift in Sources */,
-				AA1000000000000000000002 /* ProjectService.swift in Sources */,
-				AA2000000000000000000002 /* ProjectBriefingService.swift in Sources */,
-				AA3000000000000000000002 /* SparkService.swift in Sources */,
-				AA1000000000000000000004 /* ProjectDashboardView.swift in Sources */,
 				6849853A4E6B85FB19E3A411 /* ChatView.swift in Sources */,
 				73EADD2BE245DD1BB284422A /* ClaudeAPIClient.swift in Sources */,
 				BAC3A285D736D01662A6A794 /* ClaudeCLIClient.swift in Sources */,
 				11D068D60F1FBC84E1D988EA /* ClaudeHUDApp.swift in Sources */,
 				3D1E8016AF772DEC464B2404 /* ClaudeTypes.swift in Sources */,
+				0D0369B1284F0428139DD123 /* ContactService.swift in Sources */,
 				7DC1D28210D31B38F3B6C51A /* ConversationManager.swift in Sources */,
 				46302138FE115BA1187EBD3D /* FloatingNoteWindowManager.swift in Sources */,
 				100D1AE5FEA20720849E25EE /* HUDContentView.swift in Sources */,
@@ -409,26 +418,33 @@
 				2808B31571DA2A54C001878A /* NoteFile.swift in Sources */,
 				9C177BBE44ED75A3CDDBE6D3 /* ObsidianBrowserView.swift in Sources */,
 				B28C401B5B93D1B0AE175BE3 /* ObsidianMarkdownView.swift in Sources */,
+				114085B9C5C00BE07FEEF084 /* PeopleView.swift in Sources */,
 				18C337C2013A07B85298D28F /* PermissionWatcherService.swift in Sources */,
+				4E15F066AF2BD94F369A7C5A /* ProjectBriefingService.swift in Sources */,
+				3E169BE12229516556AB41E4 /* ProjectDashboardView.swift in Sources */,
+				BEB2851E74A402D792BD5639 /* ProjectService.swift in Sources */,
 				5E6501CEBB9899408CB2A50E /* PushNotificationManager.swift in Sources */,
+				42864B88ABA61875B75A624B /* RemindersService.swift in Sources */,
 				716AF768A9028A0E83E447BD /* SSEMCPClient.swift in Sources */,
+				344F340CDF4EAE1B18B24EE1 /* SecretsVault.swift in Sources */,
 				85FAE3D9A1FB9C99E73D9A64 /* SessionHistoryService.swift in Sources */,
 				8A26FC7995D0630EB4CC2293 /* SettingsView.swift in Sources */,
+				DBBB0A53164615486398A791 /* SparkService.swift in Sources */,
 				AF44EBFA0AB87F2490D412F9 /* StdioMCPClient.swift in Sources */,
+				0CA6998A6E162167B6449EA0 /* SubstackModels.swift in Sources */,
+				CE4E2F71A72D383EE1B8DD07 /* SubstackService.swift in Sources */,
+				B43937CF70E5CFD069E219B1 /* SubstackView.swift in Sources */,
+				CD1C8D9F163004F3E1258C76 /* SubstackWebView.swift in Sources */,
 				2DC1704ACE2F286704A1DF5C /* TerminalService.swift in Sources */,
 				9C3637274F96736D202895D8 /* TodayView.swift in Sources */,
+				8123A352C357703346F0F832 /* TodoItem.swift in Sources */,
 				AB52E8B15A0B2E94FDCFEAF0 /* ToolCallView.swift in Sources */,
+				070D53ACBBF518BCE8753209 /* UsageBadge.swift in Sources */,
+				07987A717E8EEC86178C718E /* UsageModels.swift in Sources */,
+				81D79855CC684E2706696199 /* UsageService.swift in Sources */,
 				0525CFAB9F5770F3A9E10FBF /* VaultManager.swift in Sources */,
 				8992F9EEB5269203DC7AFD21 /* VaultSettings.swift in Sources */,
-				AA4000000000000000000002 /* ContactService.swift in Sources */,
-				AA5000000000000000000002 /* PeopleView.swift in Sources */,
-				BB1000000000000000000002 /* TodoItem.swift in Sources */,
-				BB2000000000000000000002 /* RemindersService.swift in Sources */,
-				BB3000000000000000000002 /* WhatsNextView.swift in Sources */,
-				CC1000000000000000000002 /* SubstackModels.swift in Sources */,
-				CC2000000000000000000002 /* SubstackService.swift in Sources */,
-				CC3000000000000000000002 /* SubstackView.swift in Sources */,
-				CC5000000000000000000002 /* SubstackWebView.swift in Sources */,
+				C5E9E536A646C06F2516F91C /* WhatsNextView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

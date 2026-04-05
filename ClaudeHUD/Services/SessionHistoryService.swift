@@ -136,6 +136,15 @@ class SessionHistoryService: ObservableObject {
 
                 let preview = readPreview(from: filePath)
 
+                // Skip automated skill-selector invocations — these are Claude Code's
+                // internal haiku-model queries that run a skill catalog selector as if
+                // it were a user prompt. They clutter the history with identical content.
+                if isSkillSelectorPreview(preview) { continue }
+
+                // Skip abandoned sessions that never produced a real user/assistant turn
+                // (file contains only queue-operation or file-history-snapshot records).
+                if preview == "Session" { continue }
+
                 found.append(SessionInfo(
                     id: sessionId,
                     projectPath: projectPath,
@@ -148,6 +157,12 @@ class SessionHistoryService: ObservableObject {
         }
 
         return found.sorted { $0.timestamp > $1.timestamp }
+    }
+
+    /// Detect Claude Code's internal skill-selector prompts that are logged as user
+    /// messages but are not real user input.
+    nonisolated private static func isSkillSelectorPreview(_ preview: String) -> Bool {
+        preview.hasPrefix("You select the single most relevant skill")
     }
 
     // MARK: - Snippet Extraction (for search results)
