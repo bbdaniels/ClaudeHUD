@@ -5,7 +5,19 @@ struct ChatView: View {
     @EnvironmentObject var tabManager: TabManager
     @Environment(\.fontScale) private var scale
     @State private var inputText = ""
+    @State private var isStickyBottom = true
     @FocusState private var isInputFocused: Bool
+
+    // Captures any growth in the last message: text streaming, tool-call
+    // insertion, and per-tool completion/result-length changes. Used to
+    // keep the viewport pinned to the bottom while the user isn't scrolling.
+    private var lastMessageFootprint: String {
+        guard let last = conversation.messages.last else { return "" }
+        let tools = last.toolCalls
+            .map { "\($0.isComplete ? 1 : 0):\($0.result?.count ?? 0)" }
+            .joined(separator: ",")
+        return "\(last.content.count)|\(last.toolCalls.count)|\(tools)"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -66,16 +78,36 @@ struct ChatView: View {
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
-                        .id("loading")
                     }
+
+                    // Stable scroll target. A fixed-ID sentinel avoids the layout
+                    // thrash that `scrollTo(lastId, anchor: .bottom)` causes on a
+                    // LazyVStack whose last item is still growing mid-stream.
+                    // onAppear/onDisappear drives `isStickyBottom`: once the user
+                    // scrolls the sentinel off-screen, streaming updates stop
+                    // yanking the viewport back.
+                    Color.clear
+                        .frame(height: 1)
+                        .id("bottom")
+                        .onAppear { isStickyBottom = true }
+                        .onDisappear { isStickyBottom = false }
                 }
                 .padding(.vertical, 8)
             }
             .onChange(of: conversation.messages.count) { _, _ in
+                // New turn (user send or new assistant message) — always follow.
+                isStickyBottom = true
                 scrollToBottom(proxy)
+            }
+            .onChange(of: lastMessageFootprint) { _, _ in
+                // Streaming growth — only follow if user hasn't scrolled up.
+                if isStickyBottom {
+                    scrollToBottom(proxy)
+                }
             }
             .onChange(of: conversation.isProcessing) { _, processing in
                 if processing {
+                    isStickyBottom = true
                     scrollToBottom(proxy)
                 }
             }
@@ -83,13 +115,7 @@ struct ChatView: View {
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        withAnimation(.easeOut(duration: 0.2)) {
-            if conversation.isProcessing {
-                proxy.scrollTo("loading", anchor: .bottom)
-            } else if let lastId = conversation.messages.last?.id {
-                proxy.scrollTo(lastId, anchor: .bottom)
-            }
-        }
+        proxy.scrollTo("bottom", anchor: .bottom)
     }
 
     private func send() {
