@@ -180,6 +180,27 @@ class ConversationManager: ObservableObject {
         var assistantText = ""
         var pendingToolCalls: [ToolCallInfo] = []
         var assistantMessageIndex: Int?
+        // Coalesce streamed text updates: markdown parsing in MessageBubble runs on
+        // full running content per invalidation, so unthrottled token writes are
+        // O(N²) in final message length and cause beach-balling on long replies.
+        var lastFlushAt = Date.distantPast
+        let flushInterval: TimeInterval = 0.05
+
+        func applyAssistantText(_ text: String, force: Bool = false) {
+            assistantText = text
+            let now = Date()
+            let shouldFlush = force
+                || assistantMessageIndex == nil
+                || now.timeIntervalSince(lastFlushAt) >= flushInterval
+            guard shouldFlush else { return }
+            lastFlushAt = now
+            if let idx = assistantMessageIndex {
+                self.messages[idx].content = assistantText
+            } else {
+                self.messages.append(ChatMessage(role: .assistant, content: assistantText))
+                assistantMessageIndex = self.messages.count - 1
+            }
+        }
 
         do {
             let result = try await cliClient.send(
@@ -196,14 +217,7 @@ class ConversationManager: ObservableObject {
 
                 case .assistant(let msg):
                     if let text = msg.text {
-                        assistantText = text
-
-                        if let idx = assistantMessageIndex {
-                            self.messages[idx].content = assistantText
-                        } else {
-                            self.messages.append(ChatMessage(role: .assistant, content: assistantText))
-                            assistantMessageIndex = self.messages.count - 1
-                        }
+                        applyAssistantText(text)
                     }
 
                 case .toolUse(let tool):
@@ -239,6 +253,11 @@ class ConversationManager: ObservableObject {
             }
 
             totalTokens += result.inputTokens + result.outputTokens
+
+            // Flush any held-back streamed text before applying the final result.
+            if !assistantText.isEmpty {
+                applyAssistantText(assistantText, force: true)
+            }
 
             if let idx = assistantMessageIndex, !result.result.isEmpty {
                 messages[idx].content = result.result

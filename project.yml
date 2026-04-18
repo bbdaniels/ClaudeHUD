@@ -23,7 +23,8 @@ targets:
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         INFOPLIST_FILE: ClaudeHUD/Resources/Info.plist
         CODE_SIGN_ENTITLEMENTS: ClaudeHUD/Resources/ClaudeHUD.entitlements
-        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_IDENTITY: "ClaudeHUD Dev"
         SWIFT_VERSION: "5.9"
         GENERATE_INFOPLIST_FILE: NO
         ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_DEBUG_DYLIB: NO

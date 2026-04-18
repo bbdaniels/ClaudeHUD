@@ -13,21 +13,26 @@ struct TodoItem: Identifiable {
     let obsidianFilePath: String?
     let obsidianLineNumber: Int?
 
-    // Tasks.md extensions
-    let projectName: String?  // from frontmatter or folder name
-    let boldTitle: String?    // from **bold**: prefix, for compact display
+    // Project identity & in-file organization
+    let projectName: String?     // Canonical = Obsidian folder name. nil for Reminders.app items.
+    let sectionHeading: String?  // `### Heading` within `## Active`. nil when no section.
+    let boldTitle: String?       // from **bold**: prefix, for compact display
 
     enum Source {
         case reminder(listName: String)
-        case obsidian(noteName: String)
+        case obsidian(grouping: String)  // Display-only label. Never a folder path.
     }
 
-    var sourceBadge: String {
+    /// Top-level grouping key: project name if present, else source grouping.
+    var groupKey: String {
+        if let name = projectName, !name.isEmpty { return name }
         switch source {
         case .reminder(let list): return list
-        case .obsidian(let note): return note
+        case .obsidian(let group): return group
         }
     }
+
+    var sourceBadge: String { groupKey }
 
     /// Compact display: bold title if available, otherwise full title
     var displayTitle: String {

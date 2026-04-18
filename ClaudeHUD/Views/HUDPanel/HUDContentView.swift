@@ -214,18 +214,14 @@ struct HUDContentView: View {
                 Spacer()
 
                 Button(action: {
-                    if terminalService.installedTerminals.count == 1 || !terminalService.selectedPath.isEmpty {
-                        terminalService.launch()
-                    } else {
-                        showTerminalPopover = true
-                    }
+                    terminalService.launchClaudeAtHome()
                 }) {
                     Text(">_")
                         .font(.codeFont(fontScale))
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.borderless)
-                .help("Launch \(terminalService.selectedName)")
+                .help("New Claude session at ~ (high effort, bypass permissions)")
                 .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
                     showTerminalPopover = true
                 })

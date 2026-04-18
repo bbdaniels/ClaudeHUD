@@ -284,7 +284,7 @@ class VaultManager: ObservableObject {
 
         // 2. Cross-update the source Tasks.md (or legacy task file)
         guard let vault = currentVault else { return }
-        if case .obsidian(let projectName) = item.source {
+        if let projectName = item.projectName {
             let projectPath = (vault.path as NSString).appendingPathComponent(projectName)
 
             // Find the project's task file
@@ -451,14 +451,18 @@ class VaultManager: ObservableObject {
         try? newContent.write(toFile: filePath, atomically: true, encoding: .utf8)
     }
 
-    /// Extract tasks from the ## Active section of a Tasks.md file
+    /// Extract tasks from the ## Active section of a Tasks.md file.
+    /// Project identity is carried in `projectName` (canonical = folder name);
+    /// `### Heading` subsections within Active populate `sectionHeading` and do not
+    /// overwrite project identity.
     func extractActiveTasks(from filePath: String, noteName: String, projectName: String?) -> [TodoItem] {
         guard let content = try? String(contentsOfFile: filePath, encoding: .utf8) else { return [] }
         let lines = content.components(separatedBy: "\n")
         var items: [TodoItem] = []
-        var currentHeading = noteName
+        var currentSection: String? = nil
         var inActiveSection = false
         let isTasksMd = filePath.hasSuffix("/Tasks.md")
+        let canonicalProject = projectName ?? noteName
 
         for (idx, line) in lines.enumerated() {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -475,9 +479,9 @@ class VaultManager: ObservableObject {
                 guard inActiveSection else { continue }
             }
 
-            // Track ### headings as group names
+            // Track ### headings as in-file section names (not project identity)
             if trimmed.hasPrefix("### ") {
-                currentHeading = String(trimmed.dropFirst(4))
+                currentSection = String(trimmed.dropFirst(4))
                 continue
             }
 
@@ -489,29 +493,33 @@ class VaultManager: ObservableObject {
 
             items.append(TodoItem(
                 title: parsed.text,
-                source: .obsidian(noteName: currentHeading),
+                source: .obsidian(grouping: canonicalProject),
                 dueDate: nil,
                 isOverdue: false,
                 priority: 0,
                 reminderIdentifier: nil,
                 obsidianFilePath: filePath,
                 obsidianLineNumber: idx,
-                projectName: projectName,
+                projectName: canonicalProject,
+                sectionHeading: currentSection,
                 boldTitle: boldTitle
             ))
         }
         return items
     }
 
-    /// Extract todos from a file, tracking headings as group names for daily notes
+    /// Extract todos from a file. For daily notes and recent-file scans, `### Heading`
+    /// is resolved against the vault's top-level folders: when it matches, the heading
+    /// becomes the canonical `projectName`; otherwise the heading is treated as a loose
+    /// display group and `projectName` remains nil.
     private func extractTodos(from filePath: String, noteName: String) -> [TodoItem] {
         guard let content = try? String(contentsOfFile: filePath, encoding: .utf8) else { return [] }
+        let vaultFolders = currentVaultFolderNames()
         let lines = content.components(separatedBy: "\n")
         var items: [TodoItem] = []
-        var currentHeading = noteName
+        var currentHeading: String? = nil
 
         for (idx, line) in lines.enumerated() {
-            // Track ### headings as project group names
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("### ") {
                 currentHeading = String(trimmed.dropFirst(4))
@@ -524,20 +532,57 @@ class VaultManager: ObservableObject {
 
             let (boldTitle, _) = parseBoldTitle(parsed.text)
 
+            // Resolve heading → project folder when it matches a known folder.
+            let resolvedProject: String?
+            let grouping: String
+            if let h = currentHeading, vaultFolders.contains(h) {
+                resolvedProject = h
+                grouping = h
+            } else {
+                resolvedProject = nil
+                grouping = currentHeading ?? noteName
+            }
+
             items.append(TodoItem(
                 title: parsed.text,
-                source: .obsidian(noteName: currentHeading),
+                source: .obsidian(grouping: grouping),
                 dueDate: nil,
                 isOverdue: false,
                 priority: 0,
                 reminderIdentifier: nil,
                 obsidianFilePath: filePath,
                 obsidianLineNumber: idx,
-                projectName: nil,
+                projectName: resolvedProject,
+                sectionHeading: nil,
                 boldTitle: boldTitle
             ))
         }
         return items
+    }
+
+    /// Cached set of top-level vault folder names (skip-filtered), used to resolve
+    /// `### Heading` in daily notes back to a canonical project identity.
+    private var _vaultFoldersCache: (vaultPath: String, folders: Set<String>)?
+    private func currentVaultFolderNames() -> Set<String> {
+        guard let vault = currentVault else { return [] }
+        if let cache = _vaultFoldersCache, cache.vaultPath == vault.path {
+            return cache.folders
+        }
+        let skipFolders: Set<String> = ["Templates", "Daily Notes", "Attachments", "Assets", "Archive"]
+        let fm = FileManager.default
+        var out: Set<String> = []
+        if let entries = try? fm.contentsOfDirectory(atPath: vault.path) {
+            for entry in entries {
+                guard !entry.hasPrefix("."), !skipFolders.contains(entry) else { continue }
+                let full = (vault.path as NSString).appendingPathComponent(entry)
+                var isDir: ObjCBool = false
+                if fm.fileExists(atPath: full, isDirectory: &isDir), isDir.boolValue {
+                    out.insert(entry)
+                }
+            }
+        }
+        _vaultFoldersCache = (vault.path, out)
+        return out
     }
 
     // MARK: - Private

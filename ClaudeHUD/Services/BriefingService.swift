@@ -155,7 +155,7 @@ class BriefingService: ObservableObject {
             var grouped: [(key: String, items: [String])] = []
             var seen: Set<String> = []
             for todo in todos {
-                let key = todo.sourceBadge
+                let key = todo.projectName ?? todo.sourceBadge
                 if seen.contains(key) {
                     if let idx = grouped.firstIndex(where: { $0.key == key }) {
                         grouped[idx].items.append(todo.title)

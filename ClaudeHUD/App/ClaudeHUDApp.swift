@@ -99,11 +99,45 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private var ghosttyWindowsForMenu: [GhosttyWindow] = []
+
     private func showContextMenu(_ sender: NSStatusBarButton) {
         let menu = NSMenu()
 
-        menu.addItem(withTitle: "New Conversation", action: #selector(newConversation), keyEquivalent: "n")
+        menu.addItem(withTitle: "New Claude Session", action: #selector(newClaudeSession), keyEquivalent: "n")
             .target = self
+
+        // Open Ghostty sessions — enumerated fresh each click
+        let windows = GhosttyWindowService.openWindows()
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        ghosttyWindowsForMenu = windows
+
+        if !windows.isEmpty {
+            menu.addItem(.separator())
+            let header = NSMenuItem(title: "Open Sessions", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+
+            for (i, window) in windows.enumerated() {
+                let item = NSMenuItem(
+                    title: window.title,
+                    action: #selector(focusGhosttyWindow(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.tag = i
+                menu.addItem(item)
+            }
+        } else if !GhosttyWindowService.checkAccessibility(prompt: false) {
+            menu.addItem(.separator())
+            let hint = NSMenuItem(
+                title: "Grant Accessibility to list sessions…",
+                action: #selector(promptAccessibility),
+                keyEquivalent: ""
+            )
+            hint.target = self
+            menu.addItem(hint)
+        }
 
         menu.addItem(.separator())
 
@@ -114,9 +148,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = nil
     }
 
-    @objc private func newConversation() {
-        appState.tabManager.addTab()
-        panelController?.show()
+    @objc private func newClaudeSession() {
+        appState.terminalService.launchClaudeAtHome()
+    }
+
+    @objc private func focusGhosttyWindow(_ sender: NSMenuItem) {
+        guard ghosttyWindowsForMenu.indices.contains(sender.tag) else { return }
+        GhosttyWindowService.raise(ghosttyWindowsForMenu[sender.tag])
+    }
+
+    @objc private func promptAccessibility() {
+        GhosttyWindowService.checkAccessibility(prompt: true)
     }
 
     func applicationWillTerminate(_ notification: Notification) {

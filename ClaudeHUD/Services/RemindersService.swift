@@ -78,6 +78,7 @@ class RemindersService: ObservableObject {
                     obsidianFilePath: nil,
                     obsidianLineNumber: nil,
                     projectName: nil,
+                    sectionHeading: nil,
                     boldTitle: nil
                 )
             }

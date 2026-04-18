@@ -173,11 +173,28 @@ private struct ProjectDetailView: View {
     private var briefing: ProjectBriefing? { projectBriefing.briefings[project.id] }
     private var projectIntel: ProjectIntel? { projectService.intel[project.id] }
 
+    /// Group projectTasks by `### Heading`, preserving source order.
+    /// The first bucket may have a nil heading (flat tasks before any `###`).
+    private var sectionedTasks: [(heading: String?, items: [TodoItem])] {
+        var out: [(heading: String?, items: [TodoItem])] = []
+        var idx: [String: Int] = [:]
+        for task in projectTasks {
+            let key = task.sectionHeading ?? ""
+            if let i = idx[key] {
+                out[i].items.append(task)
+            } else {
+                idx[key] = out.count
+                out.append((task.sectionHeading, [task]))
+            }
+        }
+        return out
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // === Authoritative Tasks from Tasks.md ===
+            // === Authoritative Tasks from Tasks.md (grouped by ### section) ===
             if !projectTasks.isEmpty {
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 4) {
                         Image(systemName: "checklist")
                             .font(.system(size: 9 * scale))
@@ -193,21 +210,30 @@ private struct ProjectDetailView: View {
                             .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
                     }
 
-                    ForEach(projectTasks) { task in
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Button(action: { completeTask(task) }) {
-                                Image(systemName: "square")
-                                    .font(.system(size: 12 * scale))
-                                    .foregroundColor(.secondary)
-                            }
-                            .buttonStyle(.borderless)
-
-                            Text(LocalizedStringKey(task.displayTitle))
-                                .font(.captionFont(scale))
-                                .foregroundColor(.primary)
-                                .lineLimit(2)
+                    ForEach(Array(sectionedTasks.enumerated()), id: \.offset) { _, bucket in
+                        if let heading = bucket.heading {
+                            Text(heading)
+                                .font(.captionFont(scale).weight(.medium))
+                                .foregroundColor(.secondary.opacity(0.55))
+                                .padding(.leading, 2)
+                                .padding(.top, 3)
                         }
-                        .padding(.leading, 2)
+                        ForEach(bucket.items) { task in
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Button(action: { completeTask(task) }) {
+                                    Image(systemName: "square")
+                                        .font(.system(size: 12 * scale))
+                                        .foregroundColor(.secondary)
+                                }
+                                .buttonStyle(.borderless)
+
+                                Text(LocalizedStringKey(task.displayTitle))
+                                    .font(.captionFont(scale))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(2)
+                            }
+                            .padding(.leading, bucket.heading == nil ? 2 : 10)
+                        }
                     }
                 }
                 Divider().opacity(0.3).padding(.vertical, 2)

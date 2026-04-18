@@ -10,6 +10,7 @@
 		0525CFAB9F5770F3A9E10FBF /* VaultManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECF4D0E046CD2AE96517B5AC /* VaultManager.swift */; };
 		070D53ACBBF518BCE8753209 /* UsageBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDFA4853FA49C5845C653FC5 /* UsageBadge.swift */; };
 		07987A717E8EEC86178C718E /* UsageModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17F46482310A6FD0D702F970 /* UsageModels.swift */; };
+		09F41069A4BB4FC3ECCC9C57 /* GhosttyWindowService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D9389B80C07D234779F5AF /* GhosttyWindowService.swift */; };
 		0CA6998A6E162167B6449EA0 /* SubstackModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE1EE10B1C78DA325DB1406 /* SubstackModels.swift */; };
 		0D0369B1284F0428139DD123 /* ContactService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4DFFB6D6970128A8DD29E98 /* ContactService.swift */; };
 		100D1AE5FEA20720849E25EE /* HUDContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A8692269C30DC7C435CE107 /* HUDContentView.swift */; };
@@ -78,6 +79,7 @@
 		369134DB1B8B42279EB5E1D8 /* ClaudeCLIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCLIClient.swift; sourceTree = "<group>"; };
 		39C7242E2783A2815CB305E2 /* HUDPanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUDPanelController.swift; sourceTree = "<group>"; };
 		3B9601851634E06856B4D47D /* SSEMCPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEMCPClient.swift; sourceTree = "<group>"; };
+		48D9389B80C07D234779F5AF /* GhosttyWindowService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyWindowService.swift; sourceTree = "<group>"; };
 		4A6ED39AD22EDDA61258DC0F /* InputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputBar.swift; sourceTree = "<group>"; };
 		4B895763A8BC8C627B83B2B8 /* BriefingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BriefingService.swift; sourceTree = "<group>"; };
 		4CE87221F1993D02C27C5E1B /* ClaudeAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeAPIClient.swift; sourceTree = "<group>"; };
@@ -131,6 +133,7 @@
 				4B895763A8BC8C627B83B2B8 /* BriefingService.swift */,
 				E19D00F8370F4B9F6E48FE81 /* CalendarService.swift */,
 				B4DFFB6D6970128A8DD29E98 /* ContactService.swift */,
+				48D9389B80C07D234779F5AF /* GhosttyWindowService.swift */,
 				D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */,
 				CE31FD7228157DC53CDE8B9E /* KeychainService.swift */,
 				BF91CF6EF11224D0DA07ECB9 /* PermissionWatcherService.swift */,
@@ -404,6 +407,7 @@
 				0D0369B1284F0428139DD123 /* ContactService.swift in Sources */,
 				7DC1D28210D31B38F3B6C51A /* ConversationManager.swift in Sources */,
 				46302138FE115BA1187EBD3D /* FloatingNoteWindowManager.swift in Sources */,
+				09F41069A4BB4FC3ECCC9C57 /* GhosttyWindowService.swift in Sources */,
 				100D1AE5FEA20720849E25EE /* HUDContentView.swift in Sources */,
 				8C46A3A5A8F635DA6316E52D /* HUDPanelController.swift in Sources */,
 				763D915CF0FBE368DEE6A12F /* HotkeyService.swift in Sources */,
@@ -456,8 +460,9 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = ClaudeHUD/Resources/ClaudeHUD.entitlements;
-				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_IDENTITY = "ClaudeHUD Dev";
 				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_DEBUG_DYLIB = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ClaudeHUD/Resources/Info.plist;
@@ -597,8 +602,9 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = ClaudeHUD/Resources/ClaudeHUD.entitlements;
-				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_IDENTITY = "ClaudeHUD Dev";
 				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_DEBUG_DYLIB = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ClaudeHUD/Resources/Info.plist;
