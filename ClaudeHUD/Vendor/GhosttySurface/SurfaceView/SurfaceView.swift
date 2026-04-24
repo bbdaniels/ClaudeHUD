@@ -522,11 +522,11 @@ extension Ghostty {
         }
 
         private var clipShape: some Shape {
-            if #available(iOS 26.0, macOS 26.0, *) {
-                return ConcentricRectangle(corners: .concentric(minimum: 8), isUniform: true)
-            } else {
-                return RoundedRectangle(cornerRadius: 8)
-            }
+            // ConcentricRectangle is macOS 26+ only, and the type isn't
+            // present in earlier SDKs so even a `#available` guard won't
+            // compile. Always use RoundedRectangle to keep CI (Xcode 16
+            // runners) happy.
+            RoundedRectangle(cornerRadius: 8)
         }
 
         enum Corner {
