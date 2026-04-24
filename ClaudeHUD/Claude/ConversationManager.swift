@@ -28,9 +28,15 @@ struct ToolCallInfo: Identifiable {
 
 // MARK: - Tab Model
 
+enum TabKind: Equatable {
+    case chat
+    case terminal
+}
+
 struct ConversationTab: Identifiable {
     let id = UUID()
     var title: String = "Chat"
+    var kind: TabKind = .chat
 }
 
 // MARK: - Tab Manager
@@ -47,6 +53,7 @@ class TabManager: ObservableObject {
     }
 
     private var conversations: [UUID: ConversationManager] = [:]
+    private var terminals: [UUID: TerminalSession] = [:]
     private let cliClient: ClaudeCLIClient
 
     private let systemPrompt = """
@@ -92,6 +99,10 @@ class TabManager: ObservableObject {
         return conv
     }
 
+    var currentTab: ConversationTab? {
+        tabs.first { $0.id == selectedTabId }
+    }
+
     func addTab() {
         let tab = ConversationTab()
         tabs.append(tab)
@@ -99,9 +110,40 @@ class TabManager: ObservableObject {
         selectedTabId = tab.id
     }
 
+    /// Adds a terminal tab that runs `command` in `directory`. Surface
+    /// creation is deferred until the tab is first rendered, so this is cheap
+    /// to call from launcher-style code paths.
+    ///
+    /// `backgroundColor` is accepted for API symmetry with the external
+    /// launcher, but per-surface background tinting is not yet wired in the
+    /// embedded path — libghostty's SurfaceConfiguration has no background
+    /// field and wrapping the command with an OSC-11 prefix conflicts with
+    /// Ghostty's `exec -l` shell wrapping. Colors come from the global
+    /// Ghostty config until phase 1.
+    @discardableResult
+    func addTerminalTab(title: String, command: String?, workingDirectory: String?, backgroundColor: String? = nil) -> UUID {
+        _ = backgroundColor
+        var tab = ConversationTab(title: title, kind: .terminal)
+        tab.title = title
+        tabs.append(tab)
+        terminals[tab.id] = TerminalSession(
+            title: title,
+            command: command,
+            workingDirectory: workingDirectory
+        )
+        selectedTabId = tab.id
+        return tab.id
+    }
+
+    func terminalSession(for id: UUID) -> TerminalSession? {
+        terminals[id]
+    }
+
     func closeTab(_ id: UUID) {
         conversations[id]?.cancel()
         conversations.removeValue(forKey: id)
+        terminals[id]?.teardown()
+        terminals.removeValue(forKey: id)
         tabs.removeAll { $0.id == id }
 
         // Always keep at least one tab
@@ -151,6 +193,23 @@ class TabManager: ObservableObject {
     func cancelAll() {
         for conv in conversations.values {
             conv.cancel()
+        }
+        // Tear down any terminal sessions — the underlying Ghostty.Surface
+        // releases the C surface in its deinit, which sends SIGHUP to the PTY
+        // child. Drop the tabs too so reopen doesn't show orphan entries.
+        for terminal in terminals.values {
+            terminal.teardown()
+        }
+        terminals.removeAll()
+        tabs.removeAll { $0.kind == .terminal }
+
+        if tabs.isEmpty {
+            let tab = ConversationTab()
+            tabs.append(tab)
+            conversations[tab.id] = ConversationManager(cliClient: cliClient)
+            selectedTabId = tab.id
+        } else if !tabs.contains(where: { $0.id == selectedTabId }) {
+            selectedTabId = tabs.last!.id
         }
     }
 }

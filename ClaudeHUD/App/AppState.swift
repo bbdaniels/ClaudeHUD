@@ -23,6 +23,11 @@ class AppState: ObservableObject {
     let substackService = SubstackService()
     let usageService = UsageService()
 
+    /// Lazy-initialized Ghostty application. Only created the first time the
+    /// workspace window is opened, so users who never touch the workspace pay
+    /// zero libghostty cost.
+    lazy var ghosttyApp: Ghostty.App = .init()
+
     init() {
         self.tabManager = TabManager(cliClient: cliClient)
         projectService.configure(vault: vaultManager, sessions: sessionHistoryService, calendar: calendarService)

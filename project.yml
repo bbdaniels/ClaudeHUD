@@ -16,6 +16,15 @@ targets:
           - "**/*.entitlements"
     resources:
       - path: ClaudeHUD/Resources/ntfy-notify.sh
+    dependencies:
+      - framework: ClaudeHUD/Vendor/Ghostty/GhosttyKit.xcframework
+        embed: false
+        link: true
+      - sdk: GameController.framework
+      - sdk: MetalKit.framework
+      - sdk: Carbon.framework
+      - sdk: UserNotifications.framework
+      - sdk: CoreText.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.claudehud.app
@@ -28,3 +37,20 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         ENABLE_HARDENED_RUNTIME: YES
         ENABLE_DEBUG_DYLIB: NO
+        LD_RUNPATH_SEARCH_PATHS: $(inherited) @executable_path/../Frameworks
+        SWIFT_OBJC_BRIDGING_HEADER: ClaudeHUD/Vendor/GhosttySurface/ClaudeHUD-Bridging-Header.h
+        OTHER_LDFLAGS: >-
+          $(inherited) -lc++ -Wl,-ld_classic
+          -Wl,-force_load,$(SRCROOT)/ClaudeHUD/Vendor/Ghostty/libghostty.a
+          -Wl,-force_load,$(SRCROOT)/ClaudeHUD/Vendor/Ghostty/libdcimgui.a
+          -Wl,-force_load,$(SRCROOT)/ClaudeHUD/Vendor/Ghostty/libfreetype.a
+          -Wl,-force_load,$(SRCROOT)/ClaudeHUD/Vendor/Ghostty/liboniguruma.a
+          -Wl,-force_load,$(SRCROOT)/ClaudeHUD/Vendor/Ghostty/libintl.a
+          -Wl,-force_load,$(SRCROOT)/ClaudeHUD/Vendor/Ghostty/libz.a
+          -Wl,-force_load,$(SRCROOT)/ClaudeHUD/Vendor/Ghostty/libsimdutf.a
+          -Wl,-force_load,$(SRCROOT)/ClaudeHUD/Vendor/Ghostty/libpng.a
+          -Wl,-force_load,$(SRCROOT)/ClaudeHUD/Vendor/Ghostty/libhighway.a
+          -Wl,-force_load,$(SRCROOT)/ClaudeHUD/Vendor/Ghostty/libspirv_cross.a
+          -Wl,-force_load,$(SRCROOT)/ClaudeHUD/Vendor/Ghostty/libglslang.a
+          -Wl,-force_load,$(SRCROOT)/ClaudeHUD/Vendor/Ghostty/libsentry.a
+          -Wl,-force_load,$(SRCROOT)/ClaudeHUD/Vendor/Ghostty/libbreakpad.a

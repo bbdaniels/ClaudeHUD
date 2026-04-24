@@ -10,3 +10,11 @@ build/
 
 # Claude Code local config
 .claude/
+
+# Ghostty build scratch
+zig-out/
+zig-cache/
+
+# Vendored Ghostty binaries (rebuild via scripts/bootstrap-ghostty.sh)
+ClaudeHUD/Vendor/Ghostty/*.a
+ClaudeHUD/Vendor/Ghostty/GhosttyKit.xcframework/
