@@ -1218,10 +1218,13 @@ struct ProjectRow: View {
 
     private func newSessionInHUD() {
         let command = "claude\(launchFlags)"
+        let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
+        let bg = useColors ? TerminalService.projectColor(for: projectName) : nil
         tabManager.addTerminalTab(
             title: projectName,
             command: command,
-            workingDirectory: projectPath
+            workingDirectory: projectPath,
+            backgroundColor: bg
         )
         feedback = "Opened"
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { feedback = nil }
@@ -1313,12 +1316,14 @@ struct SessionDetailRow: View {
     private func resumeInHUD() {
         let command = "claude --resume \(session.id)\(launchFlags)"
         let projectName = URL(fileURLWithPath: session.projectPath).lastPathComponent
+        let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
+        let bg = useColors ? TerminalService.projectColor(for: projectName) : nil
         tabManager.addTerminalTab(
             title: String(session.id.prefix(8)),
             command: command,
-            workingDirectory: session.projectPath
+            workingDirectory: session.projectPath,
+            backgroundColor: bg
         )
-        _ = projectName  // unused in HUD path; reserved for future per-tab color
         feedback = "Opened"
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { feedback = nil }
     }

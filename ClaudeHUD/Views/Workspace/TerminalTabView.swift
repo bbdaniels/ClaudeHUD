@@ -22,12 +22,19 @@ struct TerminalTabView: View {
     }
 }
 
+/// NSView that refuses to let mouse drags move the enclosing window. Without
+/// this, highlighting text in the Ghostty surface drags the HUD panel because
+/// the panel is `isMovableByWindowBackground = true`.
+private final class TerminalContainerView: NSView {
+    override var mouseDownCanMoveWindow: Bool { false }
+}
+
 private struct TerminalHost: NSViewRepresentable {
     let session: TerminalSession
     @EnvironmentObject var appState: AppState
 
     func makeNSView(context: Context) -> NSView {
-        let container = NSView()
+        let container = TerminalContainerView()
         container.wantsLayer = true
         container.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
 
