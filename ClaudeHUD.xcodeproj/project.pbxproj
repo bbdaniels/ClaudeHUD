@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		02A9B8B0830DCFC51423C17A /* LastWindowPosition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0169C2A86CCEE489867236F8 /* LastWindowPosition.swift */; };
+		02E8F7DE762C69D42BEF9FD3 /* TerminalSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7046491BBCE7F8A5DF2AE95B /* TerminalSession.swift */; };
 		040D5532FBE9AA8D6CEF05CE /* Ghostty.Command.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EBB010A2FE36902DCF5EF6 /* Ghostty.Command.swift */; };
 		0525CFAB9F5770F3A9E10FBF /* VaultManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECF4D0E046CD2AE96517B5AC /* VaultManager.swift */; };
 		05D8507F4BD62C17646621D9 /* CrossKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 780C3E8AEA8CC301D2806F1B /* CrossKit.swift */; };
@@ -16,6 +17,7 @@
 		0932DD59662E5C9A88BA2A8A /* Fullscreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80BD26429AC23FB4D918EFA3 /* Fullscreen.swift */; };
 		09F41069A4BB4FC3ECCC9C57 /* GhosttyWindowService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D9389B80C07D234779F5AF /* GhosttyWindowService.swift */; };
 		0A909F682EA34DF6C6F6018F /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C02B9BB03438B656138520C /* Backport.swift */; };
+		0C6EFA26F155B9FEB15877AA /* TerminalTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FF9DA594E9870B247A558E0 /* TerminalTabView.swift */; };
 		0CA6998A6E162167B6449EA0 /* SubstackModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE1EE10B1C78DA325DB1406 /* SubstackModels.swift */; };
 		0D0369B1284F0428139DD123 /* ContactService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4DFFB6D6970128A8DD29E98 /* ContactService.swift */; };
 		0E0F0D65C5A51959D63E6AB8 /* NSView+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 762A5D34E8673E4172E0C54A /* NSView+Extension.swift */; };
@@ -69,7 +71,6 @@
 		5DE96FC3E4C95A8BCFD6B8E8 /* NSImage+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B87051A2FE60BB08D085B5D /* NSImage+Extension.swift */; };
 		5E6501CEBB9899408CB2A50E /* PushNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2801C79D6EE1B4B43ED6B5A4 /* PushNotificationManager.swift */; };
 		5E8249E75BC7071A42BD394B /* MCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5CC94E94375F63C3B1C6D3 /* MCPClient.swift */; };
-		603852A4FD198D416EA018E9 /* WorkspaceWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CC61901797470A7B4F731B7 /* WorkspaceWindowController.swift */; };
 		62681EDDCDBBA34D5BEC1B71 /* View+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33DB2BD0985C47EE12DA61AA /* View+Extension.swift */; };
 		62BA2D9F0205706B941FC1A1 /* GhosttyPackageMeta.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9034641E5D6BB5C261970D88 /* GhosttyPackageMeta.swift */; };
 		6849853A4E6B85FB19E3A411 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FD67A81EBE058854F735069 /* ChatView.swift */; };
@@ -196,7 +197,6 @@
 		39C7242E2783A2815CB305E2 /* HUDPanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUDPanelController.swift; sourceTree = "<group>"; };
 		3B87051A2FE60BB08D085B5D /* NSImage+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSImage+Extension.swift"; sourceTree = "<group>"; };
 		3B9601851634E06856B4D47D /* SSEMCPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEMCPClient.swift; sourceTree = "<group>"; };
-		3CC61901797470A7B4F731B7 /* WorkspaceWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceWindowController.swift; sourceTree = "<group>"; };
 		4147B98C388E49B41A477E73 /* NSColor+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSColor+Extension.swift"; sourceTree = "<group>"; };
 		446CE71CD596514D14EAEBFA /* CGS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CGS.swift; sourceTree = "<group>"; };
 		46ACBA35961D35CE59A095C9 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
@@ -225,6 +225,7 @@
 		68D028D91836CDCCAD3E5DFF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		6B704EFA6C1852BC574365CB /* Weak.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Weak.swift; sourceTree = "<group>"; };
 		6FD67A81EBE058854F735069 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
+		7046491BBCE7F8A5DF2AE95B /* TerminalSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSession.swift; sourceTree = "<group>"; };
 		71E2A18C94034AA8F2D9503E /* Ghostty.Event.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Event.swift; sourceTree = "<group>"; };
 		72393D01E3F5276CB9B73669 /* NSPasteboard+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSPasteboard+Extension.swift"; sourceTree = "<group>"; };
 		74B1F357AF78627CADF262AA /* ObsidianBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianBrowserView.swift; sourceTree = "<group>"; };
@@ -235,6 +236,7 @@
 		7BF6467BABED6305C19A0C5C /* MessageBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubble.swift; sourceTree = "<group>"; };
 		7E787E0DBE8D9B6AFEA14285 /* SubstackWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstackWebView.swift; sourceTree = "<group>"; };
 		7EF50C40A513492539053988 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		7FF9DA594E9870B247A558E0 /* TerminalTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTabView.swift; sourceTree = "<group>"; };
 		80BD26429AC23FB4D918EFA3 /* Fullscreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Fullscreen.swift; sourceTree = "<group>"; };
 		826E910DE6159C463592C533 /* SparkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkService.swift; sourceTree = "<group>"; };
 		847F4ED0CF27EBE50725922D /* NSMenu+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSMenu+Extension.swift"; sourceTree = "<group>"; };
@@ -503,6 +505,7 @@
 				369134DB1B8B42279EB5E1D8 /* ClaudeCLIClient.swift */,
 				9537964108C725A1208851B5 /* ClaudeTypes.swift */,
 				3256754C76CCAD0FA8F83274 /* ConversationManager.swift */,
+				7046491BBCE7F8A5DF2AE95B /* TerminalSession.swift */,
 			);
 			path = Claude;
 			sourceTree = "<group>";
@@ -570,7 +573,7 @@
 		D113A8D1E82B8E920CDC8A3F /* Workspace */ = {
 			isa = PBXGroup;
 			children = (
-				3CC61901797470A7B4F731B7 /* WorkspaceWindowController.swift */,
+				7FF9DA594E9870B247A558E0 /* TerminalTabView.swift */,
 			);
 			path = Workspace;
 			sourceTree = "<group>";
@@ -880,6 +883,8 @@
 				952C077516A9880889016AA8 /* TabGroupCloseCoordinator.swift in Sources */,
 				AD2F609C2D74B1370002AE03 /* TabTitleEditor.swift in Sources */,
 				2DC1704ACE2F286704A1DF5C /* TerminalService.swift in Sources */,
+				02E8F7DE762C69D42BEF9FD3 /* TerminalSession.swift in Sources */,
+				0C6EFA26F155B9FEB15877AA /* TerminalTabView.swift in Sources */,
 				9C3637274F96736D202895D8 /* TodayView.swift in Sources */,
 				8123A352C357703346F0F832 /* TodoItem.swift in Sources */,
 				AB52E8B15A0B2E94FDCFEAF0 /* ToolCallView.swift in Sources */,
@@ -895,7 +900,6 @@
 				62681EDDCDBBA34D5BEC1B71 /* View+Extension.swift in Sources */,
 				D20DF9963BF7FB21B08290F6 /* Weak.swift in Sources */,
 				C5E9E536A646C06F2516F91C /* WhatsNextView.swift in Sources */,
-				603852A4FD198D416EA018E9 /* WorkspaceWindowController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -300,6 +300,10 @@ struct HUDContentView: View {
                     SubstackView()
                         .environmentObject(appState.substackService)
                 }
+            } else if tabManager.currentTab?.kind == .terminal {
+                TerminalTabView(sessionId: tabManager.selectedTabId)
+                    .id(tabManager.selectedTabId)
+                    .environmentObject(appState)
             } else {
                 ChatView()
                     .id(tabManager.selectedTabId)
@@ -430,6 +434,12 @@ struct TabButton: View {
 
     var body: some View {
         HStack(spacing: 4) {
+            if tab.kind == .terminal {
+                Image(systemName: "terminal")
+                    .font(.smallFont(scale))
+                    .foregroundColor(isSelected ? .accentColor : .secondary)
+            }
+
             Text(tab.title)
                 .font(.smallFont(scale))
                 .lineLimit(1)
@@ -991,6 +1001,7 @@ struct ProjectRow: View {
     let onToggleStar: () -> Void
     let onDeleteSession: (String) -> Void
     @EnvironmentObject var terminalService: TerminalService
+    @EnvironmentObject var tabManager: TabManager
     @State private var expanded = false
     @State private var showAll = false
     @State private var feedback: String?
@@ -1136,6 +1147,14 @@ struct ProjectRow: View {
                         .font(.custom("Fira Sans", size: 11 * scale))
                         .foregroundColor(.green)
                 } else {
+                    Button(action: { newSessionInHUD() }) {
+                        Image(systemName: "plus.rectangle.on.rectangle")
+                            .font(.system(size: 11 * scale, weight: .semibold))
+                            .foregroundColor(.accentColor)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("New session as HUD terminal tab")
+
                     ForEach(terminalService.installedLaunchers, id: \.path) { launcher in
                         Button(action: { newSession(usingApp: launcher.path) }) {
                             Text(launcher.name == "VS Code" ? "VS" : ">_")
@@ -1196,6 +1215,17 @@ struct ProjectRow: View {
         feedback = auto ? "Opened!" : "Cmd+V"
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
     }
+
+    private func newSessionInHUD() {
+        let command = "claude\(launchFlags)"
+        tabManager.addTerminalTab(
+            title: projectName,
+            command: command,
+            workingDirectory: projectPath
+        )
+        feedback = "Opened"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { feedback = nil }
+    }
 }
 
 // MARK: - Session Detail Row (inside expanded project)
@@ -1206,6 +1236,7 @@ struct SessionDetailRow: View {
     let searchResult: SessionSearchResult?
     let onDelete: () -> Void
     @EnvironmentObject var terminalService: TerminalService
+    @EnvironmentObject var tabManager: TabManager
     @State private var feedback: String?
     @Environment(\.fontScale) private var scale
 
@@ -1242,6 +1273,14 @@ struct SessionDetailRow: View {
                     .font(.custom("Fira Sans", size: 10 * scale))
                     .foregroundColor(.green)
             } else {
+                Button(action: resumeInHUD) {
+                    Image(systemName: "plus.rectangle.on.rectangle")
+                        .font(.system(size: 10 * scale, weight: .semibold))
+                        .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.borderless)
+                .help("Resume as HUD terminal tab")
+
                 ForEach(terminalService.installedLaunchers, id: \.path) { launcher in
                     Button(action: { resume(usingApp: launcher.path) }) {
                         Text(launcher.name == "VS Code" ? "VS" : ">_")
@@ -1269,6 +1308,19 @@ struct SessionDetailRow: View {
         let auto = terminalService.launchWithCommand(command, inDirectory: session.projectPath, usingApp: appPath, backgroundColor: bg)
         feedback = auto ? "Opened!" : "Cmd+V"
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
+    }
+
+    private func resumeInHUD() {
+        let command = "claude --resume \(session.id)\(launchFlags)"
+        let projectName = URL(fileURLWithPath: session.projectPath).lastPathComponent
+        tabManager.addTerminalTab(
+            title: String(session.id.prefix(8)),
+            command: command,
+            workingDirectory: session.projectPath
+        )
+        _ = projectName  // unused in HUD path; reserved for future per-tab color
+        feedback = "Opened"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { feedback = nil }
     }
 }
 

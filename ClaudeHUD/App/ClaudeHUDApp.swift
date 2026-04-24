@@ -21,7 +21,6 @@ struct ClaudeHUDApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate {
     let appState = AppState()
     private var panelController: HUDPanelController?
-    private var workspaceController: WorkspaceWindowController?
     private var statusItem: NSStatusItem?
     private var badgeCancellable: AnyCancellable?
     private var badgeView: NSView?
@@ -36,7 +35,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         panelController = HUDPanelController(appState: appState)
-        workspaceController = WorkspaceWindowController(appState: appState)
         setupStatusItem()
 
         appState.hotkeyService.register { [weak self] in
@@ -150,9 +148,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        menu.addItem(withTitle: "Open Workspace", action: #selector(openWorkspace), keyEquivalent: "w")
-            .target = self
-
         menu.addItem(withTitle: "Quit ClaudeHUD", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
         statusItem?.menu = menu
@@ -162,10 +157,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func newClaudeSession() {
         appState.terminalService.launchClaudeAtHome()
-    }
-
-    @objc private func openWorkspace() {
-        workspaceController?.toggle()
     }
 
     @objc private func focusGhosttyWindow(_ sender: NSMenuItem) {
