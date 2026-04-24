@@ -17,6 +17,22 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Install Zig 0.15.2
+        run: brew install zig@0.15
+
+      - name: Cache Ghostty build
+        id: ghostty-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ClaudeHUD/Vendor/Ghostty/*.a
+            ClaudeHUD/Vendor/Ghostty/GhosttyKit.xcframework
+          key: ghostty-v1.3.1-${{ runner.os }}-${{ hashFiles('scripts/bootstrap-ghostty.sh') }}
+
+      - name: Bootstrap Ghostty
+        if: steps.ghostty-cache.outputs.cache-hit != 'true'
+        run: scripts/bootstrap-ghostty.sh
+
       - name: Generate Xcode project
         run: xcodegen generate
 
