@@ -235,11 +235,15 @@ class VaultManager: ObservableObject {
             }
         }
 
-        // Tertiary (today only): recently modified .md files — but only if no daily note exists
+        // Tertiary (today only): recently modified .md files — but only if no daily note exists.
+        // Skip tracked task files: those are authoritative project sources already handled
+        // above by extractActiveTasks. Re-reading them through the generic extractTodos would
+        // group their `### Section` headings as top-level phantom projects.
         if includeRecent && dailyNoteItems.isEmpty {
             let fm = FileManager.default
             let cutoff = Date().addingTimeInterval(-86400)
             let excludePrefixes = ["Daily Notes/", "Templates/", ".obsidian/"]
+            let trackedTaskFileNames = Set(Self.taskFileNames)
 
             if let enumerator = fm.enumerator(atPath: vaultPath) {
                 var recentFiles: [(path: String, mod: Date)] = []
@@ -247,6 +251,9 @@ class VaultManager: ObservableObject {
                     guard rel.hasSuffix(".md"),
                           !rel.hasPrefix("."),
                           !excludePrefixes.contains(where: { rel.hasPrefix($0) }) else { continue }
+                    let basename = (rel as NSString).lastPathComponent
+                    if trackedTaskFileNames.contains(basename) { continue }
+                    if basename.hasPrefix("Revisions for ") { continue }
                     let full = (vaultPath as NSString).appendingPathComponent(rel)
                     if let attrs = try? fm.attributesOfItem(atPath: full),
                        let mod = attrs[.modificationDate] as? Date,

@@ -1,8 +1,12 @@
 import SwiftUI
 
-struct MessageBubble: View {
+struct MessageBubble: View, Equatable {
     let message: ChatMessage
     @Environment(\.fontScale) private var scale
+
+    static func == (lhs: MessageBubble, rhs: MessageBubble) -> Bool {
+        lhs.message == rhs.message
+    }
 
     var body: some View {
         if message.role == .system {

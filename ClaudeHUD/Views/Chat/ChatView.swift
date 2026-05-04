@@ -64,6 +64,7 @@ struct ChatView: View {
                 LazyVStack(spacing: 2) {
                     ForEach(conversation.messages) { message in
                         MessageBubble(message: message)
+                            .equatable()
                             .id(message.id)
                     }
 

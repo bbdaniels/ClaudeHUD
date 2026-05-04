@@ -13,6 +13,15 @@ struct SessionInfo: Identifiable {
     let preview: String      // first user message preview
     let timestamp: Date      // file modification time
     let filePath: String     // full path to .jsonl file (for on-demand search)
+
+    /// Worktree subdirectory name when this session lives under
+    /// `<project>/.claude/worktrees/<name>/...`, otherwise nil.
+    var worktreeName: String? {
+        guard let range = projectPath.range(of: "/.claude/worktrees/") else { return nil }
+        let after = projectPath[range.upperBound...]
+        let name = after.split(separator: "/").first.map(String.init) ?? ""
+        return name.isEmpty ? nil : name
+    }
 }
 
 // MARK: - Search Result

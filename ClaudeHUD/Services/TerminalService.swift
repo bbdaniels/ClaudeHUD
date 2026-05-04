@@ -144,7 +144,17 @@ class TerminalService: ObservableObject {
             // --quit-after-last-window-closed ensures the instance exits (and its
             // dock icon disappears) once the user closes the window.
             // --title sets the window title to the project name for easy identification.
-            let projectName = inDirectory.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? "Claude Code"
+            // For worktree dirs (`<project>/.claude/worktrees/<name>`), prefix the
+            // parent project so the window reads `project/wt-name`.
+            let projectName: String = {
+                guard let dir = inDirectory else { return "Claude Code" }
+                if let range = dir.range(of: "/.claude/worktrees/") {
+                    let project = URL(fileURLWithPath: String(dir[..<range.lowerBound])).lastPathComponent
+                    let wt = String(dir[range.upperBound...]).split(separator: "/").first.map(String.init) ?? ""
+                    return wt.isEmpty ? project : "\(project)/\(wt)"
+                }
+                return URL(fileURLWithPath: dir).lastPathComponent
+            }()
             var ghosttyArgs = ["-na", appPath, "--args",
                                "--quit-after-last-window-closed",
                                "--title=\(projectName)"]
@@ -179,6 +189,43 @@ class TerminalService: ObservableObject {
         NSPasteboard.general.setString(fullCommand, forType: .string)
         launchApp(at: appPath)
         return false
+    }
+
+    /// Outcome of a worktree creation attempt.
+    enum WorktreeOutcome {
+        case success(path: String)
+        case failure(message: String)
+    }
+
+    /// Create a new git worktree under `<projectPath>/.claude/worktrees/<name>`
+    /// on a fresh branch named after the worktree.
+    func createWorktree(in projectPath: String) -> WorktreeOutcome {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyMMdd-HHmm"
+        let name = "wt-\(formatter.string(from: Date()))"
+        let worktreePath = "\(projectPath)/.claude/worktrees/\(name)"
+
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        task.arguments = ["git", "-C", projectPath, "worktree", "add",
+                          worktreePath, "-b", name]
+        let pipe = Pipe()
+        task.standardError = pipe
+        task.standardOutput = pipe
+
+        do {
+            try task.run()
+            task.waitUntilExit()
+            if task.terminationStatus == 0 {
+                return .success(path: worktreePath)
+            }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let msg = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? "git failed"
+            return .failure(message: msg)
+        } catch {
+            return .failure(message: error.localizedDescription)
+        }
     }
 
     private func launchApp(at path: String) {

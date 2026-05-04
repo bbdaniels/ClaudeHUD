@@ -5,19 +5,19 @@ private let logger = Logger(subsystem: "com.claudehud", category: "Conversation"
 
 // MARK: - UI Models
 
-struct ChatMessage: Identifiable {
+struct ChatMessage: Identifiable, Equatable {
     let id = UUID()
     let role: MessageRole
     var content: String
     let timestamp = Date()
     var toolCalls: [ToolCallInfo] = []
 
-    enum MessageRole {
+    enum MessageRole: Equatable {
         case user, assistant, system
     }
 }
 
-struct ToolCallInfo: Identifiable {
+struct ToolCallInfo: Identifiable, Equatable {
     let id = UUID()
     let toolName: String
     let arguments: String
@@ -37,6 +37,7 @@ struct ConversationTab: Identifiable {
     let id = UUID()
     var title: String = "Chat"
     var kind: TabKind = .chat
+    var subtitle: String? = nil
 }
 
 // MARK: - Tab Manager
@@ -121,9 +122,9 @@ class TabManager: ObservableObject {
     /// Ghostty's `exec -l` shell wrapping. Colors come from the global
     /// Ghostty config until phase 1.
     @discardableResult
-    func addTerminalTab(title: String, command: String?, workingDirectory: String?, backgroundColor: String? = nil) -> UUID {
+    func addTerminalTab(title: String, command: String?, workingDirectory: String?, backgroundColor: String? = nil, subtitle: String? = nil) -> UUID {
         _ = backgroundColor
-        var tab = ConversationTab(title: title, kind: .terminal)
+        var tab = ConversationTab(title: title, kind: .terminal, subtitle: subtitle)
         tab.title = title
         tabs.append(tab)
         terminals[tab.id] = TerminalSession(

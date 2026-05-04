@@ -276,6 +276,7 @@ struct HUDContentView: View {
                     SessionHistoryView()
                         .environmentObject(sessionHistory)
                         .environmentObject(terminalService)
+                        .environmentObject(appState.projectService)
                 case .obsidian:
                     ObsidianBrowserView()
                         .environmentObject(vaultManager)
@@ -438,6 +439,20 @@ struct TabButton: View {
                 Image(systemName: "terminal")
                     .font(.smallFont(scale))
                     .foregroundColor(isSelected ? .accentColor : .secondary)
+            }
+
+            if let subtitle = tab.subtitle, !subtitle.isEmpty {
+                HStack(spacing: 2) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 8 * scale, weight: .semibold))
+                    Text(subtitle)
+                        .font(.custom("Fira Code", size: 10 * scale))
+                        .lineLimit(1)
+                }
+                .foregroundColor(.purple)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(RoundedRectangle(cornerRadius: 3).fill(Color.purple.opacity(0.15)))
             }
 
             Text(tab.title)
@@ -1002,6 +1017,7 @@ struct ProjectRow: View {
     let onDeleteSession: (String) -> Void
     @EnvironmentObject var terminalService: TerminalService
     @EnvironmentObject var tabManager: TabManager
+    @EnvironmentObject var projectService: ProjectService
     @State private var expanded = false
     @State private var showAll = false
     @State private var feedback: String?
@@ -1142,18 +1158,43 @@ struct ProjectRow: View {
                     .font(.custom("Fira Code", size: 10 * scale))
                     .foregroundColor(.secondary.opacity(0.5))
 
+                GitHubRepoIndicator(
+                    info: projectService.gitHubInfo(forPath: projectPath),
+                    scale: scale
+                )
+
                 if let feedback {
                     Text(feedback)
                         .font(.custom("Fira Sans", size: 11 * scale))
                         .foregroundColor(.green)
                 } else {
+                    Button(action: {
+                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: projectPath)
+                    }) {
+                        Image(systemName: "folder")
+                            .font(.system(size: 11 * scale, weight: .semibold))
+                            .foregroundColor(.white)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Reveal in Finder")
+
                     Button(action: { newSessionInHUD() }) {
                         Image(systemName: "plus.rectangle.on.rectangle")
                             .font(.system(size: 11 * scale, weight: .semibold))
-                            .foregroundColor(.accentColor)
+                            .foregroundColor(.white)
                     }
                     .buttonStyle(.borderless)
                     .help("New session as HUD terminal tab")
+
+                    if terminalService.installedLaunchers.contains(where: { $0.name == "Ghostty" }) {
+                        Button(action: { newWorktreeInGhostty() }) {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 11 * scale, weight: .semibold))
+                                .foregroundColor(.white)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("New worktree in Ghostty")
+                    }
 
                     ForEach(terminalService.installedLaunchers, id: \.path) { launcher in
                         Button(action: { newSession(usingApp: launcher.path) }) {
@@ -1172,6 +1213,9 @@ struct ProjectRow: View {
                 if sessions.count > 1 || hasSearchMatches {
                     withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
                 }
+            }
+            .task(id: projectPath) {
+                projectService.refreshGitHubInfo(forPath: projectPath)
             }
 
             if isExpanded {
@@ -1229,6 +1273,24 @@ struct ProjectRow: View {
         feedback = "Opened"
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { feedback = nil }
     }
+
+    private func newWorktreeInGhostty() {
+        switch terminalService.createWorktree(in: projectPath) {
+        case .failure(let message):
+            let short = message.split(separator: "\n").first.map(String.init) ?? message
+            feedback = String(short.prefix(40))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
+        case .success(let worktreePath):
+            let command = "claude\(launchFlags)"
+            let auto = terminalService.launchWithCommand(
+                command,
+                inDirectory: worktreePath,
+                usingApp: "/Applications/Ghostty.app"
+            )
+            feedback = auto ? "Worktree opened" : "Cmd+V"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
+        }
+    }
 }
 
 // MARK: - Session Detail Row (inside expanded project)
@@ -1246,10 +1308,25 @@ struct SessionDetailRow: View {
     var body: some View {
         HStack(spacing: 6) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(session.projectPath.contains("/.claude/worktrees/") ? "worktree" : session.preview)
-                    .font(.custom("Fira Sans", size: 12.5 * scale))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    if let wt = session.worktreeName {
+                        HStack(spacing: 2) {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 8 * scale, weight: .semibold))
+                            Text(wt)
+                                .font(.custom("Fira Code", size: 10 * scale))
+                                .lineLimit(1)
+                        }
+                        .foregroundColor(.purple)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(RoundedRectangle(cornerRadius: 3).fill(Color.purple.opacity(0.15)))
+                    }
+                    Text(session.preview)
+                        .font(.custom("Fira Sans", size: 12.5 * scale))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
 
                 if let snippet = searchResult?.snippet {
                     Text(snippet)
@@ -1279,7 +1356,7 @@ struct SessionDetailRow: View {
                 Button(action: resumeInHUD) {
                     Image(systemName: "plus.rectangle.on.rectangle")
                         .font(.system(size: 10 * scale, weight: .semibold))
-                        .foregroundColor(.accentColor)
+                        .foregroundColor(.white)
                 }
                 .buttonStyle(.borderless)
                 .help("Resume as HUD terminal tab")
@@ -1322,7 +1399,8 @@ struct SessionDetailRow: View {
             title: String(session.id.prefix(8)),
             command: command,
             workingDirectory: session.projectPath,
-            backgroundColor: bg
+            backgroundColor: bg,
+            subtitle: session.worktreeName
         )
         feedback = "Opened"
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { feedback = nil }

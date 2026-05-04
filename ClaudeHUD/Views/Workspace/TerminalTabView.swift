@@ -25,8 +25,27 @@ struct TerminalTabView: View {
 /// NSView that refuses to let mouse drags move the enclosing window. Without
 /// this, highlighting text in the Ghostty surface drags the HUD panel because
 /// the panel is `isMovableByWindowBackground = true`.
+///
+/// Also forwards layout-driven size changes to the embedded Ghostty surface.
+/// Ghostty's `SurfaceView` does not override `setFrameSize`/`viewDidEndLiveResize`;
+/// without this hook the PTY stays at its 800x600 init size and never reflows
+/// when the HUD panel resizes. (The official Ghostty integration uses
+/// `SurfaceRepresentable`/`SurfaceScrollView`, which we bypass to avoid the
+/// scroll wrapper inside the panel — so we forward the size ourselves.)
 private final class TerminalContainerView: NSView {
+    weak var surface: Ghostty.SurfaceView?
+    private var lastForwardedSize: NSSize = .zero
+
     override var mouseDownCanMoveWindow: Bool { false }
+
+    override func layout() {
+        super.layout()
+        guard let surface else { return }
+        let size = surface.bounds.size
+        guard size.width > 0, size.height > 0, size != lastForwardedSize else { return }
+        lastForwardedSize = size
+        surface.sizeDidChange(size)
+    }
 }
 
 private struct TerminalHost: NSViewRepresentable {
@@ -41,6 +60,7 @@ private struct TerminalHost: NSViewRepresentable {
         if let surface = session.ensureSurface(from: appState.ghosttyApp) {
             surface.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(surface)
+            container.surface = surface
             NSLayoutConstraint.activate([
                 surface.topAnchor.constraint(equalTo: container.topAnchor),
                 surface.bottomAnchor.constraint(equalTo: container.bottomAnchor),

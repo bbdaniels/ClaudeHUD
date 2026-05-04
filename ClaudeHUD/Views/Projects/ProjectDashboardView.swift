@@ -777,3 +777,65 @@ private struct BriefingItemRow: View {
     }
 }
 
+// MARK: - GitHub Repo Indicator
+
+/// Reserved-slot indicator. Always renders so rows stay aligned: a white mark
+/// when the project has a GitHub remote, a greyed-out mark with a diagonal
+/// slash when it doesn't. `nil` info covers both "no remote" and "not yet
+/// fetched"; the slot is stable across both states.
+struct GitHubRepoIndicator: View {
+    let info: GitHubRepoInfo?
+    let scale: CGFloat
+
+    private var tooltip: String {
+        guard let info else { return "No GitHub remote" }
+        let host = info.url
+            .replacingOccurrences(of: "https://", with: "")
+            .replacingOccurrences(of: "http://", with: "")
+        return "\(info.isPrivate ? "Private" : "Public") · \(host)"
+    }
+
+    var body: some View {
+        Group {
+            if let info {
+                Button {
+                    if let url = URL(string: info.url) {
+                        NSWorkspace.shared.open(url)
+                    }
+                } label: {
+                    ZStack(alignment: .bottomTrailing) {
+                        markImage.foregroundColor(.white)
+                        if info.isPrivate {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 6 * scale, weight: .bold))
+                                .foregroundColor(.green)
+                                // Push the lock just past the bottom-right of
+                                // the mark so it reads as an overlay glyph.
+                                .offset(x: 2, y: 2)
+                        }
+                    }
+                }
+                .buttonStyle(.borderless)
+            } else {
+                ZStack {
+                    markImage.foregroundColor(.secondary.opacity(0.35))
+                    Rectangle()
+                        .frame(width: 14 * scale, height: 1.5 * scale)
+                        .rotationEffect(.degrees(-45))
+                        .foregroundColor(.secondary.opacity(0.7))
+                }
+                .frame(width: 12 * scale, height: 12 * scale)
+            }
+        }
+        .help(tooltip)
+    }
+
+    private var markImage: some View {
+        Image("GitHubMark")
+            .renderingMode(.template)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: 12 * scale, height: 12 * scale)
+    }
+}
+
