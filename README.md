@@ -7,7 +7,7 @@ A macOS menu bar app that puts Claude Code at your fingertips. ClaudeHUD is a li
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="ClaudeHUD floating panel showing the History tab grouped by project" width="320">
+  <img src="docs/screenshot.png" alt="ClaudeHUD floating panel showing recent chats grouped by project" width="320">
 </p>
 
 ## What it is
