@@ -1,10 +1,28 @@
 # ClaudeHUD
 
-A macOS menu bar app that puts Claude at your fingertips. ClaudeHUD is a lightweight, always-available floating panel for chatting with Claude, running tools, and managing multiple conversations -- all without leaving your current workflow.
+A macOS menu bar app that puts Claude Code at your fingertips. ClaudeHUD is a lightweight, always-available floating panel for chatting with Claude, browsing past sessions, and surfacing context from your calendar, email, and Obsidian notes -- all without leaving your current workflow.
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-blue)
 ![Swift](https://img.shields.io/badge/Swift-5.9-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
+
+<p align="center">
+  <img src="docs/screenshot.png" alt="ClaudeHUD floating panel showing the History tab grouped by project" width="320">
+</p>
+
+## What it is
+
+ClaudeHUD is a SwiftUI wrapper around the [Claude CLI](https://docs.anthropic.com/en/docs/claude-code), plus productivity overlays that pull from the apps you already use. Click the menu bar icon and the floating panel snaps open on any Space:
+
+- **Chat** -- multi-tab conversations with model and permission-mode selectors
+- **History** -- full-text search across every Claude Code session on your machine, grouped by project
+- **Today** -- AI-briefed daily calendar with email + Obsidian cross-references
+- **Projects** -- dashboard linking calendar, email, sessions, and Obsidian notes by project
+- **Obsidian** -- multi-vault note browser with floating preview windows
+- **Substack** -- inline reader for your Substack inbox
+- **Notifications** -- desktop + iPhone/Apple Watch alerts when Claude needs attention
+
+The CLI handles auth, tool execution, and MCP connections. ClaudeHUD provides the UI and the cross-app context.
 
 ## Features
 
