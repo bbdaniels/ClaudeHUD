@@ -214,10 +214,7 @@ struct SkillsView: View {
     private func editWithClaude(_ skill: SkillFile) {
         let folder = skill.folder.path
         let prompt = "Read @SKILL.md and give a brief 3-bullet summary: (1) what this skill does, (2) when it triggers, (3) any rough edges or things worth tightening. Then stop and wait for instructions. Do not edit anything yet."
-        let escaped = prompt
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-        let command = "claude --dangerously-skip-permissions --effort high \"\(escaped)\""
+        let command = "claude --dangerously-skip-permissions --effort high \"\(Self.shellQuote(prompt))\""
         let ghostty = "/Applications/Ghostty.app"
         let app = FileManager.default.fileExists(atPath: ghostty) ? ghostty : nil
         terminalService.launchWithCommand(command, inDirectory: folder, usingApp: app)
@@ -226,13 +223,19 @@ struct SkillsView: View {
     private func runTagPass(force: Bool) {
         let folder = SkillsService.skillsRoot.path
         let prompt = SkillsService.tagPrompt(force: force)
-        // Escape backslashes and double-quotes for shell-quoted argument.
-        let escaped = prompt
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-        let command = "claude --dangerously-skip-permissions --effort high \"\(escaped)\""
+        let command = "claude --dangerously-skip-permissions --effort high \"\(Self.shellQuote(prompt))\""
         let ghostty = "/Applications/Ghostty.app"
         let app = FileManager.default.fileExists(atPath: ghostty) ? ghostty : nil
         terminalService.launchWithCommand(command, inDirectory: folder, usingApp: app)
+    }
+
+    /// Escape characters with special meaning inside shell double-quotes:
+    /// backslash, dollar sign, backtick, double-quote.
+    private static func shellQuote(_ s: String) -> String {
+        s
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "$", with: "\\$")
+            .replacingOccurrences(of: "`", with: "\\`")
+            .replacingOccurrences(of: "\"", with: "\\\"")
     }
 }

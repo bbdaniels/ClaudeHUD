@@ -1196,16 +1196,6 @@ struct ProjectRow: View {
                         .help("New Ghostty session with summary of recent sessions")
                     }
 
-                    if terminalService.installedLaunchers.contains(where: { $0.name == "Ghostty" }) {
-                        Button(action: { newWorktreeInGhostty() }) {
-                            Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: 11 * scale, weight: .semibold))
-                                .foregroundColor(.white)
-                        }
-                        .buttonStyle(.borderless)
-                        .help("New worktree in Ghostty")
-                    }
-
                     ForEach(terminalService.installedLaunchers, id: \.path) { launcher in
                         Button(action: { newSession(usingApp: launcher.path) }) {
                             Text(launcher.name == "VS Code" ? "VS" : ">_")
@@ -1294,23 +1284,6 @@ struct ProjectRow: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
     }
 
-    private func newWorktreeInGhostty() {
-        switch terminalService.createWorktree(in: projectPath) {
-        case .failure(let message):
-            let short = message.split(separator: "\n").first.map(String.init) ?? message
-            feedback = String(short.prefix(40))
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
-        case .success(let worktreePath):
-            let command = "claude\(launchFlags)"
-            let auto = terminalService.launchWithCommand(
-                command,
-                inDirectory: worktreePath,
-                usingApp: "/Applications/Ghostty.app"
-            )
-            feedback = auto ? "Worktree opened" : "Cmd+V"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
-        }
-    }
 }
 
 // MARK: - Session Detail Row (inside expanded project)
