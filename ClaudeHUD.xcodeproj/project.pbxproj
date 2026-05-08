@@ -15,6 +15,7 @@
 		070D53ACBBF518BCE8753209 /* UsageBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDFA4853FA49C5845C653FC5 /* UsageBadge.swift */; };
 		07987A717E8EEC86178C718E /* UsageModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17F46482310A6FD0D702F970 /* UsageModels.swift */; };
 		0932DD59662E5C9A88BA2A8A /* Fullscreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80BD26429AC23FB4D918EFA3 /* Fullscreen.swift */; };
+		09E0DD3C80E9042CE3E4BC59 /* SkillFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C833E15743B893B9F72BC7D /* SkillFile.swift */; };
 		09F41069A4BB4FC3ECCC9C57 /* GhosttyWindowService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D9389B80C07D234779F5AF /* GhosttyWindowService.swift */; };
 		0A909F682EA34DF6C6F6018F /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C02B9BB03438B656138520C /* Backport.swift */; };
 		0C6EFA26F155B9FEB15877AA /* TerminalTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FF9DA594E9870B247A558E0 /* TerminalTabView.swift */; };
@@ -112,6 +113,7 @@
 		9DEEA467818E77D57A86D3BE /* SurfaceView+Image.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FA9FAACA9B3A6FF9DD56B44 /* SurfaceView+Image.swift */; };
 		A37EA7A71D53617C344865CE /* NSScreen+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E31186A3C56760A5BDC4FE9 /* NSScreen+Extension.swift */; };
 		A38AF7A81F9EFE0753DB4AB9 /* SurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20C8F30012EA810713672AFE /* SurfaceView.swift */; };
+		A5DF70790AE073036E86391A /* SkillsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCA57B4FC62A9E70284DF8F2 /* SkillsView.swift */; };
 		A6CE6F13DE90FD2DB48C69A2 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CFD163F5056F20A18D23477 /* AppState.swift */; };
 		A80A8A41B64E427C3BC9C507 /* Array+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 266D9E2A1D7C837357F1A963 /* Array+Extension.swift */; };
 		AA1830B8C3DD8D346BBF9895 /* KeychainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE31FD7228157DC53CDE8B9E /* KeychainService.swift */; };
@@ -147,6 +149,7 @@
 		E544C1AC11413E5F3E07E88D /* libdcimgui.a in Resources */ = {isa = PBXBuildFile; fileRef = 9746A6576D360BAF0E62317B /* libdcimgui.a */; };
 		E7298415B9F7EFB367CAFB9B /* HostingWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68C16ED4C6BC5E8AE994EEC8 /* HostingWindow.swift */; };
 		E772664D2E0DC0C71818B008 /* Cursor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751F7BB670E03999BF62AE3D /* Cursor.swift */; };
+		E7EFBDDB60EC4968B77D04B5 /* SkillsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C704E240AFCDBD31AC48951 /* SkillsService.swift */; };
 		EE97440C9D3CA80341D0E536 /* NSMenu+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 847F4ED0CF27EBE50725922D /* NSMenu+Extension.swift */; };
 		EEC5054A3B33EBA08F1A8D24 /* JSONRPCTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 620FB4690A1A9D7786A56696 /* JSONRPCTypes.swift */; };
 		F044BE57EB32814BDF19E24B /* SurfaceGrabHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B90D1CB58E36C134CC8B152C /* SurfaceGrabHandle.swift */; };
@@ -174,6 +177,7 @@
 		175F7C7BD7CB64E6EE7CF176 /* Duration+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Duration+Extension.swift"; sourceTree = "<group>"; };
 		17F46482310A6FD0D702F970 /* UsageModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageModels.swift; sourceTree = "<group>"; };
 		19A889B1D9FE0780BB3042FA /* StdioMCPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StdioMCPClient.swift; sourceTree = "<group>"; };
+		1C704E240AFCDBD31AC48951 /* SkillsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillsService.swift; sourceTree = "<group>"; };
 		1CB4B7FC630A7C1961E15A49 /* libhighway.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libhighway.a; sourceTree = "<group>"; };
 		1E2B6EB27428FDED67DA72B9 /* GameController.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = GameController.framework; path = System/Library/Frameworks/GameController.framework; sourceTree = SDKROOT; };
 		20C8F30012EA810713672AFE /* SurfaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceView.swift; sourceTree = "<group>"; };
@@ -234,6 +238,7 @@
 		780C3E8AEA8CC301D2806F1B /* CrossKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossKit.swift; sourceTree = "<group>"; };
 		7ADA35FF9D1AED3E119C54A9 /* KeyboardShortcut+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeyboardShortcut+Extension.swift"; sourceTree = "<group>"; };
 		7BF6467BABED6305C19A0C5C /* MessageBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubble.swift; sourceTree = "<group>"; };
+		7C833E15743B893B9F72BC7D /* SkillFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillFile.swift; sourceTree = "<group>"; };
 		7E787E0DBE8D9B6AFEA14285 /* SubstackWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstackWebView.swift; sourceTree = "<group>"; };
 		7EF50C40A513492539053988 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		7FF9DA594E9870B247A558E0 /* TerminalTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTabView.swift; sourceTree = "<group>"; };
@@ -269,6 +274,7 @@
 		BA8F11CEDEDF5C46D131CAD5 /* FileHandle+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileHandle+Extension.swift"; sourceTree = "<group>"; };
 		BBEE4757D18F462A43F672AB /* MCPConfigLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPConfigLoader.swift; sourceTree = "<group>"; };
 		BC2C8BB22D0C22A9B123A59E /* libz.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libz.a; sourceTree = "<group>"; };
+		BCA57B4FC62A9E70284DF8F2 /* SkillsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillsView.swift; sourceTree = "<group>"; };
 		BF91CF6EF11224D0DA07ECB9 /* PermissionWatcherService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionWatcherService.swift; sourceTree = "<group>"; };
 		C351829385CF609EED3E826E /* Dock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dock.swift; sourceTree = "<group>"; };
 		C53EC70F3DA9CDD0CC4EA24F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -347,6 +353,7 @@
 				B9E97B3A1EBC63741CC858FC /* RemindersService.swift */,
 				59E8596B647276D0A1586779 /* SecretsVault.swift */,
 				C97BB9EE58B0DBF8AA04FDE7 /* SessionHistoryService.swift */,
+				1C704E240AFCDBD31AC48951 /* SkillsService.swift */,
 				826E910DE6159C463592C533 /* SparkService.swift */,
 				531BEC5B44B150E8BF664105 /* SubstackService.swift */,
 				2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */,
@@ -400,6 +407,14 @@
 			path = App;
 			sourceTree = "<group>";
 		};
+		43C5E813C19B8224327E9375 /* Skills */ = {
+			isa = PBXGroup;
+			children = (
+				BCA57B4FC62A9E70284DF8F2 /* SkillsView.swift */,
+			);
+			path = Skills;
+			sourceTree = "<group>";
+		};
 		4BE49318A2DDB9EC260080F8 /* Ghostty */ = {
 			isa = PBXGroup;
 			children = (
@@ -438,6 +453,7 @@
 			isa = PBXGroup;
 			children = (
 				94F002554690052369E931AE /* NoteFile.swift */,
+				7C833E15743B893B9F72BC7D /* SkillFile.swift */,
 				5AE1EE10B1C78DA325DB1406 /* SubstackModels.swift */,
 				5E0D64CF3689B9D885F9F313 /* TodoItem.swift */,
 				17F46482310A6FD0D702F970 /* UsageModels.swift */,
@@ -541,6 +557,7 @@
 				8446420217BF7BA2786DFC90 /* People */,
 				1428430AFBD3D13084CDEB36 /* Projects */,
 				9B435E31995D5B29A482D8FA /* Settings */,
+				43C5E813C19B8224327E9375 /* Skills */,
 				8F2E22B4A10D92CEA2755788 /* Substack */,
 				DB36E8D3AF61BCB4DB487E7A /* Today */,
 				D113A8D1E82B8E920CDC8A3F /* Workspace */,
@@ -864,6 +881,9 @@
 				344F340CDF4EAE1B18B24EE1 /* SecretsVault.swift in Sources */,
 				85FAE3D9A1FB9C99E73D9A64 /* SessionHistoryService.swift in Sources */,
 				8A26FC7995D0630EB4CC2293 /* SettingsView.swift in Sources */,
+				09E0DD3C80E9042CE3E4BC59 /* SkillFile.swift in Sources */,
+				E7EFBDDB60EC4968B77D04B5 /* SkillsService.swift in Sources */,
+				A5DF70790AE073036E86391A /* SkillsView.swift in Sources */,
 				DBBB0A53164615486398A791 /* SparkService.swift in Sources */,
 				AF44EBFA0AB87F2490D412F9 /* StdioMCPClient.swift in Sources */,
 				5B232678A7FD8C65C97CCB9E /* String+Extension.swift in Sources */,

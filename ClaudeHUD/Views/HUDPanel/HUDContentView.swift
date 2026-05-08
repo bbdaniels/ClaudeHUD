@@ -93,6 +93,7 @@ enum FixedTab: String, CaseIterable {
     case projects
     case people
     case substack
+    case skills
 
     var icon: String {
         switch self {
@@ -102,6 +103,7 @@ enum FixedTab: String, CaseIterable {
         case .projects: return "briefcase"
         case .people: return "person.2"
         case .substack: return "newspaper"
+        case .skills: return "wand.and.stars"
         }
     }
 
@@ -113,6 +115,7 @@ enum FixedTab: String, CaseIterable {
         case .projects: return "Projects"
         case .people: return "People"
         case .substack: return "Substack"
+        case .skills: return "Skills"
         }
     }
 
@@ -124,6 +127,7 @@ enum FixedTab: String, CaseIterable {
         case .projects: return "Projects"
         case .people: return "People"
         case .substack: return "Substack feed"
+        case .skills: return "Skills"
         }
     }
 
@@ -135,6 +139,7 @@ enum FixedTab: String, CaseIterable {
         case .projects: return "Cross-reference notes, sessions, calendar, email"
         case .people: return "Contact directory from calendar, email, Contacts"
         case .substack: return "Aggregated feed from your subscriptions"
+        case .skills: return "Review and edit Claude Code skills in ~/.claude/skills"
         }
     }
 
@@ -300,6 +305,9 @@ struct HUDContentView: View {
                 case .substack:
                     SubstackView()
                         .environmentObject(appState.substackService)
+                case .skills:
+                    SkillsView()
+                        .environmentObject(appState.skillsService)
                 }
             } else if tabManager.currentTab?.kind == .terminal {
                 TerminalTabView(sessionId: tabManager.selectedTabId)
@@ -1178,13 +1186,15 @@ struct ProjectRow: View {
                     .buttonStyle(.borderless)
                     .help("Reveal in Finder")
 
-                    Button(action: { newSessionInHUD() }) {
-                        Image(systemName: "plus.rectangle.on.rectangle")
-                            .font(.system(size: 11 * scale, weight: .semibold))
-                            .foregroundColor(.white)
+                    if !sessions.isEmpty {
+                        Button(action: { magicLaunchInGhostty() }) {
+                            Image(systemName: "wand.and.stars")
+                                .font(.system(size: 11 * scale, weight: .semibold))
+                                .foregroundColor(.white)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("New Ghostty session with summary of recent sessions")
                     }
-                    .buttonStyle(.borderless)
-                    .help("New session as HUD terminal tab")
 
                     if terminalService.installedLaunchers.contains(where: { $0.name == "Ghostty" }) {
                         Button(action: { newWorktreeInGhostty() }) {
@@ -1260,18 +1270,28 @@ struct ProjectRow: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
     }
 
-    private func newSessionInHUD() {
-        let command = "claude\(launchFlags)"
+    private func magicLaunchInGhostty() {
+        let topSessions = Array(sessions.prefix(3))
+        let pathLines = topSessions.enumerated().map { idx, s in
+            "[\(idx + 1)] \(s.filePath) (\(s.timestamp.relativeString))"
+        }.joined(separator: " ")
+
+        let prompt: String
+        if topSessions.isEmpty {
+            prompt = "No prior session transcripts found for this project. Greet the user and ask what they would like to work on."
+        } else {
+            prompt = "Read the last \(topSessions.count) Claude Code session transcripts for this project: \(pathLines). Each file is JSONL with one JSON message per line. Skim the last ~50 lines of each (most-recent file first). Give a 4-bullet summary: (1) what was worked on, (2) key decisions or changes made, (3) open threads or unresolved issues, (4) a suggested next step. Then stop and wait for instructions. Do not edit anything yet."
+        }
+
+        let escapedPrompt = prompt.replacingOccurrences(of: "\"", with: "\\\"")
+        let command = "claude\(launchFlags) \"\(escapedPrompt)\""
+        let ghosttyPath = "/Applications/Ghostty.app"
+        let app = FileManager.default.fileExists(atPath: ghosttyPath) ? ghosttyPath : nil
         let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
         let bg = useColors ? TerminalService.projectColor(for: projectName) : nil
-        tabManager.addTerminalTab(
-            title: projectName,
-            command: command,
-            workingDirectory: projectPath,
-            backgroundColor: bg
-        )
-        feedback = "Opened"
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { feedback = nil }
+        let auto = terminalService.launchWithCommand(command, inDirectory: projectPath, usingApp: app, backgroundColor: bg)
+        feedback = auto ? "Opened!" : "Cmd+V"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
     }
 
     private func newWorktreeInGhostty() {
