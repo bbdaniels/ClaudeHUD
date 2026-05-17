@@ -286,6 +286,22 @@ private struct AgentRow: View {
     let onRemove: () -> Void
     let onLogs: () -> Void
 
+    /// Project is always the row's headline. The home directory shows as
+    /// "Home" rather than the bare folder name (e.g. "bbdaniels"). Fall back
+    /// to the session name/id only when there is no working directory at all.
+    private var projectTitle: String {
+        let cwd = agent.cwd.trimmingCharacters(in: .whitespaces)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if !cwd.isEmpty {
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            if cwd == home { return "Home" }
+        }
+        let p = agent.projectName
+        if p != "—", !p.isEmpty { return p }
+        return agent.name.isEmpty ? agent.id : agent.name
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: agent.display.systemImage)
@@ -301,8 +317,8 @@ private struct AgentRow: View {
                             .font(.system(size: 8 * scale))
                             .foregroundColor(.secondary)
                     }
-                    Text(agent.name)
-                        .font(.system(size: 11 * scale, weight: .medium))
+                    Text(projectTitle)
+                        .font(.system(size: 11 * scale, weight: .semibold))
                         .lineLimit(1)
                     Text(agent.display.label)
                         .font(.system(size: 8 * scale, weight: .semibold))
@@ -319,6 +335,12 @@ private struct AgentRow: View {
                             .clipShape(Capsule())
                     }
                 }
+                if !agent.name.isEmpty, agent.name != projectTitle {
+                    Text(agent.name)
+                        .font(.system(size: 10 * scale, weight: .medium))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                }
                 if !agent.detail.isEmpty {
                     Text(agent.detail)
                         .font(.system(size: 10 * scale))
@@ -327,8 +349,6 @@ private struct AgentRow: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(spacing: 6) {
-                    Text(agent.projectName)
-                    Text("·")
                     Text(agent.id)
                     if let t = agent.template, t != "claude" {
                         Text("· \(t)")
