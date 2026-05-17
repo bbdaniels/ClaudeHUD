@@ -1252,7 +1252,7 @@ struct ProjectRow: View {
     }
 
     private func newSession(usingApp appPath: String) {
-        let command = "claude\(launchFlags)"
+        let command = daemonizedClaudeCommand(launchFlags)
         let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
         let bg = useColors ? TerminalService.projectColor(for: projectName) : nil
         let auto = terminalService.launchWithCommand(command, inDirectory: projectPath, usingApp: appPath, backgroundColor: bg)
@@ -1274,7 +1274,7 @@ struct ProjectRow: View {
         }
 
         let escapedPrompt = prompt.replacingOccurrences(of: "\"", with: "\\\"")
-        let command = "claude\(launchFlags) \"\(escapedPrompt)\""
+        let command = daemonizedClaudeCommand("\(launchFlags) \"\(escapedPrompt)\"")
         let ghosttyPath = "/Applications/Ghostty.app"
         let app = FileManager.default.fileExists(atPath: ghosttyPath) ? ghosttyPath : nil
         let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
@@ -1284,6 +1284,35 @@ struct ProjectRow: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
     }
 
+}
+
+// MARK: - Daemon registration
+
+/// Wraps a `claude` invocation so the launched session registers with the
+/// background daemon (visible in `claude agents` / Agent View) instead of
+/// running as an unregistered foreground REPL that nothing can supervise.
+///
+/// Why: a plain `claude …` in a terminal tab is attached straight to that
+/// PTY and never touches the daemon, so it can't be peeked/answered/stopped
+/// from Agent View. Starting with the (undocumented but stable) `--bg` flag
+/// hands the session to the daemon; we parse the printed id (ANSI-stripped)
+/// and immediately `claude attach` it in the same tab so interaction is
+/// unchanged. If `--bg` ever fails or no id is parsed we fall back to a
+/// plain foreground `claude`, so a launch can never be broken by this.
+///
+/// `argSuffix` is everything after `claude` (e.g. ` --effort high`,
+/// ` --resume <id> --dangerously-skip-permissions`, or flags + a prompt).
+fileprivate func daemonizedClaudeCommand(_ argSuffix: String) -> String {
+    let bg = "claude --bg" + argSuffix
+    let plain = "claude" + argSuffix
+    return "__o=$(\(bg) 2>&1); "
+        + "__i=$(printf '%s' \"$__o\" | perl -pe 's/\\e\\[[0-9;]*m//g' "
+        + "| grep -oE 'backgrounded[^0-9a-f]*[0-9a-f]{8}' "
+        + "| grep -oE '[0-9a-f]{8}' | tail -1); "
+        + "if [ -n \"$__i\" ]; then "
+        + "echo \"[registered with daemon: $__i -- run 'claude agents' to supervise]\"; "
+        + "claude attach \"$__i\"; "
+        + "else printf '%s\\n' \"$__o\"; \(plain); fi"
 }
 
 // MARK: - Session Detail Row (inside expanded project)
@@ -1374,7 +1403,7 @@ struct SessionDetailRow: View {
     }
 
     private func resume(usingApp appPath: String) {
-        let command = "claude --resume \(session.id)\(launchFlags)"
+        let command = daemonizedClaudeCommand(" --resume \(session.id)\(launchFlags)")
         let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
         let projectName = URL(fileURLWithPath: session.projectPath).lastPathComponent
         let bg = useColors ? TerminalService.projectColor(for: projectName) : nil
@@ -1384,7 +1413,7 @@ struct SessionDetailRow: View {
     }
 
     private func resumeInHUD() {
-        let command = "claude --resume \(session.id)\(launchFlags)"
+        let command = daemonizedClaudeCommand(" --resume \(session.id)\(launchFlags)")
         let projectName = URL(fileURLWithPath: session.projectPath).lastPathComponent
         let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
         let bg = useColors ? TerminalService.projectColor(for: projectName) : nil
