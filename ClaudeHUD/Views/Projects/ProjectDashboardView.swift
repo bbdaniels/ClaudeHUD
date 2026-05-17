@@ -732,7 +732,7 @@ private struct BriefingItemRow: View {
                             .frame(width: 14, height: 14)
                     }
                     .buttonStyle(.borderless)
-                    .help("Done")
+                    .hudTip("Done")
 
                     Button(action: onDismiss) {
                         Image(systemName: "xmark")
@@ -741,7 +741,7 @@ private struct BriefingItemRow: View {
                             .frame(width: 14, height: 14)
                     }
                     .buttonStyle(.borderless)
-                    .help("Skip")
+                    .hudTip("Skip")
 
                     Button(action: onPush) {
                         Image(systemName: "plus")
@@ -750,7 +750,7 @@ private struct BriefingItemRow: View {
                             .frame(width: 14, height: 14)
                     }
                     .buttonStyle(.borderless)
-                    .help("Add to notes")
+                    .hudTip("Add to notes")
                 }
             } else {
                 Button(action: onTapBullet) {
@@ -827,7 +827,7 @@ struct GitHubRepoIndicator: View {
                 .frame(width: 12 * scale, height: 12 * scale)
             }
         }
-        .help(tooltip)
+        .hudTip(tooltip)
     }
 
     private var markImage: some View {

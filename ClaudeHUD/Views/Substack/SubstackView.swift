@@ -24,7 +24,7 @@ struct SubstackView: View {
             // Search bar + controls
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .font(.captionFont(scale))
+                    .font(.system(size: 11 * scale))
                     .foregroundColor(.secondary)
                 TextField("Search posts...", text: $searchText)
                     .textFieldStyle(.plain)
@@ -34,7 +34,7 @@ struct SubstackView: View {
                 Button(action: { showingSaved.toggle() }) {
                     HStack(spacing: 3) {
                         Image(systemName: showingSaved ? "bookmark.fill" : "bookmark")
-                            .font(.captionFont(scale))
+                            .font(.system(size: 11 * scale))
                         if showingSaved {
                             Text("\(substackService.savedPostIDs.count)")
                                 .font(.captionFont(scale))
@@ -54,7 +54,7 @@ struct SubstackView: View {
                         .background(Capsule().fill(Color.accentColor.opacity(0.12)))
                     Button(action: { substackService.markAllRead() }) {
                         Image(systemName: "checkmark.circle")
-                            .font(.captionFont(scale))
+                            .font(.system(size: 11 * scale))
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.borderless)
@@ -64,7 +64,7 @@ struct SubstackView: View {
                     Task { await substackService.refresh() }
                 }) {
                     Image(systemName: "arrow.clockwise")
-                        .font(.captionFont(scale))
+                        .font(.system(size: 11 * scale))
                         .foregroundColor(.secondary)
                         .rotationEffect(.degrees(substackService.isLoading ? 360 : 0))
                         .animation(substackService.isLoading
@@ -75,7 +75,7 @@ struct SubstackView: View {
                 .disabled(substackService.isLoading)
                 .help("Refresh feed")
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 14)
             .padding(.vertical, 6)
             .background(Color(.textBackgroundColor).opacity(0.5))
 

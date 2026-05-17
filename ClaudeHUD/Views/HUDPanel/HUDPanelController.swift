@@ -12,7 +12,13 @@ class HUDPanelController {
     func createPanel() {
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 600),
-            styleMask: [.titled, .closable, .resizable, .hudWindow],
+            // No .hudWindow: HUD-style panels suppress AppKit tooltips
+            // (NSView.toolTip / SwiftUI .help) entirely. The titlebar is
+            // already hidden via titleVisibility/titlebarAppearsTransparent
+            // and the SwiftUI content draws its own translucent background,
+            // so dropping .hudWindow is visually ~identical but restores
+            // tooltips.
+            styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -20,10 +26,17 @@ class HUDPanelController {
         panel.level = .normal
         panel.isFloatingPanel = false
         panel.hidesOnDeactivate = false
+        // THE tooltip fix. This is an .accessory (menubar agent) app whose
+        // panel is shown from a status-item click, so the app is usually NOT
+        // the active app while the user mouses over the panel. macOS suppresses
+        // NSView.toolTip (which SwiftUI `.help()` uses) for windows of an
+        // inactive app unless this is set — which is why NO tooltip ever
+        // appeared, regardless of the host view or .hudWindow.
+        panel.allowsToolTipsWhenApplicationIsInactive = true
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.isOpaque = false
-        panel.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.95)
+        panel.isOpaque = true
+        panel.backgroundColor = NSColor.windowBackgroundColor
         panel.titlebarAppearsTransparent = true
         panel.titleVisibility = .hidden
         panel.isMovableByWindowBackground = true
@@ -55,7 +68,13 @@ class HUDPanelController {
             .environmentObject(appState.usageService)
             .environmentObject(appState.skillsService)
 
-        panel.contentView = NSHostingView(rootView: contentView)
+        // Host SwiftUI via an NSHostingController set as contentViewController,
+        // NOT a bare NSHostingView assigned to contentView. SwiftUI `.help()`
+        // tooltips are delivered through the hosting *controller*'s
+        // participation in the responder chain; with a raw NSHostingView there
+        // is no controller, so every `.help(...)` in the app silently no-ops
+        // and no tooltip ever appears.
+        panel.contentViewController = NSHostingController(rootView: contentView)
 
         // Cancel running requests when window closes
         NotificationCenter.default.addObserver(

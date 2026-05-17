@@ -36,7 +36,15 @@ class AppState: ObservableObject {
     }
 
     func setup() async {
-        permissionWatcher.setup()
+        // Notification subsystems (push + permission watcher) are superseded
+        // by the daemon agent's handler. Force them off and tear down any
+        // Claude-hook registrations they previously wrote into
+        // ~/.claude/settings.json, so they neither fire nor compete with the
+        // daemon. Service code is intentionally kept for easy re-enable.
+        if pushManager.isEnabled { await pushManager.setEnabled(false) }
+        permissionWatcher.setEnabled(false)
+        permissionWatcher.setup()   // disabled-branch: idempotent hook cleanup
+
         vaultManager.ensureDailyNote(for: Date())
 
         // Unlock secrets vault — single Touch ID prompt for the whole session.

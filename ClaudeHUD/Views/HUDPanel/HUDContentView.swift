@@ -215,6 +215,7 @@ struct HUDContentView: View {
                     .foregroundColor(permissionColor)
                 }
                 .buttonStyle(.borderless)
+                .hudTip("Permission mode for new sessions (click to change)")
                 .popover(isPresented: $showPermissionPopover) {
                     PermissionPopover(selection: $tabManager.permissionMode)
                 }
@@ -231,7 +232,7 @@ struct HUDContentView: View {
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.borderless)
-                .help("New Claude session at ~ (high effort, bypass permissions)")
+                .hudTip("New Claude session at ~ (high effort, bypass permissions)")
                 .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
                     showTerminalPopover = true
                 })
@@ -240,18 +241,25 @@ struct HUDContentView: View {
                         .environmentObject(terminalService)
                 }
 
+                // DISABLED — notifications (push + permission watcher) are
+                // superseded by the daemon agent's handler. UI hidden; the
+                // PushPopover/PushNotificationManager/PermissionWatcher code is
+                // intentionally kept. Re-enable by uncommenting this block and
+                // restoring the AppState/ClaudeHUDApp wiring.
+                /*
                 Button(action: { showPushPopover.toggle() }) {
                     Image(systemName: pushManager.isEnabled ? "bell.fill" : "bell.slash")
                         .font(.smallFont(fontScale))
                         .foregroundColor(pushManager.isEnabled ? .blue : .secondary)
                 }
                 .buttonStyle(.borderless)
-                .help("Notifications")
+                .hudTip("Notifications")
                 .popover(isPresented: $showPushPopover) {
                     PushPopover()
                         .environmentObject(pushManager)
                         .environmentObject(permissionWatcher)
                 }
+                */
 
                 Button(action: { showInfoPopover.toggle() }) {
                     Image(systemName: "info.circle")
@@ -259,7 +267,7 @@ struct HUDContentView: View {
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.borderless)
-                .help("Setup & Info")
+                .hudTip("Setup & Info")
                 .popover(isPresented: $showInfoPopover) {
                     InfoPopover()
                 }
@@ -273,11 +281,14 @@ struct HUDContentView: View {
             Divider()
                 .opacity(0.5)
 
-            // Permission approval banner (only when watcher is enabled)
+            // DISABLED — permission approval is handled by the daemon agent's
+            // handler now. Banner hidden; PermissionBannerView/Watcher kept.
+            /*
             if permissionWatcher.isEnabled && !permissionWatcher.pending.isEmpty {
                 PermissionBannerView()
                     .environmentObject(permissionWatcher)
             }
+            */
 
             // Main content
             if let fixedTab = activeFixedTab {
@@ -355,6 +366,7 @@ struct HUDContentView: View {
                 .hidden()
             }
         )
+        .hudTooltipLayer()
     }
 
     private var permissionIcon: String {
@@ -410,7 +422,7 @@ struct TabBar: View {
                         RoundedRectangle(cornerRadius: 5)
                             .fill(activeFixedTab == tab ? Color.accentColor.opacity(0.12) : Color.clear)
                     )
-                    .help(tab.help)
+                    .hudTip(tab.help)
                 }
 
                 Divider()
@@ -432,7 +444,7 @@ struct TabBar: View {
                         .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.borderless)
-                .help("New tab")
+                .hudTip("New tab")
             }
             .padding(.horizontal, 8)
         }
@@ -471,6 +483,7 @@ struct TabButton: View {
                 .padding(.horizontal, 4)
                 .padding(.vertical, 1)
                 .background(RoundedRectangle(cornerRadius: 3).fill(Color.purple.opacity(0.15)))
+                .hudTip("Worktree: \(subtitle)")
             }
 
             Text(tab.title)
@@ -485,6 +498,7 @@ struct TabButton: View {
                         .foregroundColor(.secondary.opacity(0.6))
                 }
                 .buttonStyle(.borderless)
+                .hudTip("Close tab")
             }
         }
         .padding(.horizontal, 10)
@@ -842,6 +856,7 @@ struct SessionHistoryView: View {
                                 .foregroundColor(.secondary)
                         }
                         .buttonStyle(.borderless)
+                        .hudTip("Clear search")
                     }
                     Button(action: {
                         useColors.toggle()
@@ -852,7 +867,7 @@ struct SessionHistoryView: View {
                             .foregroundColor(useColors ? .accentColor : .secondary)
                     }
                     .buttonStyle(.borderless)
-                    .help(useColors ? "Project colors ON" : "Project colors OFF")
+                    .hudTip(useColors ? "Project colors ON" : "Project colors OFF")
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 6)
@@ -975,6 +990,7 @@ struct TimeSectionView: View {
         .onTapGesture {
             withAnimation(.easeInOut(duration: 0.15)) { collapsed.toggle() }
         }
+        .hudTip(collapsed ? "Expand section" : "Collapse section")
 
         if !collapsed {
             ForEach(folderGroups, id: \.path) { folder in
@@ -1119,6 +1135,7 @@ struct ProjectRow: View {
                         .frame(width: 14)
                         .contentShape(Rectangle())
                         .onTapGesture { withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() } }
+                        .hudTip(isExpanded ? "Collapse sessions" : "Expand sessions")
                 } else {
                     Spacer().frame(width: 14)
                 }
@@ -1131,7 +1148,7 @@ struct ProjectRow: View {
                         .frame(width: 14)
                 }
                 .buttonStyle(.borderless)
-                .help(isStarred ? "Unstar project" : "Star project")
+                .hudTip(isStarred ? "Unstar project" : "Star project")
 
                 // Unsafe toggle (per-project, persistent)
                 Button(action: {
@@ -1144,7 +1161,7 @@ struct ProjectRow: View {
                         .frame(width: 16)
                 }
                 .buttonStyle(.borderless)
-                .help(unsafeMode ? "Unsafe mode (click to toggle)" : "Safe mode (click to toggle)")
+                .hudTip(unsafeMode ? "Unsafe mode (click to toggle)" : "Safe mode (click to toggle)")
 
                 // Effort toggle (per-project, persistent)
                 Button(action: { cycleEffort() }) {
@@ -1154,7 +1171,7 @@ struct ProjectRow: View {
                         .frame(width: 16)
                 }
                 .buttonStyle(.borderless)
-                .help("Effort: \(effort) (click to cycle)")
+                .hudTip("Effort: \(effort) (click to cycle)")
 
                 Text(projectName)
                     .font(.smallMedium(scale))
@@ -1194,7 +1211,7 @@ struct ProjectRow: View {
                             .foregroundColor(.white)
                     }
                     .buttonStyle(.borderless)
-                    .help("Reveal in Finder")
+                    .hudTip("Reveal in Finder")
 
                     if !sessions.isEmpty {
                         Button(action: { magicLaunchInGhostty() }) {
@@ -1203,7 +1220,21 @@ struct ProjectRow: View {
                                 .foregroundColor(.white)
                         }
                         .buttonStyle(.borderless)
-                        .help("New Ghostty session with summary of recent sessions")
+                        .hudTip("New session — loads project context from the Obsidian wiki")
+                    } else {
+                        // Unavailable (no prior sessions): greyed + struck
+                        // through, the same idiom as GitHubRepoIndicator's
+                        // "no remote" state, instead of hiding the control.
+                        ZStack {
+                            Image(systemName: "wand.and.stars")
+                                .font(.system(size: 11 * scale, weight: .semibold))
+                                .foregroundColor(.secondary.opacity(0.35))
+                            Rectangle()
+                                .frame(width: 14 * scale, height: 1.5 * scale)
+                                .rotationEffect(.degrees(-45))
+                                .foregroundColor(.secondary.opacity(0.7))
+                        }
+                        .hudTip("No prior sessions yet")
                     }
 
                     ForEach(terminalService.installedLaunchers, id: \.path) { launcher in
@@ -1213,7 +1244,7 @@ struct ProjectRow: View {
                                 .foregroundColor(.white)
                         }
                         .buttonStyle(.borderless)
-                        .help("New session in \(launcher.name)")
+                        .hudTip("New session in \(launcher.name)")
                     }
                 }
             }
@@ -1271,20 +1302,45 @@ struct ProjectRow: View {
     }
 
     private func magicLaunchInGhostty() {
-        let topSessions = Array(sessions.prefix(3))
-        let pathLines = topSessions.enumerated().map { idx, s in
-            "[\(idx + 1)] \(s.filePath) (\(s.timestamp.relativeString))"
-        }.joined(separator: " ")
+        // Wiki-bootstrap prompt: the launched session loads its context from the
+        // Obsidian vault (the source of truth), NOT from a lossy summary of prior
+        // session transcripts. Kept as one line so it survives every delivery
+        // path (Ghostty temp script, Terminal/iTerm2 AppleScript `do script`,
+        // clipboard fallback). {{PROJECT}} is filled with the project name;
+        // {{STEP2}} is the folder-resolution step, which differs depending on
+        // whether the canonical project↔vault registry resolved this repo.
+        let template = [
+            "You are starting a fresh session on the Obsidian vault project: {{PROJECT}}.",
+            "Load context from the wiki. Do NOT ask the user to recap and do NOT rely on any prior-session summary — the vault at ~/Documents/Obsidian is the source of truth. Use the mcp__obsidian__ tools (fall back to Read if unavailable).",
+            "1. Read schema.md — the vault contract and invariants.",
+            "{{STEP2}}",
+            "3. Read that project's Dashboard.md (current state), Tasks.md (its \"## Active\" section is what to do now), and Technical Notes.md (decisions / implementation history). Follow linked notes only as needed.",
+            "4. State in ~3 lines: project status, the top 1–3 active tasks, and any \"Attention needed\" flags. Then start the highest-priority active task (or ask which to take if ambiguous).",
+            "Session rules: - Tasks.md is the source of truth. As work completes or new work appears, update its ## Active / ## Completed and the `updated:` frontmatter, and append a daily-note entry. Externalize decisions into the project notes so the NEXT session reads them here — never leave state only in chat. - Never `git reset --hard` or `git clean` the vault. Local edits become durable only when pushed: the 15-min sync handles it, or run ~/.claude/scripts/vault-reset.sh. Only origin/main is durable.",
+        ].joined(separator: " ")
 
-        let prompt: String
-        if topSessions.isEmpty {
-            prompt = "No prior session transcripts found for this project. Greet the user and ask what they would like to work on."
+        // Canonical registry lookup keyed by this project's absolute repo
+        // working directory. On a hit, name the resolved absolute vault folder
+        // directly and drop the legacy "confirm with the user" ambiguity. On a
+        // miss, preserve today's fuzzy index.md resolution behavior verbatim.
+        let resolvedVaultPath = projectService.vaultFolderPath(forRepoPath: projectPath)
+        let step2: String
+        if let vaultPath = resolvedVaultPath {
+            step2 = "2. This project's vault folder is already resolved: \"\(vaultPath)\". Use it directly — do NOT re-derive it from index.md and do NOT ask the user to confirm the path."
         } else {
-            prompt = "Read the last \(topSessions.count) Claude Code session transcripts for this project: \(pathLines). Each file is JSONL with one JSON message per line. Skim the last ~50 lines of each (most-recent file first). Give a 4-bullet summary: (1) what was worked on, (2) key decisions or changes made, (3) open threads or unresolved issues, (4) a suggested next step. Then stop and wait for instructions. Do not edit anything yet."
+            step2 = "2. Read index.md (or HOME.md) to resolve \"{{PROJECT}}\" to its folder. If there is no exact folder match, pick the closest catalog entry and confirm the path with the user in one line before proceeding."
         }
 
-        let escapedPrompt = prompt.replacingOccurrences(of: "\"", with: "\\\"")
-        let command = daemonizedClaudeCommand("\(launchFlags) \"\(escapedPrompt)\"")
+        let prompt = template
+            .replacingOccurrences(of: "{{STEP2}}", with: step2)
+            .replacingOccurrences(of: "{{PROJECT}}", with: projectName)
+        // Single-quote the prompt for the shell (the canonical safe form, same as
+        // the directory path in TerminalService): every ' becomes '\'' and the
+        // whole string is wrapped in '...'. This neutralises the backticks
+        // (`git reset --hard`, `updated:`) and `$` so they cannot be executed as
+        // command substitution — which double-quoting would NOT prevent.
+        let escapedPrompt = prompt.replacingOccurrences(of: "'", with: "'\\''")
+        let command = daemonizedClaudeCommand("\(launchFlags) '\(escapedPrompt)'")
         let ghosttyPath = "/Applications/Ghostty.app"
         let app = FileManager.default.fileExists(atPath: ghosttyPath) ? ghosttyPath : nil
         let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
@@ -1353,6 +1409,7 @@ struct SessionDetailRow: View {
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
                         .background(RoundedRectangle(cornerRadius: 3).fill(Color.purple.opacity(0.15)))
+                        .hudTip("Git worktree: \(wt)")
                     }
                     Text(session.preview)
                         .font(.custom("Fira Sans", size: 12.5 * scale))
@@ -1391,7 +1448,7 @@ struct SessionDetailRow: View {
                         .foregroundColor(.white)
                 }
                 .buttonStyle(.borderless)
-                .help("Resume as HUD terminal tab")
+                .hudTip("Resume as HUD terminal tab")
 
                 ForEach(terminalService.installedLaunchers, id: \.path) { launcher in
                     Button(action: { resume(usingApp: launcher.path) }) {
@@ -1400,7 +1457,7 @@ struct SessionDetailRow: View {
                             .foregroundColor(.white)
                     }
                     .buttonStyle(.borderless)
-                    .help("Resume in \(launcher.name)")
+                    .hudTip("Resume in \(launcher.name)")
                 }
             }
         }
@@ -1521,8 +1578,12 @@ struct InfoPopover: View {
 
                 StatusRow(ok: cliFound, label: "Claude CLI",
                           detail: cliFound ? "Installed" : "Not found -- install from claude.ai")
+                // DISABLED — Python 3 was only required for the permission
+                // hooks, now superseded by the daemon agent handler.
+                /*
                 StatusRow(ok: python3Found, label: "Python 3",
                           detail: python3Found ? "Installed" : "Needed for permission hooks")
+                */
                 StatusRow(ok: firaFound, label: "Fira Sans / Code",
                           detail: firaFound ? "Installed" : "Optional -- using system fonts")
             }
@@ -1555,7 +1616,8 @@ struct InfoPopover: View {
                 InfoRow(icon: "star.fill", text: "**Star:** Pin projects to a Starred section at the top of history")
                 InfoRow(icon: "shield", text: "**Permissions:** Plan/Safe/Unsafe controls how much Claude can do without asking")
                 InfoRow(icon: "terminal", text: "**Terminal:** Click to launch, long-press to switch. Ghostty, iTerm2, Terminal, and more")
-                InfoRow(icon: "bell.fill", text: "**Notifications:** Desktop via macOS, mobile via [ntfy.sh](https://ntfy.sh)")
+                // DISABLED — notifications superseded by the daemon agent handler.
+                // InfoRow(icon: "bell.fill", text: "**Notifications:** Desktop via macOS, mobile via [ntfy.sh](https://ntfy.sh)")
             }
 
             Divider()
@@ -1566,10 +1628,14 @@ struct InfoPopover: View {
                     Label("GitHub", systemImage: "link")
                         .font(.custom("Fira Sans", size: 11))
                 }
+                // DISABLED — ntfy.sh was the mobile push transport, now
+                // superseded by the daemon agent handler.
+                /*
                 Link(destination: URL(string: "https://ntfy.sh")!) {
                     Label("ntfy.sh", systemImage: "antenna.radiowaves.left.and.right")
                         .font(.custom("Fira Sans", size: 11))
                 }
+                */
                 Spacer()
             }
         }

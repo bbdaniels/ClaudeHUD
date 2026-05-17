@@ -17,6 +17,7 @@
 		0932DD59662E5C9A88BA2A8A /* Fullscreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80BD26429AC23FB4D918EFA3 /* Fullscreen.swift */; };
 		09E0DD3C80E9042CE3E4BC59 /* SkillFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C833E15743B893B9F72BC7D /* SkillFile.swift */; };
 		09F41069A4BB4FC3ECCC9C57 /* GhosttyWindowService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D9389B80C07D234779F5AF /* GhosttyWindowService.swift */; };
+		0A4D8DD96DCA844462BAAE4B /* Tooltip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50E5626B4C84084B8B14BB91 /* Tooltip.swift */; };
 		0A909F682EA34DF6C6F6018F /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C02B9BB03438B656138520C /* Backport.swift */; };
 		0C6EFA26F155B9FEB15877AA /* TerminalTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FF9DA594E9870B247A558E0 /* TerminalTabView.swift */; };
 		0CA6998A6E162167B6449EA0 /* SubstackModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE1EE10B1C78DA325DB1406 /* SubstackModels.swift */; };
@@ -220,6 +221,7 @@
 		4FDACE9A04CEA02436D47AD7 /* String+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "String+Extension.swift"; sourceTree = "<group>"; };
 		4FE78438CDBB1B82E2CD3203 /* ClaudeWebFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeWebFetcher.swift; sourceTree = "<group>"; };
 		502D6FDFD2A08657B013ED9B /* ToolCallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCallView.swift; sourceTree = "<group>"; };
+		50E5626B4C84084B8B14BB91 /* Tooltip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tooltip.swift; sourceTree = "<group>"; };
 		531BEC5B44B150E8BF664105 /* SubstackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstackService.swift; sourceTree = "<group>"; };
 		53F0B873471D8150D4E80657 /* ProjectService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectService.swift; sourceTree = "<group>"; };
 		58276C1EA3EC3682B1C6FE36 /* ClaudeHUD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeHUD.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -486,6 +488,7 @@
 			children = (
 				8A8692269C30DC7C435CE107 /* HUDContentView.swift */,
 				39C7242E2783A2815CB305E2 /* HUDPanelController.swift */,
+				50E5626B4C84084B8B14BB91 /* Tooltip.swift */,
 				CDFA4853FA49C5845C653FC5 /* UsageBadge.swift */,
 			);
 			path = HUDPanel;
@@ -932,6 +935,7 @@
 				9C3637274F96736D202895D8 /* TodayView.swift in Sources */,
 				8123A352C357703346F0F832 /* TodoItem.swift in Sources */,
 				AB52E8B15A0B2E94FDCFEAF0 /* ToolCallView.swift in Sources */,
+				0A4D8DD96DCA844462BAAE4B /* Tooltip.swift in Sources */,
 				7FF6D28391555F6C0ED924DB /* Transferable+Extension.swift in Sources */,
 				D00889A3F1FC9FF708D7CD2C /* UUID+Extension.swift in Sources */,
 				15511D03E025EECEB9B6370D /* UndoManager+Extension.swift in Sources */,

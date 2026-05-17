@@ -41,12 +41,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.panelController?.toggle()
         }
 
+        // DISABLED — permission watcher is superseded by the daemon agent's
+        // handler, so the menu-bar pending-count badge is no longer driven.
+        // updateBadge()/badgeView kept for easy re-enable.
+        /*
         // Watch for pending permissions → update menu bar badge
         badgeCancellable = appState.permissionWatcher.$pending
             .receive(on: RunLoop.main)
             .sink { [weak self] pending in
                 self?.updateBadge(count: pending.count)
             }
+        */
 
         Task {
             await appState.setup()
