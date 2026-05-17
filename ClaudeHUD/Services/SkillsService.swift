@@ -86,22 +86,44 @@ final class SkillsService: ObservableObject {
         if name.hasPrefix("imessage:") { return "imessage" }
         if name.hasPrefix("caveman:") || name.hasPrefix("caveman-") || name == "caveman" { return "caveman" }
 
-        let researchWriting: Set<String> = [
-            "analyze", "data-analysis", "discover", "find-data", "interview-me",
-            "lit-review", "research-ideation", "strategize", "identify",
-            "pre-analysis-plan", "draft-paper", "write", "humanizer",
-            "proposal-write", "proposal-revise", "proofread", "review",
-            "review-paper", "review-r", "paper-excellence", "devils-advocate",
-            "revise", "respond-to-referee", "revision-audit", "redline",
-            "consistency-check", "verify-manuscript", "validate-bib",
-            "audit-replication", "data-deposit", "submit", "em-submission",
-            "split-pdf", "pdf-comments", "tips-curate", "tips-integrate",
-            "tips-scout", "econometrics-check", "deploy-quarto", "translate-to-quarto",
-            "qa-quarto", "visual-audit", "extract-tikz", "compile-latex",
-            "create-talk", "talk", "create-lecture", "slide-excellence",
-            "pedagogy-review", "storyteller", "pandoc-docx", "new-project"
+        // Split the old "research" catch-all into the real functional
+        // families (the same taxonomy as displayLabel / tagPrompt). Frontmatter
+        // `family:` still overrides this; this is only the untagged fallback.
+        let research: Set<String> = [
+            "discover", "find-data", "interview-me", "lit-review",
+            "research-ideation", "strategize", "identify", "pre-analysis-plan",
+            "new-project", "tips-curate", "tips-integrate", "tips-scout"
         ]
-        if researchWriting.contains(name) { return "research" }
+        if research.contains(name) { return "research" }
+
+        let writing: Set<String> = [
+            "draft-paper", "write", "humanizer", "proposal-write",
+            "proposal-revise", "storyteller", "pandoc-docx", "talk",
+            "create-talk", "create-lecture"
+        ]
+        if writing.contains(name) { return "writing" }
+
+        let review: Set<String> = [
+            "proofread", "review", "review-paper", "review-r",
+            "paper-excellence", "devils-advocate", "econometrics-check",
+            "consistency-check", "revision-audit", "validate-bib",
+            "verify-manuscript", "slide-excellence", "pedagogy-review",
+            "visual-audit"
+        ]
+        if review.contains(name) { return "review" }
+
+        let analysis: Set<String> = [
+            "analyze", "data-analysis", "extract-tikz", "compile-latex",
+            "deploy-quarto", "translate-to-quarto", "qa-quarto"
+        ]
+        if analysis.contains(name) { return "analysis" }
+
+        let submission: Set<String> = [
+            "revise", "respond-to-referee", "redline", "audit-replication",
+            "data-deposit", "submit", "em-submission", "split-pdf",
+            "pdf-comments"
+        ]
+        if submission.contains(name) { return "submission" }
 
         let utility: Set<String> = [
             "commit", "deploy", "ship", "land-and-deploy", "checkpoint",

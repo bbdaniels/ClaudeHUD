@@ -6,7 +6,10 @@ struct SkillsView: View {
     @EnvironmentObject var terminalService: TerminalService
     @Environment(\.fontScale) private var scale
     @State private var searchText: String = ""
-    @State private var collapsedGroups: Set<String> = []
+    // Track expanded groups (not collapsed) so every family starts
+    // collapsed — the list opens as a tidy index of family headers + counts
+    // instead of one big expanded wall.
+    @State private var expandedGroups: Set<String> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -74,7 +77,9 @@ struct SkillsView: View {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(filteredGroups) { group in
                     groupHeader(group: group)
-                    if !collapsedGroups.contains(group.name) {
+                    // While searching, show every (already-filtered) match
+                    // regardless of collapse state.
+                    if expandedGroups.contains(group.name) || !searchText.isEmpty {
                         ForEach(group.subgroups) { sub in
                             if shouldShowSubLabel(sub: sub, in: group) {
                                 subgroupHeader(name: sub.name)
@@ -93,14 +98,14 @@ struct SkillsView: View {
 
     private func groupHeader(group: SkillsService.Group) -> some View {
         Button(action: {
-            if collapsedGroups.contains(group.name) {
-                collapsedGroups.remove(group.name)
+            if expandedGroups.contains(group.name) {
+                expandedGroups.remove(group.name)
             } else {
-                collapsedGroups.insert(group.name)
+                expandedGroups.insert(group.name)
             }
         }) {
             HStack(spacing: 6) {
-                Image(systemName: collapsedGroups.contains(group.name) ? "chevron.right" : "chevron.down")
+                Image(systemName: expandedGroups.contains(group.name) ? "chevron.down" : "chevron.right")
                     .font(.system(size: 9 * scale))
                     .foregroundColor(.secondary)
                 Text(SkillsService.displayLabel(forGroup: group.name))
@@ -140,12 +145,6 @@ struct SkillsView: View {
 
     private func row(_ skill: SkillFile) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: skill.isNested ? "puzzlepiece.extension" : "wand.and.stars")
-                .font(.system(size: 11 * scale))
-                .foregroundColor(.secondary)
-                .frame(width: 14, alignment: .center)
-                .padding(.top, 2)
-
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(skill.displayName)
@@ -180,7 +179,7 @@ struct SkillsView: View {
             Spacer()
 
             Button(action: { editWithClaude(skill) }) {
-                Image(systemName: "pencil.and.outline")
+                Image(systemName: "wand.and.stars")
                     .font(.system(size: 13 * scale))
                     .foregroundColor(.accentColor)
             }

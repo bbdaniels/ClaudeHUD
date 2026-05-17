@@ -327,6 +327,154 @@ class ProjectService: ObservableObject {
         return result.sorted { $0.name < $1.name }
     }
 
+    // MARK: - Canonical project↔vault resolver
+
+    /// Resolve a repo working directory to its Obsidian vault project folder
+    /// using the ONE canonical rule shared by the ingest hook
+    /// (`~/.claude/scripts/vault-ingest.sh` `resolve_project`) and the wiki
+    /// contract (`~/Documents/Obsidian/schema.md` §"Canonical project model").
+    ///
+    /// Among ALL vault project folders, every `cwds:` + `migrated-from:`
+    /// frontmatter entry from each folder's `Tasks.md` is collected (every
+    /// project has a `Tasks.md`; some have no `Dashboard.md`). A
+    /// pattern matches `repoPath` when any of: exact equality; shell-glob
+    /// `fnmatch`; equality after stripping a trailing `/`/`*` run; or
+    /// `repoPath` is under `pattern` (trailing `*` then `/` stripped, `+ "/"`).
+    /// The project whose MATCHING pattern is the LONGEST wins; no match → nil.
+    /// Never fuzzy-matched, never guessed — deterministic by design.
+    ///
+    /// Returns the absolute vault folder path on a hit (so the launcher can
+    /// name it directly), or nil for an unclaimed working directory (the
+    /// launcher then falls back to the legacy index.md resolution).
+    func vaultFolderPath(forRepoPath repoPath: String) -> String? {
+        let vaultRoot = vaultManager?.currentVault?.path
+            ?? "\(NSHomeDirectory())/Documents/Obsidian"
+        guard let folder = Self.resolveProjectFolder(cwd: repoPath, vaultPath: vaultRoot) else {
+            return nil
+        }
+        return "\(vaultRoot)/\(folder)"
+    }
+
+    /// Pure port of the bash `resolve_project` python. Returns the winning
+    /// vault folder NAME, or nil. Kept `nonisolated static` so it can be unit-
+    /// reasoned in isolation and never touches actor state.
+    nonisolated static func resolveProjectFolder(cwd: String, vaultPath: String) -> String? {
+        let fm = FileManager.default
+        guard let folders = try? fm.contentsOfDirectory(atPath: vaultPath) else { return nil }
+
+        var best: String?
+        var bestLen = -1
+        // `sorted()` mirrors the bash `sorted(os.listdir(vault))` so ties
+        // resolve identically across both implementations.
+        for folder in folders.sorted() {
+            let folderPath = "\(vaultPath)/\(folder)"
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: folderPath, isDirectory: &isDir), isDir.boolValue else { continue }
+            guard !folder.hasPrefix(".") else { continue }
+
+            for pat in claimedCwds(dashboardAt: "\(folderPath)/Tasks.md") {
+                if patternMatches(cwd: cwd, pattern: pat), pat.count > bestLen {
+                    best = folder
+                    bestLen = pat.count
+                }
+            }
+        }
+        return best
+    }
+
+    /// The four-way match predicate, byte-for-byte equivalent to the bash:
+    ///   cwd == pat
+    ///   || fnmatch(cwd, pat)
+    ///   || cwd == pat.rstrip("/*")
+    ///   || cwd.startswith(pat.rstrip("*").rstrip("/") + "/")
+    nonisolated private static func patternMatches(cwd: String, pattern pat: String) -> Bool {
+        if cwd == pat { return true }
+        // POSIX fnmatch(3) — same engine Python's fnmatch.fnmatch ultimately
+        // models (default flags: `*`/`?`/`[…]`, `*` spans `/`). No FNM_PATHNAME.
+        if fnmatch(pat, cwd, 0) == 0 { return true }
+        if cwd == rstrip(pat, of: "/*") { return true }
+        if cwd.hasPrefix(rstrip(rstrip(pat, of: "*"), of: "/") + "/") { return true }
+        return false
+    }
+
+    /// Python `str.rstrip(chars)`: drop the trailing run of any char in `set`.
+    nonisolated private static func rstrip(_ s: String, of set: String) -> String {
+        let drop = Set(set)
+        var end = s.endIndex
+        while end > s.startIndex {
+            let prev = s.index(before: end)
+            if drop.contains(s[prev]) { end = prev } else { break }
+        }
+        return String(s[s.startIndex..<end])
+    }
+
+    /// Parse a `Tasks.md`'s leading YAML frontmatter and collect every
+    /// `cwds:` + `migrated-from:` entry, keeping only absolute paths/globs.
+    /// Faithful to the bash python `claims()`: leading `---\n…\n---\n` block;
+    /// `key:` arms collection, inline value or following `- item` lines are
+    /// taken; a non-indented non-empty line resets the active key; quotes,
+    /// brackets and surrounding spaces are stripped.
+    nonisolated private static func claimedCwds(dashboardAt path: String) -> [String] {
+        guard let txt = try? String(contentsOfFile: path, encoding: .utf8) else { return [] }
+
+        // FM = re.compile(r'^---\n(.*?)\n---\n', re.DOTALL); FM.match(txt)
+        // Normalize CRLF so a Windows-authored note still parses; the bash
+        // runs on macOS notes (LF) so this only ever widens, never narrows.
+        let normalized = txt.replacingOccurrences(of: "\r\n", with: "\n")
+        guard normalized.hasPrefix("---\n") else { return [] }
+        let afterOpen = normalized.index(normalized.startIndex, offsetBy: 4)
+        guard let closeRange = normalized.range(of: "\n---\n", range: afterOpen..<normalized.endIndex) else {
+            return []
+        }
+        let body = String(normalized[afterOpen..<closeRange.lowerBound])
+
+        var out: [String] = []
+        var keyActive = false
+        for line in body.components(separatedBy: "\n") {
+            let stripped = line.trimmingCharacters(in: .whitespaces)
+
+            // re.match(r'^(cwds|migrated-from)\s*:', line)
+            if let colon = line.firstIndex(of: ":") {
+                let head = String(line[line.startIndex..<colon])
+                    .trimmingCharacters(in: CharacterSet(charactersIn: " \t"))
+                if head == "cwds" || head == "migrated-from" {
+                    keyActive = true
+                    let inline = String(line[line.index(after: colon)...])
+                        .trimmingCharacters(in: .whitespaces)
+                    if !inline.isEmpty, inline != "[]", inline != "~" {
+                        out.append(trim(inline, anyOf: "'\"[] "))
+                    }
+                    continue
+                }
+            }
+
+            if keyActive && stripped.hasPrefix("- ") {
+                let item = String(stripped.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+                out.append(trim(item, anyOf: "'\""))
+                continue
+            }
+
+            // `if line and not line[0].isspace(): key = None`
+            if let first = line.first, !first.isWhitespace {
+                keyActive = false
+            }
+        }
+        return out.filter { $0.hasPrefix("/") }
+    }
+
+    /// Python `str.strip(chars)` applied to both ends.
+    nonisolated private static func trim(_ s: String, anyOf set: String) -> String {
+        let drop = Set(set)
+        var start = s.startIndex
+        var end = s.endIndex
+        while start < end, drop.contains(s[start]) { start = s.index(after: start) }
+        while end > start {
+            let prev = s.index(before: end)
+            if drop.contains(s[prev]) { end = prev } else { break }
+        }
+        return String(s[start..<end])
+    }
+
     // MARK: - GitHub Info
 
     /// Trigger a `gh repo view` lookup for the given path if we don't already

@@ -1215,7 +1215,7 @@ struct ProjectRow: View {
 
                     if !sessions.isEmpty {
                         Button(action: { magicLaunchInGhostty() }) {
-                            Image(systemName: "wand.and.stars")
+                            Image(systemName: "pencil.and.outline")
                                 .font(.system(size: 11 * scale, weight: .semibold))
                                 .foregroundColor(.white)
                         }
@@ -1226,7 +1226,7 @@ struct ProjectRow: View {
                         // through, the same idiom as GitHubRepoIndicator's
                         // "no remote" state, instead of hiding the control.
                         ZStack {
-                            Image(systemName: "wand.and.stars")
+                            Image(systemName: "pencil.and.outline")
                                 .font(.system(size: 11 * scale, weight: .semibold))
                                 .foregroundColor(.secondary.opacity(0.35))
                             Rectangle()
