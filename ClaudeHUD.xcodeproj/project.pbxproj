@@ -124,8 +124,10 @@
 		ACE0E7A59578E712633FCF0E /* libintl.a in Resources */ = {isa = PBXBuildFile; fileRef = EFD0660D3C5F18063FE60EDC /* libintl.a */; };
 		AD2F609C2D74B1370002AE03 /* TabTitleEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 249A52B6A9AEA0717F65772E /* TabTitleEditor.swift */; };
 		AF44EBFA0AB87F2490D412F9 /* StdioMCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19A889B1D9FE0780BB3042FA /* StdioMCPClient.swift */; };
+		B1D0E311CB84A624077E53F1 /* AgentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD87037F81301BEE1808859F /* AgentsView.swift */; };
 		B28C401B5B93D1B0AE175BE3 /* ObsidianMarkdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EEBFE2793D1BE2364B60C89 /* ObsidianMarkdownView.swift */; };
 		B43937CF70E5CFD069E219B1 /* SubstackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8578388E6A6BFE744616BFBE /* SubstackView.swift */; };
+		B6062851E1689D3F69E61783 /* AgentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AEA2D1DA808678730DAFAB2 /* AgentModels.swift */; };
 		B728A86479EA3AF024F601DF /* FileHandle+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA8F11CEDEDF5C46D131CAD5 /* FileHandle+Extension.swift */; };
 		BAC3A285D736D01662A6A794 /* ClaudeCLIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 369134DB1B8B42279EB5E1D8 /* ClaudeCLIClient.swift */; };
 		BB7A3F82BD20DD9B51E7177A /* Ghostty.ConfigTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9437E5E3F033E372FB247783 /* Ghostty.ConfigTypes.swift */; };
@@ -141,6 +143,7 @@
 		D00889A3F1FC9FF708D7CD2C /* UUID+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = B719C4EF453E3C5D3875C915 /* UUID+Extension.swift */; };
 		D0ED5ED18E0BD299F8C3C2BD /* NSMenuItem+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A39F72F605ECF71563A3E2E /* NSMenuItem+Extension.swift */; };
 		D20DF9963BF7FB21B08290F6 /* Weak.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B704EFA6C1852BC574365CB /* Weak.swift */; };
+		D2DCCD7F974CD4FCC1DC76E1 /* AgentsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08C85940214C84CB1A4E170C /* AgentsService.swift */; };
 		D4AC79B81F3110DDD3AC51E0 /* libhighway.a in Resources */ = {isa = PBXBuildFile; fileRef = 1CB4B7FC630A7C1961E15A49 /* libhighway.a */; };
 		DBBB0A53164615486398A791 /* SparkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 826E910DE6159C463592C533 /* SparkService.swift */; };
 		DDA2946F96AD207B375C29BA /* UserDefaults+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED28053B6C8DF41BBA408158 /* UserDefaults+Extension.swift */; };
@@ -168,6 +171,7 @@
 		030E2CA6AD393F2A3D855BC1 /* Ghostty.Inspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Inspector.swift; sourceTree = "<group>"; };
 		044F5F3A60EFFE583BAA83D7 /* FullscreenMode+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FullscreenMode+Extension.swift"; sourceTree = "<group>"; };
 		0566FC950C392AF39E263A41 /* Ghostty.Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Config.swift; sourceTree = "<group>"; };
+		08C85940214C84CB1A4E170C /* AgentsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsService.swift; sourceTree = "<group>"; };
 		0BAE19BEC8B3EED3E2D70A4F /* MetalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalView.swift; sourceTree = "<group>"; };
 		0C02B9BB03438B656138520C /* Backport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backport.swift; sourceTree = "<group>"; };
 		0E31186A3C56760A5BDC4FE9 /* NSScreen+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSScreen+Extension.swift"; sourceTree = "<group>"; };
@@ -261,6 +265,7 @@
 		9537964108C725A1208851B5 /* ClaudeTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeTypes.swift; sourceTree = "<group>"; };
 		9746A6576D360BAF0E62317B /* libdcimgui.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libdcimgui.a; sourceTree = "<group>"; };
 		9A39F72F605ECF71563A3E2E /* NSMenuItem+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSMenuItem+Extension.swift"; sourceTree = "<group>"; };
+		9AEA2D1DA808678730DAFAB2 /* AgentModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentModels.swift; sourceTree = "<group>"; };
 		A03300B3437AA67D3BAB11EE /* ObjCExceptionCatcher.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ObjCExceptionCatcher.m; sourceTree = "<group>"; };
 		A2D5D690DAB6FDFE2D23AAE9 /* Ghostty.Action.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Action.swift; sourceTree = "<group>"; };
 		A72C6D575DC0E64C605D2287 /* libsentry.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libsentry.a; sourceTree = "<group>"; };
@@ -277,6 +282,7 @@
 		BBEE4757D18F462A43F672AB /* MCPConfigLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPConfigLoader.swift; sourceTree = "<group>"; };
 		BC2C8BB22D0C22A9B123A59E /* libz.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libz.a; sourceTree = "<group>"; };
 		BCA57B4FC62A9E70284DF8F2 /* SkillsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillsView.swift; sourceTree = "<group>"; };
+		BD87037F81301BEE1808859F /* AgentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsView.swift; sourceTree = "<group>"; };
 		BF91CF6EF11224D0DA07ECB9 /* PermissionWatcherService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionWatcherService.swift; sourceTree = "<group>"; };
 		C351829385CF609EED3E826E /* Dock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dock.swift; sourceTree = "<group>"; };
 		C53EC70F3DA9CDD0CC4EA24F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -342,6 +348,7 @@
 		023A00D7C3640918DAD935B9 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				08C85940214C84CB1A4E170C /* AgentsService.swift */,
 				4B895763A8BC8C627B83B2B8 /* BriefingService.swift */,
 				E19D00F8370F4B9F6E48FE81 /* CalendarService.swift */,
 				4FE78438CDBB1B82E2CD3203 /* ClaudeWebFetcher.swift */,
@@ -455,6 +462,7 @@
 		61AE31527786A4078CFFBB4A /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				9AEA2D1DA808678730DAFAB2 /* AgentModels.swift */,
 				94F002554690052369E931AE /* NoteFile.swift */,
 				7C833E15743B893B9F72BC7D /* SkillFile.swift */,
 				5AE1EE10B1C78DA325DB1406 /* SubstackModels.swift */,
@@ -517,6 +525,14 @@
 			path = Settings;
 			sourceTree = "<group>";
 		};
+		9CAC8DAC3F016020147131CD /* Agents */ = {
+			isa = PBXGroup;
+			children = (
+				BD87037F81301BEE1808859F /* AgentsView.swift */,
+			);
+			path = Agents;
+			sourceTree = "<group>";
+		};
 		B49D986F6B45E5C113967045 /* Claude */ = {
 			isa = PBXGroup;
 			children = (
@@ -554,6 +570,7 @@
 		C2B0EEA4C66521EED2A06C05 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				9CAC8DAC3F016020147131CD /* Agents */,
 				F567D485403F54C56BF3CE92 /* Chat */,
 				6AA81EE2EE9C0A51482701D9 /* HUDPanel */,
 				C397A64B546A235D0748698F /* Obsidian */,
@@ -794,6 +811,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B6062851E1689D3F69E61783 /* AgentModels.swift in Sources */,
+				D2DCCD7F974CD4FCC1DC76E1 /* AgentsService.swift in Sources */,
+				B1D0E311CB84A624077E53F1 /* AgentsView.swift in Sources */,
 				8573D1122FE20F3404D4586D /* AnySortKey.swift in Sources */,
 				260FB29CD17178EAEC3A7A5F /* AppInfo.swift in Sources */,
 				A6CE6F13DE90FD2DB48C69A2 /* AppState.swift in Sources */,

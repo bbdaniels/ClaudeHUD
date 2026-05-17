@@ -88,6 +88,7 @@ struct HighlightedMarkdownText: View {
 
 enum FixedTab: String, CaseIterable {
     case history
+    case agents
     case obsidian
     case today
     case projects
@@ -104,6 +105,7 @@ enum FixedTab: String, CaseIterable {
         case .people: return "person.2"
         case .substack: return "newspaper"
         case .skills: return "wand.and.stars"
+        case .agents: return "square.stack.3d.up"
         }
     }
 
@@ -116,6 +118,7 @@ enum FixedTab: String, CaseIterable {
         case .people: return "People"
         case .substack: return "Substack"
         case .skills: return "Skills"
+        case .agents: return "Agents"
         }
     }
 
@@ -128,6 +131,7 @@ enum FixedTab: String, CaseIterable {
         case .people: return "People"
         case .substack: return "Substack feed"
         case .skills: return "Skills"
+        case .agents: return "Background agents"
         }
     }
 
@@ -140,6 +144,7 @@ enum FixedTab: String, CaseIterable {
         case .people: return "Contact directory from calendar, email, Contacts"
         case .substack: return "Aggregated feed from your subscriptions"
         case .skills: return "Review and edit Claude Code skills in ~/.claude/skills"
+        case .agents: return "Monitor and manage daemon-backed Claude agents"
         }
     }
 
@@ -308,6 +313,11 @@ struct HUDContentView: View {
                 case .skills:
                     SkillsView()
                         .environmentObject(appState.skillsService)
+                case .agents:
+                    AgentsView()
+                        .environmentObject(appState.agentsService)
+                        .environmentObject(terminalService)
+                        .environmentObject(sessionHistory)
                 }
             } else if tabManager.currentTab?.kind == .terminal {
                 TerminalTabView(sessionId: tabManager.selectedTabId)
