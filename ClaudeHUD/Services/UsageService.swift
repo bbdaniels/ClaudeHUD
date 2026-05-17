@@ -65,13 +65,29 @@ class UsageService: ObservableObject {
             lastFetched = Date()
             Self.saveCachedUsage(CachedUsage(usage: fetched, orgUUID: uuid, fetchedAt: Date()))
             logger.info("Usage refreshed: 5h=\(fetched.fiveHour?.utilization ?? -1)% 7d=\(fetched.sevenDay?.utilization ?? -1)%")
+        } catch ClaudeWebError.authExpired {
+            errorMessage = "claude.ai session expired. Re-import your cookie in the info popover."
+            logger.error("Auth expired")
+        } catch ClaudeWebError.cloudflareChallenge {
+            errorMessage = "Blocked by a claude.ai Cloudflare check. Open claude.ai in your browser, then refresh."
+            logger.error("Cloudflare challenge unresolved")
+        } catch ClaudeWebError.timeout {
+            errorMessage = "claude.ai timed out. Will retry on the next poll."
+            logger.error("Fetch timed out")
         } catch UsageError.httpError(let code) where code == 401 || code == 403 {
-            errorMessage = "Cookie expired. Update it in the info popover."
+            errorMessage = "claude.ai session expired. Re-import your cookie in the info popover."
             logger.error("Auth failed (HTTP \(code))")
         } catch {
             errorMessage = "Failed: \(error.localizedDescription)"
             logger.error("Fetch failed: \(error.localizedDescription)")
         }
+    }
+
+    /// True when we have data but the last successful fetch is old enough that
+    /// the displayed numbers should be treated as stale (≈6 missed polls).
+    var isStale: Bool {
+        guard let fetched = lastFetched else { return usage != nil }
+        return Date().timeIntervalSince(fetched) > 1800
     }
 
     private func startPolling() {
@@ -85,38 +101,21 @@ class UsageService: ObservableObject {
 
     // MARK: - API
 
-    nonisolated private static func discoverOrgUUID(cookie: String) async throws -> String {
-        guard let url = URL(string: "https://claude.ai/api/organizations") else {
-            throw UsageError.badURL
-        }
-        var req = URLRequest(url: url)
-        req.setValue("sessionKey=\(cookie)", forHTTPHeaderField: "Cookie")
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.timeoutInterval = 15
-
-        let (data, response) = try await URLSession.shared.data(for: req)
-        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-            throw UsageError.httpError(http.statusCode)
-        }
+    // Routed through ClaudeWebFetcher (a hidden WKWebView) rather than
+    // URLSession: as of ~2026-05 these endpoints sit behind a Cloudflare
+    // interactive challenge that a plain URLSession request cannot pass.
+    @MainActor private static func discoverOrgUUID(cookie: String) async throws -> String {
+        let data = try await ClaudeWebFetcher.shared.json(
+            path: "/api/organizations", sessionKey: cookie)
         struct Org: Codable { let uuid: String }
         let orgs = try JSONDecoder().decode([Org].self, from: data)
         guard let first = orgs.first else { throw UsageError.noOrganization }
         return first.uuid
     }
 
-    nonisolated private static func fetchUsage(cookie: String, orgUUID: String) async throws -> UsageResponse {
-        guard let url = URL(string: "https://claude.ai/api/organizations/\(orgUUID)/usage") else {
-            throw UsageError.badURL
-        }
-        var req = URLRequest(url: url)
-        req.setValue("sessionKey=\(cookie)", forHTTPHeaderField: "Cookie")
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.timeoutInterval = 15
-
-        let (data, response) = try await URLSession.shared.data(for: req)
-        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-            throw UsageError.httpError(http.statusCode)
-        }
+    @MainActor private static func fetchUsage(cookie: String, orgUUID: String) async throws -> UsageResponse {
+        let data = try await ClaudeWebFetcher.shared.json(
+            path: "/api/organizations/\(orgUUID)/usage", sessionKey: cookie)
         return try Self.decoder().decode(UsageResponse.self, from: data)
     }
 

@@ -119,6 +119,7 @@
 		AA1830B8C3DD8D346BBF9895 /* KeychainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE31FD7228157DC53CDE8B9E /* KeychainService.swift */; };
 		AAA3C4E4A2A9BBFB16772482 /* libz.a in Resources */ = {isa = PBXBuildFile; fileRef = BC2C8BB22D0C22A9B123A59E /* libz.a */; };
 		AB52E8B15A0B2E94FDCFEAF0 /* ToolCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 502D6FDFD2A08657B013ED9B /* ToolCallView.swift */; };
+		ABB72147FFBF17F0076E58DC /* ClaudeWebFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FE78438CDBB1B82E2CD3203 /* ClaudeWebFetcher.swift */; };
 		ACA58B1127ED796388A0721A /* Ghostty.Inspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 030E2CA6AD393F2A3D855BC1 /* Ghostty.Inspector.swift */; };
 		ACE0E7A59578E712633FCF0E /* libintl.a in Resources */ = {isa = PBXBuildFile; fileRef = EFD0660D3C5F18063FE60EDC /* libintl.a */; };
 		AD2F609C2D74B1370002AE03 /* TabTitleEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 249A52B6A9AEA0717F65772E /* TabTitleEditor.swift */; };
@@ -213,6 +214,7 @@
 		4F1CCAC3654CFE6A96560A4D /* SurfaceScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceScrollView.swift; sourceTree = "<group>"; };
 		4FA9FAACA9B3A6FF9DD56B44 /* SurfaceView+Image.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceView+Image.swift"; sourceTree = "<group>"; };
 		4FDACE9A04CEA02436D47AD7 /* String+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "String+Extension.swift"; sourceTree = "<group>"; };
+		4FE78438CDBB1B82E2CD3203 /* ClaudeWebFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeWebFetcher.swift; sourceTree = "<group>"; };
 		502D6FDFD2A08657B013ED9B /* ToolCallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCallView.swift; sourceTree = "<group>"; };
 		531BEC5B44B150E8BF664105 /* SubstackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstackService.swift; sourceTree = "<group>"; };
 		53F0B873471D8150D4E80657 /* ProjectService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectService.swift; sourceTree = "<group>"; };
@@ -342,6 +344,7 @@
 			children = (
 				4B895763A8BC8C627B83B2B8 /* BriefingService.swift */,
 				E19D00F8370F4B9F6E48FE81 /* CalendarService.swift */,
+				4FE78438CDBB1B82E2CD3203 /* ClaudeWebFetcher.swift */,
 				B4DFFB6D6970128A8DD29E98 /* ContactService.swift */,
 				48D9389B80C07D234779F5AF /* GhosttyWindowService.swift */,
 				D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */,
@@ -804,6 +807,7 @@
 				BAC3A285D736D01662A6A794 /* ClaudeCLIClient.swift in Sources */,
 				11D068D60F1FBC84E1D988EA /* ClaudeHUDApp.swift in Sources */,
 				3D1E8016AF772DEC464B2404 /* ClaudeTypes.swift in Sources */,
+				ABB72147FFBF17F0076E58DC /* ClaudeWebFetcher.swift in Sources */,
 				4D672BFFE8C2EFF795EF880A /* CodableBridge.swift in Sources */,
 				0D0369B1284F0428139DD123 /* ContactService.swift in Sources */,
 				7DC1D28210D31B38F3B6C51A /* ConversationManager.swift in Sources */,

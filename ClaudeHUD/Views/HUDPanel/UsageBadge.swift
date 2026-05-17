@@ -112,6 +112,19 @@ struct UsagePopover: View {
                     .fixedSize(horizontal: false, vertical: true)
             } else if let u = usageService.usage {
                 VStack(alignment: .leading, spacing: 10) {
+                    if let err = usageService.errorMessage, usageService.isStale {
+                        HStack(alignment: .top, spacing: 5) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 10))
+                            Text(err)
+                                .font(.custom("Fira Sans", size: 10))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .foregroundColor(.orange)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(Color.orange.opacity(0.12)))
+                    }
                     if let fh = u.fiveHour {
                         UsageRow(label: "5-hour window", window: fh)
                     }
