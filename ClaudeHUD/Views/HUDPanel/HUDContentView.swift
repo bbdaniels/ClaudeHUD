@@ -1310,13 +1310,12 @@ struct ProjectRow: View {
         // {{STEP2}} is the folder-resolution step, which differs depending on
         // whether the canonical project↔vault registry resolved this repo.
         let template = [
-            "You are starting a fresh session on the Obsidian vault project: {{PROJECT}}.",
-            "Load context from the wiki. Do NOT ask the user to recap and do NOT rely on any prior-session summary — the vault at ~/Documents/Obsidian is the source of truth. Use the mcp__obsidian__ tools (fall back to Read if unavailable).",
-            "1. Read schema.md — the vault contract and invariants.",
+            "Fresh session on the Obsidian vault project: {{PROJECT}}. Load context from the wiki at ~/Documents/Obsidian (the source of truth) — not from a chat recap or a prior-session summary. Use the mcp__obsidian__ tools (fall back to Read).",
+            "1. Read schema.md (the vault contract).",
             "{{STEP2}}",
-            "3. Read that project's Dashboard.md (current state), Tasks.md (its \"## Active\" section is what to do now), and Technical Notes.md (decisions / implementation history). Follow linked notes only as needed.",
-            "4. State in ~3 lines: project status, the top 1–3 active tasks, and any \"Attention needed\" flags. Then start the highest-priority active task (or ask which to take if ambiguous).",
-            "Session rules: - Tasks.md is the source of truth. As work completes or new work appears, update its ## Active / ## Completed and the `updated:` frontmatter, and append a daily-note entry. Externalize decisions into the project notes so the NEXT session reads them here — never leave state only in chat. - Never `git reset --hard` or `git clean` the vault. Local edits become durable only when pushed: the 15-min sync handles it, or run ~/.claude/scripts/vault-reset.sh. Only origin/main is durable.",
+            "3. Read that project's Dashboard.md, Tasks.md (its \"## Active\" section), and Technical Notes.md.",
+            "4. Report in ~3 lines: project status, the top 1–3 active tasks, and any \"Attention needed\" flags. Then stop and wait for the user to choose what to work on — do NOT start a task automatically.",
+            "Rules: Tasks.md is the source of truth — as work completes or appears, update its ## Active / ## Completed and the `updated:` frontmatter, append a daily-note entry, and externalize decisions into the project notes (never leave state only in chat). Never `git reset --hard` or `git clean` the vault; local edits become durable only when pushed (the 15-min sync, or ~/.claude/scripts/vault-reset.sh).",
         ].joined(separator: " ")
 
         // Canonical registry lookup keyed by this project's absolute repo
