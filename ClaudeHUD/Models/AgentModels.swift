@@ -29,6 +29,16 @@ enum AgentDisplayState: Equatable {
         if ["failed", "error", "errored"].contains(s) { return .failed }
         if ["stopped", "killed", "cancelled", "canceled"].contains(s) { return .stopped }
 
+        // Liveness gate: roster.json is the daemon's authoritative process
+        // list. If the worker is NOT in it, the process has exited — its
+        // last-written `state.json` is stale. A dead session must never sit
+        // in "Working"/"Needs input"/"Idle" masquerading as live (the exact
+        // failure mode when a working session is kill -9'd, the daemon
+        // restarts, or the machine sleeps before a terminal state is
+        // flushed). Cleanly-finished sessions already returned above, so
+        // anything reaching here while not alive genuinely exited.
+        if !isAlive { return .stopped }
+
         // Explicitly waiting on the user.
         if ["needs_input", "needs input", "blocked", "input", "waiting", "paused"].contains(s)
             || t == "blocked" { return .needsInput }
