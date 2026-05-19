@@ -117,6 +117,18 @@ final class ClaudeWebFetcher: NSObject {
                            defer: false)
         win.contentView = wv
         win.isReleasedWhenClosed = false
+        // Opt this helper window OUT of all window management. A default
+        // NSWindow is `.managed`, so it participates in Spaces / Exposé /
+        // Mission Control. Parked 20k pt offscreen, a managed window the
+        // window server cannot place on any display makes macOS fan out
+        // Mission Control to surface it whenever the app activates or this
+        // view re-navigates (every 5-min usage poll) — the spurious
+        // "zoom out". `.transient` hides it from Exposé/Mission Control
+        // while still compositing it (WebKit timers/rAF keep running, so
+        // the Cloudflare challenge script is not suspended).
+        win.collectionBehavior = [.transient, .ignoresCycle, .fullScreenNone]
+        win.isExcludedFromWindowsMenu = true
+        win.hidesOnDeactivate = false
         // Park far offscreen; never key, never user-visible. Kept on-screen
         // (not orderOut) so WebKit does not suspend the challenge script.
         win.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
