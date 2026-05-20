@@ -18,6 +18,9 @@ struct AgentsView: View {
     @State private var logsAgent: AgentSession?
     @State private var logsText = ""
     @State private var loadingLogs = false
+    /// Low-signal buckets start collapsed (drop-down to expand), same idiom
+    /// as Session History's TimeSectionView. Keyed by group title.
+    @State private var collapsedGroups: Set<String> = ["Completed", "Detached"]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -145,7 +148,7 @@ struct AgentsView: View {
         var order: [String] = []
         var bucket: [String: [AgentSession]] = [:]
         for a in service.agents {
-            let t = a.isPinned ? "Pinned" : a.display.groupTitle
+            let t = a.isPinned ? "Pinned" : a.bucket.groupTitle
             if bucket[t] == nil { order.append(t); bucket[t] = [] }
             bucket[t]?.append(a)
         }
@@ -173,18 +176,24 @@ struct AgentsView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                     ForEach(groups, id: \.title) { group in
+                        let isCollapsed = collapsedGroups.contains(group.title)
                         Section {
-                            ForEach(group.items) { agent in
-                                AgentRow(agent: agent, scale: scale,
-                                         onAttach: { attach(agent) },
-                                         onStop: { service.stop(agent.id) },
-                                         onRespawn: { service.respawn(agent.id) },
-                                         onRemove: { pendingRemoval = agent },
-                                         onLogs: { showLogs(agent) })
-                                Divider().opacity(0.15)
+                            if !isCollapsed {
+                                ForEach(group.items) { agent in
+                                    AgentRow(agent: agent, scale: scale,
+                                             onAttach: { attach(agent) },
+                                             onStop: { service.stop(agent.id) },
+                                             onRespawn: { service.respawn(agent.id) },
+                                             onRemove: { pendingRemoval = agent },
+                                             onLogs: { showLogs(agent) })
+                                    Divider().opacity(0.15)
+                                }
                             }
                         } header: {
-                            HStack {
+                            HStack(spacing: 4) {
+                                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                                    .font(.system(size: 9 * scale, weight: .semibold))
+                                    .foregroundColor(.secondary.opacity(0.5))
                                 Text(group.title.uppercased())
                                     .font(.system(size: 9 * scale, weight: .semibold))
                                     .foregroundColor(.secondary)
@@ -196,6 +205,14 @@ struct AgentsView: View {
                             .padding(.horizontal, 14)
                             .padding(.vertical, 4)
                             .background(.ultraThinMaterial)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    if isCollapsed { collapsedGroups.remove(group.title) }
+                                    else { collapsedGroups.insert(group.title) }
+                                }
+                            }
+                            .hudTip(isCollapsed ? "Expand section" : "Collapse section")
                         }
                     }
                 }
@@ -304,11 +321,11 @@ private struct AgentRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: agent.display.systemImage)
+            Image(systemName: agent.bucket.systemImage)
                 .font(.system(size: 12 * scale))
-                .foregroundColor(agent.display.color)
+                .foregroundColor(agent.bucket.color)
                 .frame(width: 16)
-                .help(agent.display.label + " · " + agent.livenessLabel)
+                .help(agent.bucket.label + " · " + agent.livenessLabel)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -320,11 +337,11 @@ private struct AgentRow: View {
                     Text(projectTitle)
                         .font(.system(size: 11 * scale, weight: .semibold))
                         .lineLimit(1)
-                    Text(agent.display.label)
+                    Text(agent.bucket.label)
                         .font(.system(size: 8 * scale, weight: .semibold))
-                        .foregroundColor(agent.display.color)
+                        .foregroundColor(agent.bucket.color)
                         .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(agent.display.color.opacity(0.15))
+                        .background(agent.bucket.color.opacity(0.15))
                         .clipShape(Capsule())
                     if !agent.isAlive {
                         Text("exited")

@@ -23,6 +23,27 @@ final class AgentsService: ObservableObject {
 
     private var pollTimer: DispatchSourceTimer?
 
+    /// Open-window scan is throttled: `reload()` runs every 2s but Ghostty AX
+    /// enumeration is comparatively expensive and window membership doesn't
+    /// change that fast. Cache the lowercased titles + AX availability and
+    /// refresh at most every 5s.
+    private var openTitlesCache: (titles: [String], axOK: Bool, at: Date)?
+
+    /// Lowercased titles of every open Ghostty window, plus whether
+    /// Accessibility is granted (without it we cannot enumerate windows, so
+    /// open-ness is unknowable and we must NOT bury everything as detached).
+    private func openWindowScan() -> (titles: [String], axOK: Bool) {
+        if let c = openTitlesCache, Date().timeIntervalSince(c.at) < 5 {
+            return (c.titles, c.axOK)
+        }
+        let axOK = GhosttyWindowService.checkAccessibility(prompt: false)
+        let titles = axOK ? GhosttyWindowService.openWindows().map {
+            $0.title.lowercased()
+        } : []
+        openTitlesCache = (titles, axOK, Date())
+        return (titles, axOK)
+    }
+
     static var claudeDir: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude", isDirectory: true)
     }
@@ -80,6 +101,21 @@ final class AgentsService: ObservableObject {
         }()
 
         var result: [AgentSession] = []
+
+        // Scanned once per refresh (throttled), not per row. Mirror
+        // AgentsView.attach()'s notion of "open": a Ghostty window whose
+        // title equals or contains the session's project name (windows are
+        // launched with --title=<project>). Without Accessibility we cannot
+        // enumerate windows, so open-ness is unknowable — treat every
+        // session as open rather than wrongly burying all of them.
+        let (openTitles, axOK) = openWindowScan()
+        func sessionIsOpen(_ project: String) -> Bool {
+            guard axOK else { return true }
+            let p = project.lowercased()
+            guard !p.isEmpty, p != "—" else { return false }
+            return openTitles.contains(p) || openTitles.contains { $0.contains(p) }
+        }
+
         let jobDirs = (try? fm.contentsOfDirectory(at: Self.jobsDir,
                                                    includingPropertiesForKeys: nil,
                                                    options: [.skipsHiddenFiles])) ?? []
@@ -121,16 +157,18 @@ final class AgentsService: ObservableObject {
                 isPinned: pins.contains(id),
                 template: template,
                 tempo: tempo,
-                inFlightTasks: inFlightTasks
+                inFlightTasks: inFlightTasks,
+                isOpen: sessionIsOpen(projectName)
             ))
         }
 
-        // Pinned first, then by group (needs-input → working → idle → done),
-        // then most-recently-updated.
+        // Pinned first, then by effective bucket (open: needs-input →
+        // working → idle → completed → detached at the very bottom), then
+        // most-recently-updated (recency sort within the detached bucket).
         result.sort { a, b in
             if a.isPinned != b.isPinned { return a.isPinned }
-            if a.display.groupRank != b.display.groupRank {
-                return a.display.groupRank < b.display.groupRank
+            if a.bucket.groupRank != b.bucket.groupRank {
+                return a.bucket.groupRank < b.bucket.groupRank
             }
             return (a.updatedAt ?? .distantPast) > (b.updatedAt ?? .distantPast)
         }

@@ -12,24 +12,41 @@ enum AgentDisplayState: Equatable {
     case completed
     case failed
     case stopped
+    /// Presentation-only bucket (NOT a daemon state): an alive, non-terminal
+    /// session that has no Ghostty window open anywhere. A daemon-`blocked`
+    /// session whose window was closed is not awaiting *your* input — there
+    /// is no window to act in — so it must not wear urgent "Needs input".
+    /// Collapses to one muted bucket at the very bottom. See `AgentSession.bucket`.
+    case detached
     case other(String)
 
-    /// Derive display state from every signal the daemon exposes, not just the
-    /// `state` string. The daemon reports activity through `state`, `tempo`,
-    /// and `inFlight.tasks`; a session can be actively working while `state`
-    /// still reads a stale value, so in-flight work and `tempo` take priority
-    /// over an ambiguous `state`. Schema is research-preview, so unknown
-    /// tokens fall through to `.other` rather than being dropped.
-    static func derive(state: String, tempo: String?, inFlightTasks: Int?, isAlive: Bool) -> AgentDisplayState {
+    /// Derive display state from every signal the daemon exposes.
+    ///
+    /// Hard-won detail about the daemon's schema (Agent View, research
+    /// preview): `state` is NOT an activity indicator. The daemon uses
+    /// `state: "working"` as a *liveness* token — "the worker process is
+    /// up" — so a parked, never-prompted, or awaiting-user session still
+    /// reports `state: "working"`. The real activity truth is, in order of
+    /// reliability: `inFlight.tasks` (real work queued/running) →
+    /// `detail` (the daemon's own human-readable status, incl. the
+    /// never-started sentinel "… send a prompt to start") → `tempo`
+    /// (active/idle/blocked). `state` is only trusted for (a) terminal
+    /// outcomes and (b) `blocked`/`needs_input`, which the daemon DOES set
+    /// deliberately when waiting on the user — that one is reliable.
+    /// Schema is research-preview, so unknown tokens fall through to
+    /// `.other` rather than being dropped.
+    static func derive(state: String, tempo: String?, inFlightTasks: Int?,
+                       detail: String, isAlive: Bool) -> AgentDisplayState {
         let s = state.lowercased()
         let t = (tempo ?? "").lowercased()
+        let d = detail.lowercased()
 
-        // Terminal states win — a finished session isn't "working".
+        // 1. Terminal states win — a finished session isn't "working".
         if ["done", "completed", "complete", "success"].contains(s) { return .completed }
         if ["failed", "error", "errored"].contains(s) { return .failed }
         if ["stopped", "killed", "cancelled", "canceled"].contains(s) { return .stopped }
 
-        // Liveness gate: roster.json is the daemon's authoritative process
+        // 2. Liveness gate: roster.json is the daemon's authoritative process
         // list. If the worker is NOT in it, the process has exited — its
         // last-written `state.json` is stale. A dead session must never sit
         // in "Working"/"Needs input"/"Idle" masquerading as live (the exact
@@ -39,18 +56,32 @@ enum AgentDisplayState: Equatable {
         // anything reaching here while not alive genuinely exited.
         if !isAlive { return .stopped }
 
-        // Explicitly waiting on the user.
+        // 3. Never-started sentinel: a freshly-spawned bg session that has
+        // never received a prompt reports a contradictory mix
+        // (state="working", tempo="active") — only `detail` tells the
+        // truth, deterministically, via the daemon's own sentinel. It is
+        // idle, not working. Match the stable anchor phrase, not the exact
+        // punctuation (the daemon uses an em dash inside parens).
+        if d.contains("send a prompt to start") { return .idle }
+
+        // 4. Explicitly waiting on the user. `state` blocked/needs_input is
+        // a signal the daemon sets deliberately, so it is reliable here and
+        // outranks tempo (a blocked session can still read tempo="active").
         if ["needs_input", "needs input", "blocked", "input", "waiting", "paused"].contains(s)
             || t == "blocked" { return .needsInput }
 
-        // Actively working — trust in-flight work / tempo even if `state` lags.
+        // 5. Real work in flight is the strongest activity signal.
         if (inFlightTasks ?? 0) > 0 { return .working }
-        if ["working", "running", "active", "busy", "in_progress",
-            "generating", "thinking", "tool_use"].contains(s) { return .working }
+
+        // 6. Activity truth: `tempo` outranks the coarse `state` liveness
+        // token (a parked session reads state="working", tempo="idle").
+        if t == "idle" { return .idle }
         if ["working", "running", "busy", "active"].contains(t) { return .working }
 
+        // 7. Fall back to `state` only when `tempo` gave no signal.
+        if ["working", "running", "active", "busy", "in_progress",
+            "generating", "thinking", "tool_use"].contains(s) { return .working }
         if ["idle", "ready"].contains(s) { return .idle }
-        if t == "idle" { return .idle }
         return .other(state)
     }
 
@@ -62,6 +93,7 @@ enum AgentDisplayState: Equatable {
         case .completed: return "Completed"
         case .failed: return "Failed"
         case .stopped: return "Stopped"
+        case .detached: return "Detached"
         case .other(let s): return s.isEmpty ? "Unknown" : s.capitalized
         }
     }
@@ -74,6 +106,7 @@ enum AgentDisplayState: Equatable {
         case .completed: return "checkmark.circle.fill"
         case .failed: return "xmark.octagon.fill"
         case .stopped: return "stop.circle"
+        case .detached: return "moon.zzz"
         case .other: return "circle"
         }
     }
@@ -86,17 +119,21 @@ enum AgentDisplayState: Equatable {
         case .completed: return .green
         case .failed: return .red
         case .stopped: return .gray
+        case .detached: return .secondary
         case .other: return .secondary
         }
     }
 
-    /// Group buckets mirror `claude agents`: blocked work floats to the top.
+    /// Group buckets. Open work that needs you floats to the top; sessions
+    /// not open in any window sink to the very bottom (`.detached`, rank 4),
+    /// below even Completed — they are alive but demand nothing from you.
     var groupRank: Int {
         switch self {
         case .needsInput: return 0
         case .working: return 1
         case .idle: return 2
         case .completed, .failed, .stopped, .other: return 3
+        case .detached: return 4
         }
     }
 
@@ -106,6 +143,7 @@ enum AgentDisplayState: Equatable {
         case .working: return "Working"
         case .idle: return "Idle"
         case .completed, .failed, .stopped, .other: return "Completed"
+        case .detached: return "Detached"
         }
     }
 }
@@ -127,9 +165,27 @@ struct AgentSession: Identifiable, Equatable {
     let template: String?       // "claude", "bg", subagent name…
     let tempo: String?          // state.json.tempo (idle/working/blocked…)
     let inFlightTasks: Int      // state.json.inFlight.tasks
+    let isOpen: Bool            // has a Ghostty window open for this project
 
+    /// Raw daemon-derived state (activity truth, ignores window-openness).
     var display: AgentDisplayState {
-        .derive(state: rawState, tempo: tempo, inFlightTasks: inFlightTasks, isAlive: isAlive)
+        .derive(state: rawState, tempo: tempo, inFlightTasks: inFlightTasks,
+                detail: detail, isAlive: isAlive)
+    }
+
+    /// Effective presentation bucket — what the dash groups and badges by.
+    /// Open-ness is the primary axis the user cares about: a session with
+    /// no window open anywhere demands nothing from them, whatever the
+    /// daemon's `state` says. Terminal/dead sessions stay terminal (they
+    /// already returned a finished bucket); any other session that is not
+    /// open collapses to `.detached` (muted, very bottom, no urgency).
+    var bucket: AgentDisplayState {
+        switch display {
+        case .completed, .failed, .stopped, .detached:
+            return display
+        default:
+            return isOpen ? display : .detached
+        }
     }
 
     var projectName: String {
