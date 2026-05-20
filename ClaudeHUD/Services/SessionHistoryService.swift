@@ -347,11 +347,31 @@ class SessionHistoryService: ObservableObject {
 
             if let content = extractMessageContent(from: json), let role = messageRole(from: json),
                role == "user" {
-                return String(content.prefix(100))
+                let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Commands piped through to Claude (skill selector, <…> command
+                // wrappers, the session-ingest digest pipeline) are logged as
+                // the first user message but are NOT the session's topic. Skip
+                // them and keep scanning for the first genuine user prompt; if
+                // there is none the loop falls through to the "Session"
+                // sentinel, which the caller drops from history.
+                if trimmed.isEmpty || isPassThroughPrompt(trimmed) { continue }
+                return String(trimmed.prefix(100))
             }
         }
 
         return "Session"
+    }
+
+    /// Synthetic user messages that are commands passed through to Claude,
+    /// not the user's actual topic. Mirrors the skip the agent-name resolver
+    /// applies. Explicit list (not a broad heuristic) so real prompts that
+    /// merely start with punctuation are never hidden; extend as new
+    /// ClaudeHUD/harness pipelines appear.
+    nonisolated private static func isPassThroughPrompt(_ s: String) -> Bool {
+        if s.hasPrefix("<") { return true }                                   // <command>/<skill-selector> wrappers
+        if s.hasPrefix("You select the single most relevant skill") { return true }
+        if s.hasPrefix("# Session Ingest") { return true }                    // session digest pipeline
+        return false
     }
 
     /// Get the role from a JSONL message line.
