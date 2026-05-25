@@ -44,7 +44,8 @@ final class ClaudeWebFetcher: NSObject {
     static let shared = ClaudeWebFetcher()
 
     private var webView: WKWebView?
-    private var window: NSWindow?
+    private var window: NSPanel?
+    private let offscreenOrigin = NSPoint(x: -20_000, y: -20_000)
     private var primed = false
     private var loadContinuation: CheckedContinuation<Void, Error>?
     private var loadTimeoutWork: DispatchWorkItem?
@@ -111,32 +112,56 @@ final class ClaudeWebFetcher: NSObject {
         wv.navigationDelegate = self
         wv.customUserAgent = userAgent
 
-        let win = NSWindow(contentRect: frame,
-                           styleMask: [.borderless],
-                           backing: .buffered,
-                           defer: false)
+        // NSPanel with `.nonactivatingPanel` is the canonical host for an
+        // invisible utility WebView: it never activates the app, never becomes
+        // key/main, and is opted out of the regular window stack. NSWindow at
+        // a normal level kept getting hauled back onscreen by Stage Manager /
+        // window restoration even at (-20k, -20k) — see the "Shadow Claude"
+        // regression where the borderless WebView surfaced as an interactive
+        // claude.ai panel users could not close.
+        let win = NSPanel(contentRect: frame,
+                          styleMask: [.borderless, .nonactivatingPanel],
+                          backing: .buffered,
+                          defer: false)
         win.contentView = wv
         win.isReleasedWhenClosed = false
-        // Opt this helper window OUT of all window management. A default
-        // NSWindow is `.managed`, so it participates in Spaces / Exposé /
-        // Mission Control. Parked 20k pt offscreen, a managed window the
-        // window server cannot place on any display makes macOS fan out
-        // Mission Control to surface it whenever the app activates or this
-        // view re-navigates (every 5-min usage poll) — the spurious
-        // "zoom out". `.transient` hides it from Exposé/Mission Control
-        // while still compositing it (WebKit timers/rAF keep running, so
-        // the Cloudflare challenge script is not suspended).
-        win.collectionBehavior = [.transient, .ignoresCycle, .fullScreenNone]
-        win.isExcludedFromWindowsMenu = true
+        win.isRestorable = false   // no saved frame can pull it onscreen
         win.hidesOnDeactivate = false
-        // Park far offscreen; never key, never user-visible. Kept on-screen
-        // (not orderOut) so WebKit does not suspend the challenge script.
-        win.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
+        win.isExcludedFromWindowsMenu = true
+        win.isFloatingPanel = false
+        win.becomesKeyOnlyIfNeeded = true
+        win.worksWhenModal = false
+        // Opt out of every window-management surface. `.transient` hides it
+        // from Exposé/Mission Control; `.stationary` keeps Stage Manager from
+        // sweeping it into the active stage; `.canJoinAllSpaces` avoids the
+        // window-server trying to relocate it across Spaces transitions.
+        // Composition still runs (we do not `orderOut`), so WebKit's timers /
+        // rAF keep firing and the Cloudflare challenge script runs.
+        win.collectionBehavior = [.transient, .ignoresCycle, .fullScreenNone,
+                                  .stationary, .canJoinAllSpaces]
+        // Sink below every normal stacking level so even a misfire (re-order
+        // by some external tool) does not visually surface above user windows.
+        win.level = .init(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) - 1)
+        win.delegate = self
+        // Park far offscreen; never user-visible. Kept on-screen (not
+        // `orderOut`) so WebKit does not suspend the challenge script.
+        win.setFrameOrigin(offscreenOrigin)
         win.orderBack(nil)
 
         self.webView = wv
         self.window = win
         logger.info("Hidden WKWebView created for claude.ai fetches")
+    }
+
+    /// Snap the helper window back to its offscreen parking spot. Called from
+    /// the `windowDidMove` delegate so that no Stage Manager / Mission Control
+    /// / state-restoration nudge can leave it on a visible screen.
+    @MainActor
+    private func enforceOffscreen() {
+        guard let win = window else { return }
+        if win.frame.origin != offscreenOrigin {
+            win.setFrameOrigin(offscreenOrigin)
+        }
     }
 
     private func injectCookie(_ sessionKey: String) async throws {
@@ -265,5 +290,15 @@ extension ClaudeWebFetcher: WKNavigationDelegate {
         loadTimeoutWork?.cancel()
         loadTimeoutWork = nil
         if let error { cont.resume(throwing: error) } else { cont.resume() }
+    }
+}
+
+extension ClaudeWebFetcher: NSWindowDelegate {
+    /// Self-healing offscreen pin: if Stage Manager, Mission Control, window
+    /// state restoration, or a third-party window manager moves the helper
+    /// panel onto a visible screen, snap it back. Without this, the WebView
+    /// surfaced as an interactive but uncloseable claude.ai window.
+    nonisolated func windowDidMove(_ notification: Notification) {
+        Task { @MainActor in self.enforceOffscreen() }
     }
 }

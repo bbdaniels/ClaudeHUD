@@ -88,13 +88,13 @@ struct HighlightedMarkdownText: View {
 
 enum FixedTab: String, CaseIterable {
     case history
+    case library
     case agents
     case obsidian
     case today
     case projects
     case people
     case substack
-    case skills
 
     var icon: String {
         switch self {
@@ -104,8 +104,17 @@ enum FixedTab: String, CaseIterable {
         case .projects: return "briefcase"
         case .people: return "person.2"
         case .substack: return "newspaper"
-        case .skills: return "wand.and.stars"
+        case .library: return "books.vertical.fill"   // overridden by Library asset; see TabBar.
         case .agents: return "square.stack.3d.up"
+        }
+    }
+
+    /// Image asset name to use INSTEAD of the SF Symbol for this tab, when set.
+    /// Lets the Library tab use the Claude logo instead of an SF Symbol.
+    var assetIcon: String? {
+        switch self {
+        case .library: return "ClaudeLogo"
+        default: return nil
         }
     }
 
@@ -117,7 +126,7 @@ enum FixedTab: String, CaseIterable {
         case .projects: return "Projects"
         case .people: return "People"
         case .substack: return "Substack"
-        case .skills: return "Skills"
+        case .library: return "Library"
         case .agents: return "Agents"
         }
     }
@@ -130,7 +139,7 @@ enum FixedTab: String, CaseIterable {
         case .projects: return "Projects"
         case .people: return "People"
         case .substack: return "Substack feed"
-        case .skills: return "Skills"
+        case .library: return "Library"
         case .agents: return "Background agents"
         }
     }
@@ -143,7 +152,7 @@ enum FixedTab: String, CaseIterable {
         case .projects: return "Cross-reference notes, sessions, calendar, email"
         case .people: return "Contact directory from calendar, email, Contacts"
         case .substack: return "Aggregated feed from your subscriptions"
-        case .skills: return "Review and edit Claude Code skills in ~/.claude/skills"
+        case .library: return "Browse Claude internals — skills, agents, hooks, rules, MCP, settings"
         case .agents: return "Monitor and manage daemon-backed Claude agents"
         }
     }
@@ -321,9 +330,10 @@ struct HUDContentView: View {
                 case .substack:
                     SubstackView()
                         .environmentObject(appState.substackService)
-                case .skills:
-                    SkillsView()
-                        .environmentObject(appState.skillsService)
+                case .library:
+                    LibraryView()
+                        .environmentObject(appState.libraryService)
+                        .environmentObject(terminalService)
                 case .agents:
                     AgentsView()
                         .environmentObject(appState.agentsService)
@@ -412,10 +422,24 @@ struct TabBar: View {
             HStack(spacing: 0) {
                 ForEach(visibleTabs, id: \.rawValue) { tab in
                     Button(action: { activeFixedTab = tab }) {
-                        Image(systemName: tab.icon)
-                            .font(.captionFont(scale))
-                            .foregroundColor(activeFixedTab == tab ? .primary : .secondary)
-                            .frame(width: 28, height: 24)
+                        Group {
+                            if let asset = tab.assetIcon {
+                                // Template-rendered so we can tint to a flat
+                                // white silhouette instead of the brand-colored
+                                // glyph that lives in the asset catalog.
+                                Image(asset)
+                                    .resizable()
+                                    .renderingMode(.template)
+                                    .scaledToFit()
+                                    .foregroundColor(.white.opacity(activeFixedTab == tab ? 1.0 : 0.55))
+                                    .frame(width: 13 * scale, height: 13 * scale)
+                            } else {
+                                Image(systemName: tab.icon)
+                                    .font(.captionFont(scale))
+                                    .foregroundColor(activeFixedTab == tab ? .primary : .secondary)
+                            }
+                        }
+                        .frame(width: 28, height: 24)
                     }
                     .buttonStyle(.borderless)
                     .background(
@@ -1696,10 +1720,20 @@ private struct TabToggleSection: View {
 
             ForEach(FixedTab.allCases, id: \.rawValue) { tab in
                 HStack(spacing: 8) {
-                    Image(systemName: tab.icon)
-                        .font(.system(size: 11))
-                        .foregroundColor(hiddenTabs.contains(tab.rawValue) ? .secondary.opacity(0.3) : .secondary)
-                        .frame(width: 14, alignment: .center)
+                    Group {
+                        if let asset = tab.assetIcon {
+                            Image(asset)
+                                .resizable()
+                                .renderingMode(.template)
+                                .scaledToFit()
+                                .foregroundColor(hiddenTabs.contains(tab.rawValue) ? .secondary.opacity(0.3) : .secondary)
+                        } else {
+                            Image(systemName: tab.icon)
+                                .font(.system(size: 11))
+                                .foregroundColor(hiddenTabs.contains(tab.rawValue) ? .secondary.opacity(0.3) : .secondary)
+                        }
+                    }
+                    .frame(width: 14, height: 14, alignment: .center)
                     Text("**\(tab.label):**")
                         .font(.custom("Fira Sans", size: 12))
                         .foregroundColor(hiddenTabs.contains(tab.rawValue) ? .secondary.opacity(0.4) : .primary)

@@ -24,6 +24,7 @@ class AppState: ObservableObject {
     let usageService = UsageService()
     let skillsService = SkillsService()
     let agentsService = AgentsService()
+    lazy var libraryService = LibraryService(skillsService: skillsService)
 
     /// Lazy-initialized Ghostty application. Only created the first time the
     /// workspace window is opened, so users who never touch the workspace pay

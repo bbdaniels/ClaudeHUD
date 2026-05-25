@@ -198,6 +198,29 @@ class TerminalService: ObservableObject {
         NSWorkspace.shared.openApplication(at: url, configuration: config) { _, _ in }
     }
 
+    /// Open a single file or folder in VS Code via `open -a`. Works whether
+    /// the target is a file (opens it in an editor tab) or a directory
+    /// (opens it as a workspace). Falls back to plain `NSWorkspace.open`
+    /// if VS Code isn't installed at the expected path.
+    @discardableResult
+    func openInVSCode(_ url: URL) -> Bool {
+        let vscodePath = "/Applications/Visual Studio Code.app"
+        guard FileManager.default.fileExists(atPath: vscodePath) else {
+            NSWorkspace.shared.open(url)
+            return false
+        }
+        let open = Process()
+        open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        open.arguments = ["-a", vscodePath, url.path]
+        do {
+            try open.run()
+            return true
+        } catch {
+            NSWorkspace.shared.open(url)
+            return false
+        }
+    }
+
     private func appleScriptEscape(_ s: String) -> String {
         s.replacingOccurrences(of: "\\", with: "\\\\")
          .replacingOccurrences(of: "\"", with: "\\\"")
