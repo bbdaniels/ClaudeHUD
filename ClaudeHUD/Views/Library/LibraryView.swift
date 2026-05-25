@@ -129,45 +129,163 @@ struct LibraryView: View {
         }
     }
 
-    // Skills: keep the family/subfamily grouped layout, sourced from
-    // SkillsService (groupedSkills) so the taxonomy stays in one place.
-    // Family headers render as collapsible UPPERCASE captions, matching the
-    // History tab's TimeSectionView.
+    // Skills: render as a recursive folder tree directly from the filesystem
+    // layout under ~/.claude/skills/. Each intermediate directory is a
+    // collapsible UPPERCASE section header (matches the History tab pattern);
+    // each SKILL.md is a leaf rendered as LibraryRow. No imposed taxonomy —
+    // the directory hierarchy IS the organization.
     private var skillsContent: some View {
-        let groups = filteredSkillGroups
+        let rows = filteredSkillTreeRows
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                if groups.isEmpty {
+                if rows.isEmpty {
                     emptyState(for: .skills)
                 } else {
-                    ForEach(groups) { group in
-                        sectionHeader(
-                            title: SkillsService.displayLabel(forGroup: group.name),
-                            count: group.totalCount,
-                            isExpanded: expandedGroups.contains(group.name) || !searchText.isEmpty
-                        ) {
-                            if expandedGroups.contains(group.name) {
-                                expandedGroups.remove(group.name)
-                            } else {
-                                expandedGroups.insert(group.name)
-                            }
-                        }
-                        if expandedGroups.contains(group.name) || !searchText.isEmpty {
-                            ForEach(group.subgroups) { sub in
-                                if shouldShowSubLabel(sub: sub, in: group) {
-                                    subgroupHeader(name: sub.name == "general" ? "Other" : sub.name.capitalized)
-                                }
-                                ForEach(sub.items) { skill in
-                                    LibraryRow(item: LibraryView.libraryItem(from: skill))
-                                    Divider().opacity(0.15)
+                    ForEach(rows) { row in
+                        switch row.kind {
+                        case .folder(let key, let title, let count):
+                            sectionHeader(
+                                title: title,
+                                count: count,
+                                isExpanded: expandedGroups.contains(key) || !searchText.isEmpty
+                            ) {
+                                if expandedGroups.contains(key) {
+                                    expandedGroups.remove(key)
+                                } else {
+                                    expandedGroups.insert(key)
                                 }
                             }
+                            .padding(.leading, CGFloat(row.depth) * 14)
+                        case .skill(let skill):
+                            LibraryRow(item: LibraryView.libraryItem(from: skill))
+                                .padding(.leading, CGFloat(row.depth) * 14)
+                            Divider().opacity(0.15)
                         }
                     }
                 }
             }
             .padding(.horizontal, 10)
         }
+    }
+
+    // MARK: - Skill tree
+
+    /// One flattened render row in the Skills tree. Encodes either a folder
+    /// header or a skill leaf, with its visual depth.
+    private struct SkillTreeRow: Identifiable {
+        enum Kind {
+            case folder(key: String, title: String, count: Int)
+            case skill(SkillFile)
+        }
+        let id: String
+        let depth: Int
+        let kind: Kind
+    }
+
+    /// Recursive tree node used to build the Skills folder hierarchy.
+    /// Leaves are SkillFile entries that live directly inside this folder;
+    /// folders are child SkillTreeNode entries keyed by subfolder name.
+    private final class SkillTreeNode {
+        var leaves: [SkillFile] = []
+        var folders: [String: SkillTreeNode] = [:]
+    }
+
+    /// Build a flat ordered list of render rows from the recursive folder
+    /// tree, honoring the current expansion state and search text. When
+    /// searching, every folder is treated as expanded so matches are visible.
+    private var filteredSkillTreeRows: [SkillTreeRow] {
+        let needle = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        let matching: [SkillFile]
+        if needle.isEmpty {
+            matching = library.skillsService.skills
+        } else {
+            matching = library.skillsService.skills.filter { s in
+                s.displayName.lowercased().contains(needle)
+                    || s.summary.lowercased().contains(needle)
+                    || s.body.lowercased().contains(needle)
+            }
+        }
+        let root = SkillsService.skillsRoot.path
+        let rootNode = SkillTreeNode()
+        for skill in matching {
+            var rel = skill.folder.path
+            if rel.hasPrefix(root + "/") {
+                rel = String(rel.dropFirst(root.count + 1))
+            }
+            let parts = rel.split(separator: "/").map(String.init)
+            // parts == ["research", "discover"] for ~/.claude/skills/research/discover/
+            // parts == ["learn"]                for ~/.claude/skills/learn/
+            // Walk down all but the last component (creating folders), then add
+            // the skill as a leaf of the deepest folder reached. The leaf
+            // folder's name IS the skill's directory name — we don't need a
+            // separate level for it because each skill is rendered as a row,
+            // not as a folder containing the SKILL.md file.
+            insertSkill(skill, parts: parts.dropLast(), into: rootNode)
+        }
+        // Folder-roots absorption: if a leaf's directory name matches a sibling
+        // folder name at the same level, move the leaf INSIDE that folder. This
+        // is what gives us `gstack/SKILL.md` (the parent skill) rendered as the
+        // first row inside the GSTACK section, alongside its 33 sub-skills,
+        // rather than hanging as a lone row at the root.
+        absorbFolderRoots(node: rootNode)
+        var rows: [SkillTreeRow] = []
+        flatten(node: rootNode, depth: 0, keyPrefix: "", expanded: expandedGroups, alwaysExpand: !needle.isEmpty, into: &rows)
+        return rows
+    }
+
+    /// Recursively move leaves whose directory name matches a sibling folder
+    /// into that folder. Eliminates "ghost" root-level rows for skills like
+    /// `gstack/SKILL.md` that belong inside their own section.
+    private func absorbFolderRoots(node: SkillTreeNode) {
+        var remainingLeaves: [SkillFile] = []
+        for skill in node.leaves {
+            let dirName = skill.folder.lastPathComponent
+            if let folder = node.folders[dirName] {
+                folder.leaves.append(skill)
+            } else {
+                remainingLeaves.append(skill)
+            }
+        }
+        node.leaves = remainingLeaves
+        for (_, child) in node.folders {
+            absorbFolderRoots(node: child)
+        }
+    }
+
+    private func insertSkill(_ skill: SkillFile, parts: ArraySlice<String>, into node: SkillTreeNode) {
+        if parts.isEmpty {
+            node.leaves.append(skill)
+            return
+        }
+        let head = parts.first!
+        let child = node.folders[head] ?? SkillTreeNode()
+        insertSkill(skill, parts: parts.dropFirst(), into: child)
+        node.folders[head] = child
+    }
+
+    private func flatten(node: SkillTreeNode, depth: Int, keyPrefix: String, expanded: Set<String>, alwaysExpand: Bool, into rows: inout [SkillTreeRow]) {
+        let folderKeys = node.folders.keys.sorted()
+        for folderName in folderKeys {
+            let key = keyPrefix.isEmpty ? folderName : "\(keyPrefix)/\(folderName)"
+            let child = node.folders[folderName]!
+            let count = countSkills(in: child)
+            rows.append(SkillTreeRow(id: "folder:\(key)", depth: depth, kind: .folder(key: key, title: folderName.uppercased(), count: count)))
+            if alwaysExpand || expanded.contains(key) {
+                flatten(node: child, depth: depth + 1, keyPrefix: key, expanded: expanded, alwaysExpand: alwaysExpand, into: &rows)
+            }
+        }
+        let sortedLeaves = node.leaves.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+        for skill in sortedLeaves {
+            rows.append(SkillTreeRow(id: "skill:\(skill.id)", depth: depth, kind: .skill(skill)))
+        }
+    }
+
+    private func countSkills(in node: SkillTreeNode) -> Int {
+        var n = node.leaves.count
+        for (_, child) in node.folders {
+            n += countSkills(in: child)
+        }
+        return n
     }
 
     // Non-Skills categories: render with the same UPPERCASE section pattern.
@@ -311,11 +429,6 @@ struct LibraryView: View {
         .hudTip(isExpanded ? "Collapse section" : "Expand section")
     }
 
-    private func shouldShowSubLabel(sub: SkillsService.SubGroup, in group: SkillsService.Group) -> Bool {
-        if group.subgroups.count == 1 && sub.name == "general" { return false }
-        return true
-    }
-
     /// Folder-style subgroup header — tiny icon + small code-font label.
     /// Mirrors the History tab's folder header inside TimeSectionView.
     private func subgroupHeader(name: String) -> some View {
@@ -335,23 +448,6 @@ struct LibraryView: View {
 
     // MARK: - Filtering
 
-    private var filteredSkillGroups: [SkillsService.Group] {
-        let groups = library.skillsService.groupedSkills
-        let needle = searchText.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !needle.isEmpty else { return groups }
-        return groups.compactMap { group in
-            let subs = group.subgroups.compactMap { sub -> SkillsService.SubGroup? in
-                let kept = sub.items.filter {
-                    $0.displayName.lowercased().contains(needle)
-                        || $0.summary.lowercased().contains(needle)
-                        || $0.body.lowercased().contains(needle)
-                }
-                return kept.isEmpty ? nil : SkillsService.SubGroup(name: sub.name, items: kept)
-            }
-            return subs.isEmpty ? nil : SkillsService.Group(name: group.name, subgroups: subs)
-        }
-    }
-
     private func filteredItems(in category: LibraryCategory) -> [LibraryItem] {
         let items = library.items(in: category)
         let needle = searchText.trimmingCharacters(in: .whitespaces).lowercased()
@@ -366,10 +462,20 @@ struct LibraryView: View {
     // MARK: - Skill → LibraryItem bridge for the row
 
     static func libraryItem(from skill: SkillFile) -> LibraryItem {
-        LibraryItem(
+        // For tree rendering we want the row label to be just the leaf name
+        // ("discover"), not the colon-joined path SkillFile uses for nested
+        // skills ("research:discover"). The folder hierarchy is conveyed by
+        // the section headers above the row, so the row only needs the leaf.
+        let leaf: String
+        if let name = skill.frontmatter["name"]?.trimmingCharacters(in: .whitespaces), !name.isEmpty {
+            leaf = name
+        } else {
+            leaf = skill.folder.lastPathComponent
+        }
+        return LibraryItem(
             id: skill.id,
             category: .skills,
-            displayName: skill.displayName,
+            displayName: leaf,
             summary: skill.summary,
             path: skill.folder,
             isDirectory: true,
