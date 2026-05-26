@@ -23,25 +23,108 @@ final class AgentsService: ObservableObject {
 
     private var pollTimer: DispatchSourceTimer?
 
-    /// Open-window scan is throttled: `reload()` runs every 2s but Ghostty AX
-    /// enumeration is comparatively expensive and window membership doesn't
-    /// change that fast. Cache the lowercased titles + AX availability and
-    /// refresh at most every 5s.
-    private var openTitlesCache: (titles: [String], axOK: Bool, at: Date)?
+    /// Process-tree-derived "is this short attached anywhere" map. Each
+    /// `claude attach <short>` process is walked up to its terminal owner;
+    /// when the owner is a Ghostty process we also capture its
+    /// `--title=` and pid so the view can raise the exact window. This is
+    /// the honest answer to "can the user actually see and answer this
+    /// session right now" — title-matching on parent folder names was
+    /// happily routing two unrelated shorts to the same window.
+    ///
+    /// Scanned at most every 5s — `reload()` runs every 2s, but `ps` is
+    /// cheap enough that this matters only under load.
+    struct AttachInfo {
+        let windowTitle: String?   // nil when no Ghostty ancestor
+        let ghosttyPid: pid_t?
+    }
+    private var attachCache: (map: [String: AttachInfo], at: Date)?
 
-    /// Lowercased titles of every open Ghostty window, plus whether
-    /// Accessibility is granted (without it we cannot enumerate windows, so
-    /// open-ness is unknowable and we must NOT bury everything as detached).
-    private func openWindowScan() -> (titles: [String], axOK: Bool) {
-        if let c = openTitlesCache, Date().timeIntervalSince(c.at) < 5 {
-            return (c.titles, c.axOK)
+    private func attachScan() -> [String: AttachInfo] {
+        if let c = attachCache, Date().timeIntervalSince(c.at) < 5 {
+            return c.map
         }
-        let axOK = GhosttyWindowService.checkAccessibility(prompt: false)
-        let titles = axOK ? GhosttyWindowService.openWindows().map {
-            $0.title.lowercased()
-        } : []
-        openTitlesCache = (titles, axOK, Date())
-        return (titles, axOK)
+        let map = Self.scanAttaches()
+        attachCache = (map, Date())
+        return map
+    }
+
+    /// One `ps` invocation gets the full process table. We index by pid
+    /// (ppid + raw command), then locate every `claude attach <short>`
+    /// process and walk parents (capped) to find a Ghostty owner. A short
+    /// can appear without a Ghostty parent (attached in Terminal/iTerm) —
+    /// still record it as attached, just without a window pid.
+    nonisolated static func scanAttaches() -> [String: AttachInfo] {
+        struct PInfo { let ppid: Int; let command: String }
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/ps")
+        proc.arguments = ["-axo", "pid=,ppid=,command="]
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = Pipe()
+        do { try proc.run() } catch { return [:] }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        proc.waitUntilExit()
+        guard let out = String(data: data, encoding: .utf8) else { return [:] }
+
+        var procs: [Int: PInfo] = [:]
+        for raw in out.split(separator: "\n") {
+            let line = raw.drop(while: { $0 == " " })
+            guard let sp1 = line.firstIndex(of: " ") else { continue }
+            let pidStr = line[..<sp1]
+            let afterPid = line[line.index(after: sp1)...].drop(while: { $0 == " " })
+            guard let sp2 = afterPid.firstIndex(of: " ") else { continue }
+            let ppidStr = afterPid[..<sp2]
+            let cmd = afterPid[afterPid.index(after: sp2)...].drop(while: { $0 == " " })
+            guard let pid = Int(pidStr), let ppid = Int(ppidStr) else { continue }
+            procs[pid] = PInfo(ppid: ppid, command: String(cmd))
+        }
+
+        // Regex matches `claude attach <8hex>` whether `claude` is the bare
+        // command or a path ending in `/claude`. We anchor to a word so it
+        // does not match prose inside a shell command argument.
+        guard let regex = try? NSRegularExpression(
+            pattern: #"(?:^|/)claude\s+attach\s+([0-9a-f]{8})\b"#
+        ) else { return [:] }
+
+        var result: [String: AttachInfo] = [:]
+        for (_, info) in procs {
+            let cmd = info.command
+            let range = NSRange(cmd.startIndex..., in: cmd)
+            guard let match = regex.firstMatch(in: cmd, range: range),
+                  match.numberOfRanges >= 2,
+                  let r = Range(match.range(at: 1), in: cmd) else { continue }
+            let short = String(cmd[r])
+            // Already recorded by a sibling (rare — multiple attach procs for
+            // the same short)? Keep the first; they pin the same window.
+            guard result[short] == nil else { continue }
+
+            // Walk ancestors, capped at 16 hops, looking for Ghostty.
+            var (cur, hops) = (info.ppid, 0)
+            var attach = AttachInfo(windowTitle: nil, ghosttyPid: nil)
+            while cur > 1, hops < 16, let p = procs[cur] {
+                hops += 1
+                if p.command.contains("/Ghostty.app/") {
+                    let title = Self.parseTitle(from: p.command)
+                    attach = AttachInfo(windowTitle: title, ghosttyPid: pid_t(cur))
+                    break
+                }
+                cur = p.ppid
+            }
+            result[short] = attach
+        }
+        return result
+    }
+
+    /// Parse a Ghostty `--title=<value>` arg out of a command line. The
+    /// kernel-returned command joins args with single spaces, so we read
+    /// until the next space (project titles ClaudeHUD launches with don't
+    /// contain whitespace).
+    nonisolated private static func parseTitle(from cmd: String) -> String? {
+        guard let r = cmd.range(of: "--title=") else { return nil }
+        let tail = cmd[r.upperBound...]
+        let end = tail.firstIndex(where: { $0 == " " || $0 == "\n" }) ?? tail.endIndex
+        let title = tail[..<end].trimmingCharacters(in: .whitespaces)
+        return title.isEmpty ? nil : title
     }
 
     static var claudeDir: URL {
@@ -102,19 +185,9 @@ final class AgentsService: ObservableObject {
 
         var result: [AgentSession] = []
 
-        // Scanned once per refresh (throttled), not per row. Mirror
-        // AgentsView.attach()'s notion of "open": a Ghostty window whose
-        // title equals or contains the session's project name (windows are
-        // launched with --title=<project>). Without Accessibility we cannot
-        // enumerate windows, so open-ness is unknowable — treat every
-        // session as open rather than wrongly burying all of them.
-        let (openTitles, axOK) = openWindowScan()
-        func sessionIsOpen(_ project: String) -> Bool {
-            guard axOK else { return true }
-            let p = project.lowercased()
-            guard !p.isEmpty, p != "—" else { return false }
-            return openTitles.contains(p) || openTitles.contains { $0.contains(p) }
-        }
+        // Honest open-ness: a session is open iff a `claude attach <short>`
+        // process exists for it. Scanned once per refresh (throttled).
+        let attaches = attachScan()
 
         let jobDirs = (try? fm.contentsOfDirectory(at: Self.jobsDir,
                                                    includingPropertiesForKeys: nil,
@@ -135,14 +208,22 @@ final class AgentsService: ObservableObject {
             let template = s["template"] as? String
             let tempo = s["tempo"] as? String
             let inFlightTasks = ((s["inFlight"] as? [String: Any])?["tasks"] as? Int) ?? 0
+            let transcriptPath = s["linkScanPath"] as? String
+            let transcriptMtime: Date? = {
+                guard let p = transcriptPath,
+                      let attrs = try? fm.attributesOfItem(atPath: p),
+                      let m = attrs[.modificationDate] as? Date else { return nil }
+                return m
+            }()
             let name = Self.resolveName(
                 id: id,
                 stateName: s["name"] as? String,
                 intent: intent,
-                transcriptPath: s["linkScanPath"] as? String,
+                transcriptPath: transcriptPath,
                 projectName: projectName,
                 template: template)
 
+            let attach = attaches[id]
             result.append(AgentSession(
                 id: id,
                 name: name,
@@ -158,7 +239,10 @@ final class AgentsService: ObservableObject {
                 template: template,
                 tempo: tempo,
                 inFlightTasks: inFlightTasks,
-                isOpen: sessionIsOpen(projectName)
+                isOpen: attach != nil,
+                attachedWindowTitle: attach?.windowTitle,
+                attachedGhosttyPid: attach?.ghosttyPid,
+                transcriptMtime: transcriptMtime
             ))
         }
 

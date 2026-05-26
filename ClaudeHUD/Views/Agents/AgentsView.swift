@@ -231,23 +231,24 @@ struct AgentsView: View {
     // MARK: - Actions
 
     private func attach(_ a: AgentSession) {
-        // Prefer popping to the existing window this session already lives in —
-        // the same identification the status-bar "Open Sessions" menu uses:
-        // Ghostty windows are titled with the project name (--title=), so match
-        // on that and raise it. Only spawn a fresh `claude attach` when there is
-        // no window to return to (headless background session).
-        let project = a.projectName
-        if project != "—", !project.isEmpty {
-            let windows = GhosttyWindowService.openWindows()
-            if let win = windows.first(where: {
-                $0.title.localizedCaseInsensitiveCompare(project) == .orderedSame
-            }) ?? windows.first(where: {
-                $0.title.localizedCaseInsensitiveContains(project)
-            }) {
-                GhosttyWindowService.raise(win)
-                return
-            }
+        // If we know which Ghostty process is currently hosting
+        // `claude attach <id>`, raise its window directly — no title
+        // guessing. Two unrelated shorts can share a project name, so the
+        // old "match a window whose title contains the project" trick
+        // routed clicks to the wrong session.
+        if let pid = a.attachedGhosttyPid,
+           let win = GhosttyWindowService.openWindows().first(where: { $0.pid == pid }) {
+            GhosttyWindowService.raise(win)
+            return
         }
+        // Attached in a non-Ghostty terminal (no Ghostty pid) — best we can
+        // do is activate the process; fall through to a fresh attach if
+        // even that's not knowable.
+        if a.isOpen, let pid = a.attachedGhosttyPid {
+            NSRunningApplication(processIdentifier: pid)?.activate()
+            return
+        }
+        // Truly detached — spawn a new attached window in the session's cwd.
         let dir = a.cwd.isEmpty ? nil : a.cwd
         _ = terminalService.launchWithCommand("claude attach \(a.id)", inDirectory: dir)
     }
@@ -350,6 +351,39 @@ private struct AgentRow: View {
                             .padding(.horizontal, 4).padding(.vertical, 1)
                             .background(Color.secondary.opacity(0.15))
                             .clipShape(Capsule())
+                    }
+                    // Cross-reference to the Open Sessions menu: every
+                    // attached row carries a visible window chip so the
+                    // two views read as the same pool. Show the title
+                    // when we have one (Ghostty parent), a plain
+                    // "(attached)" label otherwise (Terminal/iTerm parent).
+                    if agent.isOpen {
+                        let label = agent.attachedWindowTitle ?? "(attached)"
+                        HStack(spacing: 3) {
+                            Image(systemName: "macwindow")
+                                .font(.system(size: 8 * scale))
+                            Text(label)
+                                .font(.system(size: 8 * scale, weight: .medium))
+                        }
+                        .foregroundColor(.accentColor)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Color.accentColor.opacity(0.15))
+                        .clipShape(Capsule())
+                        .help(agent.attachedWindowTitle.map {
+                            "Attached in Ghostty window \"\($0)\" — click ➜ to raise it"
+                        } ?? "Attached via `claude attach` in a non-Ghostty terminal")
+                    }
+                    // Liveness blip: the daemon's state.json lags real
+                    // activity by minutes for some sessions, but the
+                    // transcript ticks every model turn. A tiny green
+                    // dot whenever the transcript moved in the last 30s
+                    // tells the user "this one is moving right now,"
+                    // regardless of what the bucket says.
+                    if agent.hasRecentTranscriptActivity {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 5 * scale, height: 5 * scale)
+                            .help("Transcript was written in the last 30s — actively moving")
                     }
                 }
                 if !agent.name.isEmpty, agent.name != projectTitle {

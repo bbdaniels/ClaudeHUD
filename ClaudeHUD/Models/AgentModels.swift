@@ -36,7 +36,9 @@ enum AgentDisplayState: Equatable {
     /// Schema is research-preview, so unknown tokens fall through to
     /// `.other` rather than being dropped.
     static func derive(state: String, tempo: String?, inFlightTasks: Int?,
-                       detail: String, isAlive: Bool) -> AgentDisplayState {
+                       detail: String, isAlive: Bool,
+                       stateUpdatedAt: Date? = nil,
+                       transcriptMtime: Date? = nil) -> AgentDisplayState {
         let s = state.lowercased()
         let t = (tempo ?? "").lowercased()
         let d = detail.lowercased()
@@ -56,13 +58,31 @@ enum AgentDisplayState: Equatable {
         // anything reaching here while not alive genuinely exited.
         if !isAlive { return .stopped }
 
+        // The daemon writes `state.json` event-driven, not heartbeat — for
+        // long-running sessions it can fall many minutes behind the
+        // transcript. When the transcript file has been touched after
+        // `state.json` was last flushed, the daemon's snapshot is the
+        // stale one; trust the transcript instead. Tunable threshold of
+        // 5s soaks up clock jitter and the daemon's own internal cadence.
+        let transcriptIsFresh: Bool = {
+            guard let m = transcriptMtime, let u = stateUpdatedAt else { return false }
+            return m.timeIntervalSince(u) > 5
+        }()
+
         // 3. Never-started sentinel: a freshly-spawned bg session that has
         // never received a prompt reports a contradictory mix
         // (state="working", tempo="active") — only `detail` tells the
         // truth, deterministically, via the daemon's own sentinel. It is
         // idle, not working. Match the stable anchor phrase, not the exact
         // punctuation (the daemon uses an em dash inside parens).
-        if d.contains("send a prompt to start") { return .idle }
+        //
+        // BUT: if the transcript has been written *after* the daemon last
+        // flushed this snapshot, the sentinel is itself stale (the user
+        // has obviously prompted since). Drop it and fall through to the
+        // activity-derived buckets.
+        if d.contains("send a prompt to start"), !transcriptIsFresh {
+            return .idle
+        }
 
         // 4. Explicitly waiting on the user. `state` blocked/needs_input is
         // a signal the daemon sets deliberately, so it is reliable here and
@@ -165,21 +185,69 @@ struct AgentSession: Identifiable, Equatable {
     let template: String?       // "claude", "bg", subagent name…
     let tempo: String?          // state.json.tempo (idle/working/blocked…)
     let inFlightTasks: Int      // state.json.inFlight.tasks
-    let isOpen: Bool            // has a Ghostty window open for this project
+    /// True iff a `claude attach <short>` process is currently alive somewhere
+    /// for this id. This is the only honest "open" signal: the daemon's
+    /// state can sit on `blocked` forever after the user closes the window,
+    /// and project-name window-title matching was conflating unrelated shorts.
+    let isOpen: Bool
+    /// Title of the Ghostty window currently hosting `claude attach <id>`,
+    /// nil when no Ghostty ancestor was found (attached in a non-Ghostty
+    /// terminal, or not attached at all).
+    let attachedWindowTitle: String?
+    /// PID of the Ghostty process that owns the attached window, so the
+    /// AgentsView's attach action can raise *that* window directly instead
+    /// of fuzzy-matching by project name.
+    let attachedGhosttyPid: pid_t?
+    /// Last-write time of the session's `.jsonl` transcript, when readable.
+    /// The daemon flushes `state.json` event-driven and can fall minutes
+    /// behind for active sessions; the transcript ticks on every model
+    /// turn, so its mtime is the only reliable "is this session actually
+    /// moving right now" signal.
+    let transcriptMtime: Date?
 
     /// Raw daemon-derived state (activity truth, ignores window-openness).
     var display: AgentDisplayState {
         .derive(state: rawState, tempo: tempo, inFlightTasks: inFlightTasks,
-                detail: detail, isAlive: isAlive)
+                detail: detail, isAlive: isAlive,
+                stateUpdatedAt: updatedAt,
+                transcriptMtime: transcriptMtime)
+    }
+
+    /// True iff the transcript was touched in the last 30s — used by the
+    /// row as a "moving right now" hint independent of the bucketed state,
+    /// since the daemon's snapshot can lag well past that.
+    var hasRecentTranscriptActivity: Bool {
+        guard let m = transcriptMtime else { return false }
+        return Date().timeIntervalSince(m) < 30
     }
 
     /// Effective presentation bucket — what the dash groups and badges by.
-    /// Open-ness is the primary axis the user cares about: a session with
-    /// no window open anywhere demands nothing from them, whatever the
-    /// daemon's `state` says. Terminal/dead sessions stay terminal (they
-    /// already returned a finished bucket); any other session that is not
-    /// open collapses to `.detached` (muted, very bottom, no urgency).
+    /// Open-ness (real attach state, not project-name window matching) is
+    /// the primary axis the user cares about:
+    ///   - alive + attached: show whatever the user is doing right now.
+    ///     If the daemon reported a terminal `done`/`failed` for the last
+    ///     task but the user is still attached and typing, re-derive from
+    ///     `tempo`/`inFlight` so the row says Idle/Working — burying it in
+    ///     Completed makes the panel look uncoordinated with the window.
+    ///   - alive + detached: collapse to `.detached` (muted, bottom).
+    ///   - dead: stay terminal.
     var bucket: AgentDisplayState {
+        if isAlive, isOpen {
+            switch display {
+            case .completed, .failed:
+                // Re-derive without the terminal short-circuit by lying
+                // about `state` — the activity rungs (tempo, inFlight,
+                // detail) tell the truth for an attached live worker.
+                return AgentDisplayState.derive(
+                    state: "active", tempo: tempo,
+                    inFlightTasks: inFlightTasks,
+                    detail: detail, isAlive: true,
+                    stateUpdatedAt: updatedAt,
+                    transcriptMtime: transcriptMtime)
+            default:
+                return display
+            }
+        }
         switch display {
         case .completed, .failed, .stopped, .detached:
             return display
