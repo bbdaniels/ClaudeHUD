@@ -24,6 +24,9 @@ class AppState: ObservableObject {
     let usageService = UsageService()
     let skillsService = SkillsService()
     let agentsService = AgentsService()
+    let vaultScriptInstaller = VaultScriptInstaller()
+    let vaultIngestService = VaultIngestService()
+    let vaultProjectService = VaultProjectService()
     lazy var libraryService = LibraryService(skillsService: skillsService)
 
     /// Lazy-initialized Ghostty application. Only created the first time the
@@ -47,6 +50,20 @@ class AppState: ObservableObject {
         permissionWatcher.setup()   // disabled-branch: idempotent hook cleanup
 
         vaultManager.ensureDailyNote(for: Date())
+
+        // Vault scripts: observation-only at launch (Phase 1 of the vault
+        // tooling consolidation; see Documents/Obsidian/ClaudeHUD/Technical
+        // Notes.md §Vault tooling architecture). Records per-file status so
+        // the upcoming cockpit UI can surface conflicts; never writes.
+        vaultScriptInstaller.audit()
+
+        // Vault ingest state: poll every 30s for .done/.failed markers,
+        // per-project Sessions.md provenance, sync log status. Feeds the
+        // Vault cockpit (Phase 5) and Session-History badges (Phase 4).
+        // Read-only; workers (SessionEnd hook, launchd sync) own writes.
+        let vaultURL = vaultManager.currentVault.map { URL(fileURLWithPath: $0.path) }
+        vaultIngestService.start(vaultPath: vaultURL)
+        vaultProjectService.start(vaultPath: vaultURL)
 
         // Unlock secrets vault — single Touch ID prompt for the whole session.
         // Services were initialized before secrets were available, so notify

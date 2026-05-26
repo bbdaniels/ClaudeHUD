@@ -87,12 +87,17 @@ struct HighlightedMarkdownText: View {
 }
 
 enum FixedTab: String, CaseIterable {
+    // Note: `vault` is the raw value; the user-facing label is "Projects".
+    // The old AI-briefing Projects tab (raw value `projects`) was killed in
+    // Phase 6; its service (`ProjectBriefingService`) is kept instantiated
+    // but unused, same "inert for re-enable" pattern as PushNotification.
+    // Tab bar order: Projects (vault) sits before Notes (obsidian).
     case history
     case library
     case agents
+    case vault
     case obsidian
     case today
-    case projects
     case people
     case substack
 
@@ -100,8 +105,8 @@ enum FixedTab: String, CaseIterable {
         switch self {
         case .history: return "clock.arrow.circlepath"
         case .obsidian: return "archivebox"
+        case .vault: return "briefcase"
         case .today: return "calendar"
-        case .projects: return "briefcase"
         case .people: return "person.2"
         case .substack: return "newspaper"
         case .library: return "books.vertical.fill"   // overridden by Library asset; see TabBar.
@@ -122,8 +127,8 @@ enum FixedTab: String, CaseIterable {
         switch self {
         case .history: return "History"
         case .obsidian: return "Notes"
+        case .vault: return "Projects"
         case .today: return "Today"
-        case .projects: return "Projects"
         case .people: return "People"
         case .substack: return "Substack"
         case .library: return "Library"
@@ -135,8 +140,8 @@ enum FixedTab: String, CaseIterable {
         switch self {
         case .history: return "Session history"
         case .obsidian: return "Notes"
+        case .vault: return "Projects"
         case .today: return "Today's schedule"
-        case .projects: return "Projects"
         case .people: return "People"
         case .substack: return "Substack feed"
         case .library: return "Library"
@@ -148,8 +153,8 @@ enum FixedTab: String, CaseIterable {
         switch self {
         case .history: return "Browse and resume past Claude Code sessions"
         case .obsidian: return "Browse vault notes, preview, edit"
+        case .vault: return "Per-project status, tasks, and notes from the Karpathy archive"
         case .today: return "AI daily briefing with schedule and meeting prep"
-        case .projects: return "Cross-reference notes, sessions, calendar, email"
         case .people: return "Contact directory from calendar, email, Contacts"
         case .substack: return "Aggregated feed from your subscriptions"
         case .library: return "Browse Claude internals — skills, agents, hooks, rules, MCP, settings"
@@ -310,6 +315,11 @@ struct HUDContentView: View {
                 case .obsidian:
                     ObsidianBrowserView()
                         .environmentObject(vaultManager)
+                case .vault:
+                    VaultTabView()
+                        .environmentObject(appState.vaultProjectService)
+                        .environmentObject(appState.vaultIngestService)
+                        .environmentObject(vaultManager)
                 case .today:
                     TodayView()
                         .environmentObject(calendarService)
@@ -317,13 +327,6 @@ struct HUDContentView: View {
                         .environmentObject(vaultManager)
                         .environmentObject(appState.projectService)
                         .environmentObject(appState.remindersService)
-                case .projects:
-                    ProjectDashboardView()
-                        .environmentObject(appState.projectService)
-                        .environmentObject(appState.projectBriefingService)
-                        .environmentObject(sessionHistory)
-                        .environmentObject(vaultManager)
-                        .environmentObject(calendarService)
                 case .people:
                     PeopleView()
                         .environmentObject(appState.contactService)

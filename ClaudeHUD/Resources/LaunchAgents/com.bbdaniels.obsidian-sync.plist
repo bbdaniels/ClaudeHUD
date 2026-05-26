@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+=== Managed by ClaudeHUD ============================================
+script-version: 1.0.0
+source: ClaudeHUD/Resources/LaunchAgents/com.bbdaniels.obsidian-sync.plist
+To edit, fork in the ClaudeHUD repo and rebuild. The installer
+detects local edits to the installed copy and refuses to clobber
+them — see Services/VaultScriptInstaller.swift.
+=====================================================================
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.bbdaniels.obsidian-sync</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/bbdaniels/.local/bin/obsidian-sync.sh</string>
+    </array>
+    <!-- Every 15 min: shrink the window where local writes (incl. project
+         Tasks.md) are not yet pushed to origin. sync.sh commits+pushes
+         local BEFORE pulling, so frequent runs = minimal loss window. -->
+    <key>StartInterval</key>
+    <integer>900</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/bbdaniels/Library/Logs/obsidian-sync.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/bbdaniels/Library/Logs/obsidian-sync.log</string>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>

@@ -36,6 +36,7 @@
 		1B9D94AD63BF74BBA5872C00 /* KeyboardLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0176894F6807DCA0A7B76E /* KeyboardLayout.swift */; };
 		1C0F632F6A32BA1CD374B977 /* NSApplication+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0FDCED3FEDB326A8DFA4ED4 /* NSApplication+Extension.swift */; };
 		1C5190264D7CA34DF5381CD4 /* GameController.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1E2B6EB27428FDED67DA72B9 /* GameController.framework */; };
+		1E3745FD6B707BB75705A76A /* vault-ingest.sh in Resources */ = {isa = PBXBuildFile; fileRef = ADB00BCD4949B7069D99FB8D /* vault-ingest.sh */; };
 		21EAD7B85DB7D4B4FCDE1D24 /* Optional+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33B9100D8D4E09B3B7E405AF /* Optional+Extension.swift */; };
 		22E9986D54197F5AACE3B317 /* LibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB043CB409497C537E66D2B6 /* LibraryService.swift */; };
 		2387FF808493C91DAD2A1EB1 /* NSWorkspace+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8136CBCF0A500B74607EFE1 /* NSWorkspace+Extension.swift */; };
@@ -54,6 +55,7 @@
 		3E169BE12229516556AB41E4 /* ProjectDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20CBE976E7574FE2DD92FAD6 /* ProjectDashboardView.swift */; };
 		4167B772A7F89D1779F98239 /* libfreetype.a in Resources */ = {isa = PBXBuildFile; fileRef = AB8F3ADA72810AD4176731B5 /* libfreetype.a */; };
 		42864B88ABA61875B75A624B /* RemindersService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E97B3A1EBC63741CC858FC /* RemindersService.swift */; };
+		456A775AEB1CC14776BC7C28 /* vault-ingest-prompt.md in Resources */ = {isa = PBXBuildFile; fileRef = 11FF9297DE2CD760A7CBB416 /* vault-ingest-prompt.md */; };
 		46302138FE115BA1187EBD3D /* FloatingNoteWindowManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CF31D45958F7B287926676 /* FloatingNoteWindowManager.swift */; };
 		4652E6B3F0033AD09954F14C /* Ghostty.Surface.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5B04B18CF3CDAE6BFDB85BC /* Ghostty.Surface.swift */; };
 		4700E3BEA067D7A2D4426084 /* ObjectIdentifier+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFA10783C0F1F95AE790BD1B /* ObjectIdentifier+Extension.swift */; };
@@ -83,6 +85,7 @@
 		6E76C3600929761BFCF83639 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E85FBA53BC2B877A3E34EF6 /* LibraryView.swift */; };
 		716AF768A9028A0E83E447BD /* SSEMCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B9601851634E06856B4D47D /* SSEMCPClient.swift */; };
 		73EADD2BE245DD1BB284422A /* ClaudeAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CE87221F1993D02C27C5E1B /* ClaudeAPIClient.swift */; };
+		749DC764D831EF175567E9FC /* VaultTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B280310DE38541F7B2CD6849 /* VaultTabView.swift */; };
 		763AB8326C29448B08217DAC /* NSPasteboard+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72393D01E3F5276CB9B73669 /* NSPasteboard+Extension.swift */; };
 		763D915CF0FBE368DEE6A12F /* HotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */; };
 		767202F3C664C4829D4EFED8 /* GhosttyDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F039EB68F8D2416F59AF489 /* GhosttyDelegate.swift */; };
@@ -93,6 +96,7 @@
 		8123A352C357703346F0F832 /* TodoItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E0D64CF3689B9D885F9F313 /* TodoItem.swift */; };
 		815353343C4BC778548C4338 /* LibraryRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF071C0FD812AE7E6F9A7928 /* LibraryRow.swift */; };
 		818A94306112A45C8A1C0125 /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 870109620D4F6E8D02744D6C /* UserNotifications.framework */; };
+		81BE1543A19F6E208A77BA5C /* vault-reset.sh in Resources */ = {isa = PBXBuildFile; fileRef = D83C760E0CDD4EA15F2B62C8 /* vault-reset.sh */; };
 		81D79855CC684E2706696199 /* UsageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA7DC5B4103396ACB2B5F3F /* UsageService.swift */; };
 		833788A1F492EE5E46D352EE /* LibraryItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44C3321F95137F8014F94C16 /* LibraryItem.swift */; };
 		8573D1122FE20F3404D4586D /* AnySortKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB24B1C86CB6C71C50C8D452 /* AnySortKey.swift */; };
@@ -122,6 +126,7 @@
 		A80A8A41B64E427C3BC9C507 /* Array+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 266D9E2A1D7C837357F1A963 /* Array+Extension.swift */; };
 		AA1830B8C3DD8D346BBF9895 /* KeychainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE31FD7228157DC53CDE8B9E /* KeychainService.swift */; };
 		AAA3C4E4A2A9BBFB16772482 /* libz.a in Resources */ = {isa = PBXBuildFile; fileRef = BC2C8BB22D0C22A9B123A59E /* libz.a */; };
+		AB1D0A0392E8C30197A7DC11 /* VaultIngestService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 207CDABC03F0B223AFE35A88 /* VaultIngestService.swift */; };
 		AB52E8B15A0B2E94FDCFEAF0 /* ToolCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 502D6FDFD2A08657B013ED9B /* ToolCallView.swift */; };
 		ABB72147FFBF17F0076E58DC /* ClaudeWebFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FE78438CDBB1B82E2CD3203 /* ClaudeWebFetcher.swift */; };
 		ACA58B1127ED796388A0721A /* Ghostty.Inspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 030E2CA6AD393F2A3D855BC1 /* Ghostty.Inspector.swift */; };
@@ -133,6 +138,7 @@
 		B43937CF70E5CFD069E219B1 /* SubstackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8578388E6A6BFE744616BFBE /* SubstackView.swift */; };
 		B6062851E1689D3F69E61783 /* AgentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AEA2D1DA808678730DAFAB2 /* AgentModels.swift */; };
 		B728A86479EA3AF024F601DF /* FileHandle+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA8F11CEDEDF5C46D131CAD5 /* FileHandle+Extension.swift */; };
+		B8D06D4427A9E6FF2119DCC7 /* com.bbdaniels.obsidian-sync.plist in Resources */ = {isa = PBXBuildFile; fileRef = 2EEF39238129551C8264F8B4 /* com.bbdaniels.obsidian-sync.plist */; };
 		BAC3A285D736D01662A6A794 /* ClaudeCLIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 369134DB1B8B42279EB5E1D8 /* ClaudeCLIClient.swift */; };
 		BB7A3F82BD20DD9B51E7177A /* Ghostty.ConfigTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9437E5E3F033E372FB247783 /* Ghostty.ConfigTypes.swift */; };
 		BEB2851E74A402D792BD5639 /* ProjectService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53F0B873471D8150D4E80657 /* ProjectService.swift */; };
@@ -149,15 +155,18 @@
 		D20DF9963BF7FB21B08290F6 /* Weak.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B704EFA6C1852BC574365CB /* Weak.swift */; };
 		D2DCCD7F974CD4FCC1DC76E1 /* AgentsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08C85940214C84CB1A4E170C /* AgentsService.swift */; };
 		D4AC79B81F3110DDD3AC51E0 /* libhighway.a in Resources */ = {isa = PBXBuildFile; fileRef = 1CB4B7FC630A7C1961E15A49 /* libhighway.a */; };
+		D831217733E887EEEEBCA50E /* VaultProjectService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64CADF92CE2A4ECE2EA81336 /* VaultProjectService.swift */; };
 		DBBB0A53164615486398A791 /* SparkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 826E910DE6159C463592C533 /* SparkService.swift */; };
 		DDA2946F96AD207B375C29BA /* UserDefaults+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED28053B6C8DF41BBA408158 /* UserDefaults+Extension.swift */; };
 		DE922D07FC082ECD825981AF /* Ghostty.Error.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2FEBBA9082ACBA24CFC6EF7 /* Ghostty.Error.swift */; };
 		DECD190055B1050264EE10F8 /* FullscreenMode+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 044F5F3A60EFFE583BAA83D7 /* FullscreenMode+Extension.swift */; };
 		E12162B754D4DEA06DE18252 /* libsimdutf.a in Resources */ = {isa = PBXBuildFile; fileRef = CA6A70DCA2B1AA8BDA8B3D12 /* libsimdutf.a */; };
 		E544C1AC11413E5F3E07E88D /* libdcimgui.a in Resources */ = {isa = PBXBuildFile; fileRef = 9746A6576D360BAF0E62317B /* libdcimgui.a */; };
+		E5C2D0E6169E0122DA942141 /* VaultScriptInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0B4EA7B99AB3BC5EE53619 /* VaultScriptInstaller.swift */; };
 		E7298415B9F7EFB367CAFB9B /* HostingWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68C16ED4C6BC5E8AE994EEC8 /* HostingWindow.swift */; };
 		E772664D2E0DC0C71818B008 /* Cursor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751F7BB670E03999BF62AE3D /* Cursor.swift */; };
 		E7EFBDDB60EC4968B77D04B5 /* SkillsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C704E240AFCDBD31AC48951 /* SkillsService.swift */; };
+		E8AD49C87FEE8E8ADC613F66 /* obsidian-sync.sh in Resources */ = {isa = PBXBuildFile; fileRef = 157365D3A14C1D2C45DE6A80 /* obsidian-sync.sh */; };
 		EE97440C9D3CA80341D0E536 /* NSMenu+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 847F4ED0CF27EBE50725922D /* NSMenu+Extension.swift */; };
 		EEC5054A3B33EBA08F1A8D24 /* JSONRPCTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 620FB4690A1A9D7786A56696 /* JSONRPCTypes.swift */; };
 		F044BE57EB32814BDF19E24B /* SurfaceGrabHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B90D1CB58E36C134CC8B152C /* SurfaceGrabHandle.swift */; };
@@ -181,14 +190,17 @@
 		0E31186A3C56760A5BDC4FE9 /* NSScreen+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSScreen+Extension.swift"; sourceTree = "<group>"; };
 		0F039EB68F8D2416F59AF489 /* GhosttyDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyDelegate.swift; sourceTree = "<group>"; };
 		116D192F995BA6063E058A7F /* Stubs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Stubs.swift; sourceTree = "<group>"; };
+		11FF9297DE2CD760A7CBB416 /* vault-ingest-prompt.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "vault-ingest-prompt.md"; sourceTree = "<group>"; };
 		14436D6E425311899CF64373 /* ProjectBriefingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectBriefingService.swift; sourceTree = "<group>"; };
 		1539677F5984A853CCCD2667 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = GhosttyKit.xcframework; path = ClaudeHUD/Vendor/Ghostty/GhosttyKit.xcframework; sourceTree = "<group>"; };
+		157365D3A14C1D2C45DE6A80 /* obsidian-sync.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "obsidian-sync.sh"; sourceTree = "<group>"; };
 		175F7C7BD7CB64E6EE7CF176 /* Duration+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Duration+Extension.swift"; sourceTree = "<group>"; };
 		17F46482310A6FD0D702F970 /* UsageModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageModels.swift; sourceTree = "<group>"; };
 		19A889B1D9FE0780BB3042FA /* StdioMCPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StdioMCPClient.swift; sourceTree = "<group>"; };
 		1C704E240AFCDBD31AC48951 /* SkillsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillsService.swift; sourceTree = "<group>"; };
 		1CB4B7FC630A7C1961E15A49 /* libhighway.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libhighway.a; sourceTree = "<group>"; };
 		1E2B6EB27428FDED67DA72B9 /* GameController.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = GameController.framework; path = System/Library/Frameworks/GameController.framework; sourceTree = SDKROOT; };
+		207CDABC03F0B223AFE35A88 /* VaultIngestService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultIngestService.swift; sourceTree = "<group>"; };
 		20C8F30012EA810713672AFE /* SurfaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceView.swift; sourceTree = "<group>"; };
 		20CBE976E7574FE2DD92FAD6 /* ProjectDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectDashboardView.swift; sourceTree = "<group>"; };
 		211DB459023617D0C32E6D55 /* ObjCExceptionCatcher.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ObjCExceptionCatcher.h; sourceTree = "<group>"; };
@@ -199,6 +211,7 @@
 		2A867396AF8AC61AC9257B54 /* CodableBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodableBridge.swift; sourceTree = "<group>"; };
 		2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalService.swift; sourceTree = "<group>"; };
 		2EEBFE2793D1BE2364B60C89 /* ObsidianMarkdownView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianMarkdownView.swift; sourceTree = "<group>"; };
+		2EEF39238129551C8264F8B4 /* com.bbdaniels.obsidian-sync.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "com.bbdaniels.obsidian-sync.plist"; sourceTree = "<group>"; };
 		3256754C76CCAD0FA8F83274 /* ConversationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationManager.swift; sourceTree = "<group>"; };
 		330288F7F0E1F56443C80A74 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
 		33B9100D8D4E09B3B7E405AF /* Optional+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Optional+Extension.swift"; sourceTree = "<group>"; };
@@ -232,10 +245,12 @@
 		59E8596B647276D0A1586779 /* SecretsVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecretsVault.swift; sourceTree = "<group>"; };
 		5AE1EE10B1C78DA325DB1406 /* SubstackModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstackModels.swift; sourceTree = "<group>"; };
 		5B7BE7892D77F7EFFC5CBD2D /* libpng.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libpng.a; sourceTree = "<group>"; };
+		5C0B4EA7B99AB3BC5EE53619 /* VaultScriptInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultScriptInstaller.swift; sourceTree = "<group>"; };
 		5E0D64CF3689B9D885F9F313 /* TodoItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoItem.swift; sourceTree = "<group>"; };
 		5E611364C25404DC27D5D60B /* ClaudeHUDApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHUDApp.swift; sourceTree = "<group>"; };
 		620FB4690A1A9D7786A56696 /* JSONRPCTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONRPCTypes.swift; sourceTree = "<group>"; };
 		644D06080D4C60BFCF2637FE /* VaultSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSettings.swift; sourceTree = "<group>"; };
+		64CADF92CE2A4ECE2EA81336 /* VaultProjectService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultProjectService.swift; sourceTree = "<group>"; };
 		66EBB010A2FE36902DCF5EF6 /* Ghostty.Command.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Command.swift; sourceTree = "<group>"; };
 		68C16ED4C6BC5E8AE994EEC8 /* HostingWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostingWindow.swift; sourceTree = "<group>"; };
 		68D028D91836CDCCAD3E5DFF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -279,6 +294,8 @@
 		AB272797EF5863C22BEFFDE7 /* permission-watcher.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "permission-watcher.sh"; sourceTree = "<group>"; };
 		AB8F3ADA72810AD4176731B5 /* libfreetype.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libfreetype.a; sourceTree = "<group>"; };
 		AD95C3150FE0A4C4CFEA09D0 /* libspirv_cross.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libspirv_cross.a; sourceTree = "<group>"; };
+		ADB00BCD4949B7069D99FB8D /* vault-ingest.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "vault-ingest.sh"; sourceTree = "<group>"; };
+		B280310DE38541F7B2CD6849 /* VaultTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultTabView.swift; sourceTree = "<group>"; };
 		B3122D5EA083D0825A7A6E8B /* TabGroupCloseCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabGroupCloseCoordinator.swift; sourceTree = "<group>"; };
 		B4DFFB6D6970128A8DD29E98 /* ContactService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactService.swift; sourceTree = "<group>"; };
 		B719C4EF453E3C5D3875C915 /* UUID+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UUID+Extension.swift"; sourceTree = "<group>"; };
@@ -306,6 +323,7 @@
 		D5B04B18CF3CDAE6BFDB85BC /* Ghostty.Surface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Surface.swift; sourceTree = "<group>"; };
 		D5DCFDD4BA76F95120750CF9 /* GhosttyPackage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPackage.swift; sourceTree = "<group>"; };
 		D777D5BC767658779B4DE8C7 /* EventModifiers+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EventModifiers+Extension.swift"; sourceTree = "<group>"; };
+		D83C760E0CDD4EA15F2B62C8 /* vault-reset.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "vault-reset.sh"; sourceTree = "<group>"; };
 		D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyService.swift; sourceTree = "<group>"; };
 		DB043CB409497C537E66D2B6 /* LibraryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryService.swift; sourceTree = "<group>"; };
 		DB0EE7069BDD589857D6CD15 /* OSColor+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OSColor+Extension.swift"; sourceTree = "<group>"; };
@@ -377,7 +395,10 @@
 				531BEC5B44B150E8BF664105 /* SubstackService.swift */,
 				2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */,
 				FAA7DC5B4103396ACB2B5F3F /* UsageService.swift */,
+				207CDABC03F0B223AFE35A88 /* VaultIngestService.swift */,
 				ECF4D0E046CD2AE96517B5AC /* VaultManager.swift */,
+				64CADF92CE2A4ECE2EA81336 /* VaultProjectService.swift */,
+				5C0B4EA7B99AB3BC5EE53619 /* VaultScriptInstaller.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -445,6 +466,17 @@
 				BC2C8BB22D0C22A9B123A59E /* libz.a */,
 			);
 			path = Ghostty;
+			sourceTree = "<group>";
+		};
+		58F86A99112520BCF0C40848 /* Scripts */ = {
+			isa = PBXGroup;
+			children = (
+				157365D3A14C1D2C45DE6A80 /* obsidian-sync.sh */,
+				11FF9297DE2CD760A7CBB416 /* vault-ingest-prompt.md */,
+				ADB00BCD4949B7069D99FB8D /* vault-ingest.sh */,
+				D83C760E0CDD4EA15F2B62C8 /* vault-reset.sh */,
+			);
+			path = Scripts;
 			sourceTree = "<group>";
 		};
 		5AE616A4ADAC51C7DC7B1382 /* Frameworks */ = {
@@ -545,6 +577,14 @@
 			path = Agents;
 			sourceTree = "<group>";
 		};
+		A4B5FC3CA011472FF1E385EC /* LaunchAgents */ = {
+			isa = PBXGroup;
+			children = (
+				2EEF39238129551C8264F8B4 /* com.bbdaniels.obsidian-sync.plist */,
+			);
+			path = LaunchAgents;
+			sourceTree = "<group>";
+		};
 		B49D986F6B45E5C113967045 /* Claude */ = {
 			isa = PBXGroup;
 			children = (
@@ -592,6 +632,7 @@
 				9B435E31995D5B29A482D8FA /* Settings */,
 				8F2E22B4A10D92CEA2755788 /* Substack */,
 				DB36E8D3AF61BCB4DB487E7A /* Today */,
+				C468B11AFE7AFC843FD71149 /* Vault */,
 				D113A8D1E82B8E920CDC8A3F /* Workspace */,
 			);
 			path = Views;
@@ -604,6 +645,8 @@
 				68D028D91836CDCCAD3E5DFF /* Info.plist */,
 				C6D82DD1759F543B48C98E52 /* ntfy-notify.sh */,
 				AB272797EF5863C22BEFFDE7 /* permission-watcher.sh */,
+				A4B5FC3CA011472FF1E385EC /* LaunchAgents */,
+				58F86A99112520BCF0C40848 /* Scripts */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -617,6 +660,14 @@
 				2EEBFE2793D1BE2364B60C89 /* ObsidianMarkdownView.swift */,
 			);
 			path = Obsidian;
+			sourceTree = "<group>";
+		};
+		C468B11AFE7AFC843FD71149 /* Vault */ = {
+			isa = PBXGroup;
+			children = (
+				B280310DE38541F7B2CD6849 /* VaultTabView.swift */,
+			);
+			path = Vault;
 			sourceTree = "<group>";
 		};
 		D113A8D1E82B8E920CDC8A3F /* Workspace */ = {
@@ -798,6 +849,7 @@
 			files = (
 				10839D1BC618E406833B95CC /* Assets.xcassets in Resources */,
 				4AFFCB2580A983F47F0BB0A1 /* GhosttyKit.xcframework in Resources */,
+				B8D06D4427A9E6FF2119DCC7 /* com.bbdaniels.obsidian-sync.plist in Resources */,
 				F2237345BD07B5AF00CC973B /* libbreakpad.a in Resources */,
 				E544C1AC11413E5F3E07E88D /* libdcimgui.a in Resources */,
 				4167B772A7F89D1779F98239 /* libfreetype.a in Resources */,
@@ -812,7 +864,11 @@
 				4DCB84C52E8DB272B4CE8823 /* libspirv_cross.a in Resources */,
 				AAA3C4E4A2A9BBFB16772482 /* libz.a in Resources */,
 				9D1751A3FD807556940D4438 /* ntfy-notify.sh in Resources */,
+				E8AD49C87FEE8E8ADC613F66 /* obsidian-sync.sh in Resources */,
 				300F5B400249B3D84DBD6C1F /* permission-watcher.sh in Resources */,
+				456A775AEB1CC14776BC7C28 /* vault-ingest-prompt.md in Resources */,
+				1E3745FD6B707BB75705A76A /* vault-ingest.sh in Resources */,
+				81BE1543A19F6E208A77BA5C /* vault-reset.sh in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -955,8 +1011,12 @@
 				07987A717E8EEC86178C718E /* UsageModels.swift in Sources */,
 				81D79855CC684E2706696199 /* UsageService.swift in Sources */,
 				DDA2946F96AD207B375C29BA /* UserDefaults+Extension.swift in Sources */,
+				AB1D0A0392E8C30197A7DC11 /* VaultIngestService.swift in Sources */,
 				0525CFAB9F5770F3A9E10FBF /* VaultManager.swift in Sources */,
+				D831217733E887EEEEBCA50E /* VaultProjectService.swift in Sources */,
+				E5C2D0E6169E0122DA942141 /* VaultScriptInstaller.swift in Sources */,
 				8992F9EEB5269203DC7AFD21 /* VaultSettings.swift in Sources */,
+				749DC764D831EF175567E9FC /* VaultTabView.swift in Sources */,
 				62681EDDCDBBA34D5BEC1B71 /* View+Extension.swift in Sources */,
 				D20DF9963BF7FB21B08290F6 /* Weak.swift in Sources */,
 				C5E9E536A646C06F2516F91C /* WhatsNextView.swift in Sources */,

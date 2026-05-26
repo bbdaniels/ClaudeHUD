@@ -16,6 +16,8 @@ targets:
           - "**/*.entitlements"
     resources:
       - path: ClaudeHUD/Resources/ntfy-notify.sh
+      - path: ClaudeHUD/Resources/Scripts
+      - path: ClaudeHUD/Resources/LaunchAgents
     dependencies:
       - framework: ClaudeHUD/Vendor/Ghostty/GhosttyKit.xcframework
         embed: false
