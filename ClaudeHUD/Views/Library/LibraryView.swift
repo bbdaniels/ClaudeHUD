@@ -12,12 +12,32 @@ import AppKit
 struct LibraryView: View {
     @EnvironmentObject var library: LibraryService
     @EnvironmentObject var terminalService: TerminalService
+    // Folded-in Agents tab: AgentsView pins to the top of this view so
+    // background sessions stay visible while browsing the library
+    // categories below. AgentsService + SessionHistoryService are
+    // injected by HUDContentView's `case .library` dispatch.
+    @EnvironmentObject var agentsService: AgentsService
+    @EnvironmentObject var sessionHistory: SessionHistoryService
     @Environment(\.fontScale) private var scale
     @State private var searchText: String = ""
     @State private var expandedGroups: Set<String> = []
+    /// Pinned-sessions section collapses if the user wants the library
+    /// browser to use the full panel. Toggled from the pinned header.
+    @AppStorage("library.pinnedSessionsCollapsed") private var sessionsCollapsed = false
+
+    /// Maximum height the pinned AgentsView consumes. Leaves room for
+    /// the library browser below even when many agents are listed; the
+    /// AgentsView's inner list scrolls past this floor.
+    private let maxPinnedHeight: CGFloat = 320
 
     var body: some View {
         VStack(spacing: 0) {
+            pinnedSessionsHeader
+            if !sessionsCollapsed {
+                AgentsView()
+                    .frame(maxHeight: maxPinnedHeight)
+                Divider().opacity(0.5)
+            }
             toolbar
             Divider().opacity(0.3)
             content
@@ -32,6 +52,60 @@ struct LibraryView: View {
                 library.reload(newCategory)
             }
         }
+    }
+
+    /// Compact header above the pinned AgentsView. Mirrors the
+    /// Session-History/Vault-cockpit collapse idiom: chevron + label +
+    /// summary count, tap to toggle.
+    private var pinnedSessionsHeader: some View {
+        let counts = agentsSummaryCounts
+        return Button(action: {
+            withAnimation(.easeInOut(duration: 0.15)) { sessionsCollapsed.toggle() }
+        }) {
+            HStack(spacing: 6) {
+                Image(systemName: sessionsCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 9 * scale, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.6))
+                Text("Background sessions")
+                    .font(.captionFont(scale).weight(.semibold))
+                    .foregroundColor(.secondary.opacity(0.75))
+                    .textCase(.uppercase)
+                    .tracking(0.5)
+                Spacer()
+                Text(counts)
+                    .font(.custom("Fira Code", size: 10 * scale))
+                    .foregroundColor(.secondary.opacity(0.55))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+            .background(Color(.textBackgroundColor).opacity(0.18))
+        }
+        .buttonStyle(.plain)
+        .hudTip(sessionsCollapsed ? "Show background sessions" : "Collapse background sessions")
+    }
+
+    /// `5 active · 1 needs input · 3 detached` style summary for the
+    /// collapsed-or-expanded header. Reads `AgentsService.agents` and
+    /// counts the four user-visible buckets (working / needs-input /
+    /// completed / detached); zero-count buckets are dropped.
+    private var agentsSummaryCounts: String {
+        var working = 0, needsInput = 0, completed = 0, detached = 0
+        for session in agentsService.agents {
+            switch session.bucket {
+            case .needsInput: needsInput += 1
+            case .working: working += 1
+            case .completed: completed += 1
+            case .detached: detached += 1
+            default: break
+            }
+        }
+        var parts: [String] = []
+        if working > 0 { parts.append("\(working) working") }
+        if needsInput > 0 { parts.append("\(needsInput) needs input") }
+        if completed > 0 { parts.append("\(completed) completed") }
+        if detached > 0 { parts.append("\(detached) detached") }
+        return parts.isEmpty ? "none" : parts.joined(separator: " · ")
     }
 
     // MARK: - Toolbar

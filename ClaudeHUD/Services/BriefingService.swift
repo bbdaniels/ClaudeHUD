@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import os
 
 private let logger = Logger(subsystem: "com.claudehud", category: "BriefingService")
@@ -38,6 +39,22 @@ class BriefingService: ObservableObject {
     @Published var briefings: [String: EventBriefing] = [:]
     @Published var daySummary: DaySummary?
     private var daySummaryDateKey: String?
+    /// Disk-cache key currently shown in `daySummary`. Lets
+    /// `generateDaySummary` no-op when called with the same state, swap
+    /// directly to a disk-cache hit when state changes without flickering
+    /// through a nil intermediate, and fall through to the LLM only when
+    /// the new state has no cached answer yet.
+    private var currentDayCacheKey: String?
+
+    // Wired by `startAutoRefresh` so calendar/todo change publishers can
+    // drive day-summary + per-event-briefing regeneration outside the
+    // Today tab's view lifecycle. Hard rule: nothing in the live HUD
+    // panel triggers an LLM call on tab open.
+    private var cancellables: Set<AnyCancellable> = []
+    private weak var calendarServiceRef: CalendarService?
+    private weak var remindersServiceRef: RemindersService?
+    private weak var vaultManagerRef: VaultManager?
+    private weak var projectServiceRef: ProjectService?
 
     private static let cacheDir: String = {
         let dir = "\(NSHomeDirectory())/.claude/hud/briefings"
@@ -54,24 +71,35 @@ class BriefingService: ObservableObject {
         }
     }
 
-    /// Generate an intelligent day summary via Claude
+    /// Generate an intelligent day summary via Claude.
+    ///
+    /// Idempotent and flicker-free: if the same `(date, todo-count)` is
+    /// already shown, no-op. If the new key has a disk-cache hit, swap
+    /// `daySummary` directly to the cached text without going through a
+    /// nil intermediate. Only fall through to a Claude call (with a
+    /// `isLoading: true` placeholder) when the new key truly has no
+    /// cached answer yet.
     func generateDaySummary(events: [CalendarEvent], date: Date, todos: [TodoItem] = []) {
         let dateKey = Self.dateCacheKey(date)
-        // Re-generate if date changed (e.g. midnight rollover)
-        if daySummaryDateKey != dateKey {
-            daySummary = nil
-            daySummaryDateKey = dateKey
-        }
-        guard daySummary == nil else { return }
-
-        // Check disk cache (include todo count so it regenerates if todos change)
         let cacheKey = "day-\(dateKey)-t\(todos.count)"
-        if let cached = Self.loadCachedSummary(eventId: cacheKey) {
-            daySummary = DaySummary(text: cached, isLoading: false)
+
+        // Already showing this exact state — no-op.
+        if currentDayCacheKey == cacheKey, daySummary?.text != nil {
             return
         }
 
+        // New state, but disk has the answer — swap silently.
+        if let cached = Self.loadCachedSummary(eventId: cacheKey) {
+            daySummary = DaySummary(text: cached, isLoading: false)
+            currentDayCacheKey = cacheKey
+            daySummaryDateKey = dateKey
+            return
+        }
+
+        // Cold path: show loading, kick off the Claude call.
         daySummary = DaySummary(text: nil, isLoading: true)
+        currentDayCacheKey = cacheKey
+        daySummaryDateKey = dateKey
 
         Task.detached(priority: .userInitiated) { [weak self] in
             let summary = await Self.generateClaudeDaySummary(events: events, date: date, todos: todos)
@@ -88,6 +116,62 @@ class BriefingService: ObservableObject {
     func clearDaySummary() {
         daySummary = nil
         daySummaryDateKey = nil
+        currentDayCacheKey = nil
+    }
+
+    /// Wire calendar + reminders publishers so the day summary and the
+    /// per-event briefings regenerate when state changes, NOT when the
+    /// Today tab opens. The tab itself becomes a pure cache reader.
+    ///
+    /// Hard rule (see Documents/Obsidian/ClaudeHUD/Tasks.md §Today tab):
+    /// nothing in the live HUD panel triggers an LLM call on tab open.
+    /// Pre-warm at launch + state-change subscribers cover the first
+    /// visit per day and mid-day todo/calendar drift respectively.
+    /// Day navigation (other than today) stays lazy — `TodayView.task`
+    /// still calls `generateDaySummary` for the selected date, which is
+    /// idempotent and disk-cache-aware after this refactor.
+    func startAutoRefresh(
+        calendarService: CalendarService,
+        remindersService: RemindersService,
+        vaultManager: VaultManager,
+        projectService: ProjectService
+    ) {
+        calendarServiceRef = calendarService
+        remindersServiceRef = remindersService
+        vaultManagerRef = vaultManager
+        projectServiceRef = projectService
+        cancellables.removeAll()
+
+        // CombineLatest fires on either signal; 200ms debounce coalesces
+        // bursty EventKit / Reminders syncs.
+        Publishers.CombineLatest(
+            calendarService.$todayEvents,
+            remindersService.$todos
+        )
+        .debounce(for: .milliseconds(200), scheduler: DispatchQueue.main)
+        .sink { [weak self] events, todos in
+            guard let self else { return }
+            // Empty day → no summary needed; let the cold path stay
+            // unobserved instead of churning a "no events, no todos"
+            // request through Claude.
+            guard !events.isEmpty || !todos.isEmpty else { return }
+            let date = Date()
+            let allTodos = todos + self.scanVaultTodos(for: date)
+            self.generateDaySummary(events: events, date: date, todos: allTodos)
+            self.preloadAll(
+                events: events,
+                vaultPath: vaultManager.currentVault?.path,
+                projects: projectService.projects
+            )
+        }
+        .store(in: &cancellables)
+    }
+
+    private func scanVaultTodos(for date: Date) -> [TodoItem] {
+        vaultManagerRef?.scanTodos(
+            for: date,
+            includeRecent: Calendar.current.isDateInToday(date)
+        ) ?? []
     }
 
     /// Claude call for day-level summary

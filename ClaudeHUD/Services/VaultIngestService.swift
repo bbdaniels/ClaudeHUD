@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Combine
 import os
@@ -190,18 +191,31 @@ final class VaultIngestService: ObservableObject {
 
     /// Walk `~/.claude/projects/*/*.jsonl`, list transcripts the worker
     /// would consider ingest-eligible but for which no `.done` key matches.
+    ///
+    /// Filters must match `vault-ingest.sh::is_ingest_eligible_path`:
+    /// skip subagent transcripts (the parent session already covers
+    /// them) and skip the home-cwd dir (sessions launched from `~`,
+    /// which the worker already excludes in its phase-1 filter — old
+    /// pre-filter ones shouldn't show up in the queue forever).
     private func scanPendingTranscripts(doneKeys: Set<String>) -> [PendingTranscript] {
         let now = Date()
         let projectDirs = (try? FileManager.default.contentsOfDirectory(
             at: transcriptsDir, includingPropertiesForKeys: nil
         )) ?? []
+        let homeCwdDirName = "-Users-bbdaniels"
         var out: [PendingTranscript] = []
         for projectDir in projectDirs {
+            if projectDir.lastPathComponent == homeCwdDirName { continue }
             let files = (try? FileManager.default.contentsOfDirectory(
                 at: projectDir,
                 includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]
             )) ?? []
             for url in files where url.pathExtension == "jsonl" {
+                // `contentsOfDirectory` doesn't recurse, so subagent
+                // transcripts under `<project>/subagents/` are never
+                // walked. Belt-and-suspenders: defensive path check in
+                // case we ever switch to a recursive enumerator.
+                if url.path.contains("/subagents/") { continue }
                 guard let attrs = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
                       let size = attrs.fileSize,
                       let mtime = attrs.contentModificationDate else { continue }
@@ -336,5 +350,116 @@ final class VaultIngestService: ObservableObject {
               let match = regex.firstMatch(in: line, options: [], range: NSRange(line.startIndex..., in: line)),
               let range = Range(match.range, in: line) else { return nil }
         return formatter.date(from: String(line[range]))
+    }
+
+    // MARK: - Actions (cockpit-only writes)
+    //
+    // Polling (everything above) is observer-only. The actions below are
+    // the deliberate exception: they write into the same shared state
+    // the workers read, but only in response to explicit cockpit clicks.
+    // Each one triggers a refresh() so the UI reflects the new state
+    // without waiting for the 30s poll.
+
+    /// Delete a `.failed` marker so the next SessionEnd retries the
+    /// session (the worker scans pending transcripts against `.done`
+    /// keys, not `.failed`, so removing the marker is sufficient).
+    func retryFailed(_ marker: FailedMarker) {
+        try? FileManager.default.removeItem(at: marker.path)
+        refresh()
+    }
+
+    /// Bulk variant — clears every `.failed` marker the worker wrote.
+    /// Does not invoke the worker directly; the next SessionEnd hook
+    /// picks up the pending list. Use `triggerIngestNow` to force.
+    func retryAllFailed() {
+        for marker in queue.failed {
+            try? FileManager.default.removeItem(at: marker.path)
+        }
+        refresh()
+    }
+
+    /// Touch / remove `~/.claude/ingest-state/PAUSED`. The worker
+    /// short-circuits when this file exists, leaving the queue intact.
+    func setPaused(_ paused: Bool) {
+        if paused {
+            FileManager.default.createFile(atPath: pausedFlag.path, contents: nil)
+        } else {
+            try? FileManager.default.removeItem(at: pausedFlag)
+        }
+        refresh()
+    }
+
+    /// Fire `~/.claude/scripts/obsidian-sync.sh` in the background.
+    /// Best-effort — failures land in `~/Library/Logs/obsidian-sync.log`
+    /// and surface via `parseSyncLog()` on the next refresh.
+    func triggerSync() {
+        let script = home.appending(path: ".claude/scripts/obsidian-sync.sh").path
+        guard FileManager.default.isExecutableFile(atPath: script) else {
+            logger.warning("obsidian-sync.sh not installed at \(script)")
+            return
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [script]
+        do {
+            try process.run()
+        } catch {
+            logger.error("failed to launch obsidian-sync.sh: \(error.localizedDescription)")
+        }
+    }
+
+    /// Fire `~/.claude/scripts/vault-ingest.sh --run` to immediately
+    /// process the current pending list. Synchronous-ish — caller
+    /// should expect a refresh() after a short delay.
+    func triggerIngestNow() {
+        let script = home.appending(path: ".claude/scripts/vault-ingest.sh").path
+        guard FileManager.default.isExecutableFile(atPath: script) else {
+            logger.warning("vault-ingest.sh not installed at \(script)")
+            return
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [script, "--run"]
+        do {
+            try process.run()
+        } catch {
+            logger.error("failed to launch vault-ingest.sh: \(error.localizedDescription)")
+        }
+    }
+
+    /// Process up to `limit` pending eligible transcripts in sequence
+    /// via `vault-ingest.sh --backfill <N>`. One click in the cockpit
+    /// burns down the historical backlog in batches; default N=10 keeps
+    /// the LLM cost predictable. Launched detached because each session
+    /// runs `claude -p` (multi-second), and the user wants the UI to
+    /// stay responsive.
+    func runBacklog(limit: Int = 10) {
+        let script = home.appending(path: ".claude/scripts/vault-ingest.sh").path
+        guard FileManager.default.isExecutableFile(atPath: script) else {
+            logger.warning("vault-ingest.sh not installed at \(script)")
+            return
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [script, "--backfill", String(limit)]
+        do {
+            try process.run()
+        } catch {
+            logger.error("failed to launch vault-ingest.sh --backfill: \(error.localizedDescription)")
+        }
+    }
+
+    /// Open `~/.claude/scripts/` in Finder so the user can inspect the
+    /// managed scripts directly.
+    func revealScriptsInFinder() {
+        let scriptsDir = home.appending(path: ".claude/scripts")
+        NSWorkspace.shared.activateFileViewerSelecting([scriptsDir])
+    }
+
+    /// Open `~/.claude/ingest-state/` in Finder so the user can inspect
+    /// markers directly (advanced — usually the per-row reveal buttons
+    /// on Session History badges are enough).
+    func revealStateDirInFinder() {
+        NSWorkspace.shared.activateFileViewerSelecting([stateDir])
     }
 }

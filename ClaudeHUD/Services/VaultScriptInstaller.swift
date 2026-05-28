@@ -45,7 +45,7 @@ final class VaultScriptInstaller: ObservableObject {
 
     @Published private(set) var lastAudit: [ManagedScript: Status] = [:]
 
-    static let bundledVersion = "1.0.0"
+    static let bundledVersion = "1.2.0"
 
     static let managed: [ManagedScript] = {
         let home = FileManager.default.homeDirectoryForCurrentUser
@@ -68,6 +68,14 @@ final class VaultScriptInstaller: ObservableObject {
                   kind: .sh),
             .init(bundleResource: "com.bbdaniels.obsidian-sync.plist",
                   installPath: home.appending(path: "Library/LaunchAgents/com.bbdaniels.obsidian-sync.plist"),
+                  executable: false,
+                  kind: .plist),
+            // Periodic background drain of the ingest backlog. New in
+            // 1.2.0 — pairs with vault-ingest.sh --backfill, runs every
+            // 30 min via launchd. See com.bbdaniels.vault-backfill.plist
+            // header for cadence + pause-flag semantics.
+            .init(bundleResource: "com.bbdaniels.vault-backfill.plist",
+                  installPath: home.appending(path: "Library/LaunchAgents/com.bbdaniels.vault-backfill.plist"),
                   executable: false,
                   kind: .plist),
         ]
@@ -156,6 +164,28 @@ final class VaultScriptInstaller: ObservableObject {
         let mode: NSNumber = script.executable ? 0o755 : 0o644
         try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: script.installPath.path)
         logger.info("installed \(script.installPath.path)")
+        // launchd jobs need to be (re)loaded after their plist lands;
+        // otherwise the new file just sits on disk while the old one
+        // (or nothing) keeps running. Idempotent: unload silently fails
+        // if the job wasn't loaded.
+        if script.kind == .plist {
+            runLaunchctl(["unload", script.installPath.path])
+            runLaunchctl(["load", "-w", script.installPath.path])
+        }
+    }
+
+    private func runLaunchctl(_ args: [String]) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        p.arguments = args
+        p.standardOutput = Pipe()
+        p.standardError = Pipe()
+        do {
+            try p.run()
+            p.waitUntilExit()
+        } catch {
+            logger.error("launchctl \(args.first ?? "") failed: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Bundle access

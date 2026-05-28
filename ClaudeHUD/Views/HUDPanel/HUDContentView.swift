@@ -87,16 +87,23 @@ struct HighlightedMarkdownText: View {
 }
 
 enum FixedTab: String, CaseIterable {
-    // Note: `vault` is the raw value; the user-facing label is "Projects".
-    // The old AI-briefing Projects tab (raw value `projects`) was killed in
-    // Phase 6; its service (`ProjectBriefingService`) is kept instantiated
-    // but unused, same "inert for re-enable" pattern as PushNotification.
-    // Tab bar order: Projects (vault) sits before Notes (obsidian).
+    // User-facing labels (one word each, also used as tooltips):
+    //   history   → "Sessions"  — past Claude Code sessions
+    //   library   → "Claude"    — background agents + Claude internals
+    //   vault     → "Projects"  — vault-driven per-project browser
+    //   today     → "Today"     — schedule, briefing, daily note
+    //   people    → "People"    — contacts
+    //   substack  → "Reader"    — Substack feed reader
+    //
+    // Tab order is the enum declaration order. History first, Substack last.
+    //
+    // Killed tabs kept inert in services (push notif, permission watcher,
+    // ProjectBriefingService, AgentsService standalone tab, obsidian
+    // Notes tab — Daily Notes are now in Today). Raw values stay so
+    // hiddenTabs UserDefaults entries from older builds keep meaning.
     case history
     case library
-    case agents
     case vault
-    case obsidian
     case today
     case people
     case substack
@@ -104,13 +111,11 @@ enum FixedTab: String, CaseIterable {
     var icon: String {
         switch self {
         case .history: return "clock.arrow.circlepath"
-        case .obsidian: return "archivebox"
         case .vault: return "briefcase"
         case .today: return "calendar"
         case .people: return "person.2"
         case .substack: return "newspaper"
         case .library: return "books.vertical.fill"   // overridden by Library asset; see TabBar.
-        case .agents: return "square.stack.3d.up"
         }
     }
 
@@ -125,40 +130,28 @@ enum FixedTab: String, CaseIterable {
 
     var label: String {
         switch self {
-        case .history: return "History"
-        case .obsidian: return "Notes"
+        case .history: return "Sessions"
         case .vault: return "Projects"
         case .today: return "Today"
         case .people: return "People"
-        case .substack: return "Substack"
-        case .library: return "Library"
-        case .agents: return "Agents"
+        case .substack: return "Reader"
+        case .library: return "Claude"
         }
     }
 
-    var help: String {
-        switch self {
-        case .history: return "Session history"
-        case .obsidian: return "Notes"
-        case .vault: return "Projects"
-        case .today: return "Today's schedule"
-        case .people: return "People"
-        case .substack: return "Substack feed"
-        case .library: return "Library"
-        case .agents: return "Background agents"
-        }
-    }
+    // One-word tooltips matching the labels. The longer `detail` field
+    // (below) still carries the descriptive explanation for the info
+    // popover.
+    var help: String { label }
 
     var detail: String {
         switch self {
         case .history: return "Browse and resume past Claude Code sessions"
-        case .obsidian: return "Browse vault notes, preview, edit"
         case .vault: return "Per-project status, tasks, and notes from the Karpathy archive"
-        case .today: return "AI daily briefing with schedule and meeting prep"
+        case .today: return "Schedule, AI briefing, and today's daily note"
         case .people: return "Contact directory from calendar, email, Contacts"
         case .substack: return "Aggregated feed from your subscriptions"
-        case .library: return "Browse Claude internals — skills, agents, hooks, rules, MCP, settings"
-        case .agents: return "Monitor and manage daemon-backed Claude agents"
+        case .library: return "Background sessions pinned on top; Claude internals (skills, agents, hooks, rules, MCP, settings) below"
         }
     }
 
@@ -312,13 +305,12 @@ struct HUDContentView: View {
                         .environmentObject(sessionHistory)
                         .environmentObject(terminalService)
                         .environmentObject(appState.projectService)
-                case .obsidian:
-                    ObsidianBrowserView()
-                        .environmentObject(vaultManager)
+                        .environmentObject(appState.vaultIngestService)
                 case .vault:
                     VaultTabView()
                         .environmentObject(appState.vaultProjectService)
                         .environmentObject(appState.vaultIngestService)
+                        .environmentObject(appState.vaultScriptInstaller)
                         .environmentObject(vaultManager)
                 case .today:
                     TodayView()
@@ -337,10 +329,7 @@ struct HUDContentView: View {
                     LibraryView()
                         .environmentObject(appState.libraryService)
                         .environmentObject(terminalService)
-                case .agents:
-                    AgentsView()
                         .environmentObject(appState.agentsService)
-                        .environmentObject(terminalService)
                         .environmentObject(sessionHistory)
                 }
             } else if tabManager.currentTab?.kind == .terminal {
@@ -1416,8 +1405,30 @@ struct SessionDetailRow: View {
     let onDelete: () -> Void
     @EnvironmentObject var terminalService: TerminalService
     @EnvironmentObject var tabManager: TabManager
+    @EnvironmentObject var ingestService: VaultIngestService
     @State private var feedback: String?
     @Environment(\.fontScale) private var scale
+
+    /// Provenance badge state for this session. Reads
+    /// `VaultIngestService` (Phase 4): a session is `ingested` if its
+    /// `Sessions.md` row landed, `failed` if a `.failed` marker exists
+    /// in `~/.claude/ingest-state/`, `pending` if a transcript is in
+    /// the worker's queue but hasn't been processed yet, otherwise no
+    /// badge.
+    private enum BadgeKind { case ingested, failed, pending, none }
+
+    private var badgeKind: BadgeKind {
+        let s = ingestService.status(forSessionID: session.id)
+        switch s.kind {
+        case .ingested: return .ingested
+        case .failed: return .failed
+        case .unknown:
+            if ingestService.queue.pending.contains(where: { $0.sessionID == session.id }) {
+                return .pending
+            }
+            return .none
+        }
+    }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -1450,10 +1461,11 @@ struct SessionDetailRow: View {
                         .lineLimit(2)
                 }
 
-                HStack {
+                HStack(spacing: 4) {
                     Text(String(session.id.prefix(8)))
                         .font(.custom("Fira Code", size: 10 * scale))
                         .foregroundColor(.secondary.opacity(0.5))
+                    ingestBadge
                     Spacer()
                     Text(session.timestamp.relativeString)
                         .font(.custom("Fira Code", size: 10 * scale))
@@ -1519,6 +1531,68 @@ struct SessionDetailRow: View {
         )
         feedback = "Opened"
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { feedback = nil }
+    }
+
+    /// Small ingest-state badge next to the short session ID. Tooltip
+    /// explains the state. Click reveals the relevant file in Finder
+    /// (Sessions.md for ingested, the `.failed` marker for failed, the
+    /// transcript for pending).
+    @ViewBuilder
+    private var ingestBadge: some View {
+        switch badgeKind {
+        case .ingested:
+            badgePill(symbol: "checkmark", color: .green,
+                      tip: "Ingested into vault — click to open Sessions.md",
+                      action: revealIngestedRow)
+        case .failed:
+            badgePill(symbol: "xmark", color: .red,
+                      tip: "Ingest failed — click to reveal the .failed marker",
+                      action: revealFailedMarker)
+        case .pending:
+            badgePill(symbol: "hourglass", color: .orange,
+                      tip: "Queued — worker will pick it up on next SessionEnd",
+                      action: revealPendingTranscript)
+        case .none:
+            EmptyView()
+        }
+    }
+
+    private func badgePill(symbol: String, color: Color, tip: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 8 * scale, weight: .bold))
+                .foregroundColor(color)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(RoundedRectangle(cornerRadius: 3).fill(color.opacity(0.18)))
+        }
+        .buttonStyle(.plain)
+        .hudTip(tip)
+    }
+
+    private func revealIngestedRow() {
+        let s = ingestService.status(forSessionID: session.id)
+        guard let project = s.project,
+              let vault = ingestService.vaultPath else { return }
+        let url = vault.appending(path: "\(project)/Sessions.md")
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    private func revealFailedMarker() {
+        let stateDir = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".claude/ingest-state")
+        guard let entries = try? FileManager.default.contentsOfDirectory(at: stateDir, includingPropertiesForKeys: nil),
+              let marker = entries.first(where: { $0.lastPathComponent.hasPrefix("\(session.id).") && $0.pathExtension == "failed" })
+        else {
+            NSWorkspace.shared.activateFileViewerSelecting([stateDir])
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([marker])
+    }
+
+    private func revealPendingTranscript() {
+        if let p = ingestService.queue.pending.first(where: { $0.sessionID == session.id }) {
+            NSWorkspace.shared.activateFileViewerSelecting([p.path])
+        }
     }
 }
 

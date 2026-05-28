@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+=== Managed by ClaudeHUD ============================================
+script-version: 1.0.0
+source: ClaudeHUD/Resources/LaunchAgents/com.bbdaniels.vault-backfill.plist
+To edit, fork in the ClaudeHUD repo and rebuild. The installer
+detects local edits to the installed copy and refuses to clobber
+them — see Services/VaultScriptInstaller.swift.
+=====================================================================
+
+Periodic background drain of the ingest queue. The SessionEnd hook
+ingests sessions as they end cleanly; this catches the rest
+(crashed sessions, kill -9, machine slept mid-session, historical
+backlog from before the hook was installed). Every 30 minutes,
+process up to 10 pending transcripts. Backlog of N drains in
+N / (10 * 48) days at steady state; cockpit "Process 50" button is
+still available for manual top-ups.
+
+The script honors `~/.claude/ingest-state/PAUSED` so a single pause
+toggle stops both the SessionEnd hook and this periodic drain.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.bbdaniels.vault-backfill</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/bbdaniels/.claude/scripts/vault-ingest.sh</string>
+        <string>--backfill</string>
+        <string>10</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>1800</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/bbdaniels/Library/Logs/vault-backfill.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/bbdaniels/Library/Logs/vault-backfill.log</string>
+</dict>
+</plist>

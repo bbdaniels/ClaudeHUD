@@ -16,6 +16,7 @@ import AppKit
 struct VaultTabView: View {
     @EnvironmentObject var projectService: VaultProjectService
     @EnvironmentObject var ingestService: VaultIngestService
+    @EnvironmentObject var scriptInstaller: VaultScriptInstaller
     @EnvironmentObject var vaultManager: VaultManager
     @Environment(\.fontScale) private var scale
 
@@ -51,6 +52,12 @@ struct VaultTabView: View {
                             }
                         }
                     }
+
+                    // Phase 5 cockpit — ingest queue, sync status,
+                    // settings. Collapsed by default, low-signal once
+                    // stable.
+                    VaultCockpitView()
+                        .padding(.top, 12)
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
@@ -156,7 +163,13 @@ private struct ProjectRowView: View {
             rowHeader
             if isExpanded {
                 VStack(alignment: .leading, spacing: 8) {
-                    SectionLabel("Status")
+                    // StatusSubsection owns its own section label because
+                    // the label is conditional on what the project has:
+                    // "Status" when Dashboard.md has a `## Current Status`
+                    // block (real status, populated by Phase 7 cleaner
+                    // enrichment), otherwise "About" with the Tasks.md
+                    // preamble. Tasks and Notes follow the parent-owns-
+                    // label pattern; Status is the deliberate exception.
                     StatusSubsection(project: project)
                     Divider().opacity(0.18)
                     SectionLabel("Tasks")
@@ -271,15 +284,33 @@ private struct StatusPill: View {
 
 // MARK: - Status subsection
 
+/// Renders either a real "Status" block (when `Dashboard.md` has a
+/// `## Current Status` section, populated by Phase 7 cleaner enrichment)
+/// or falls back to an "About" block built from the `Tasks.md` preamble
+/// + `Dashboard.md` first paragraph. The subsection owns its own
+/// `SectionLabel` because the label is conditional on the content; the
+/// other two subsections (Tasks, Notes) keep the parent-owns-label
+/// pattern.
 private struct StatusSubsection: View {
     let project: VaultProjectService.Project
     @Environment(\.fontScale) private var scale
+    @State private var currentStatus: String? = nil
     @State private var preamble: String? = nil
     @State private var dashboardFirstParagraph: String? = nil
 
+    private var hasRealStatus: Bool {
+        !(currentStatus ?? "").isEmpty
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let preamble {
+            SectionLabel(hasRealStatus ? "Status" : "About")
+            if hasRealStatus {
+                Text(prettifyMarkdown(currentStatus!))
+                    .font(.smallFont(scale))
+                    .foregroundColor(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let preamble {
                 Text(prettifyMarkdown(preamble))
                     .font(.smallFont(scale))
                     .foregroundColor(.primary)
@@ -289,7 +320,11 @@ private struct StatusSubsection: View {
                     .font(.captionFont(scale))
                     .foregroundColor(.secondary.opacity(0.7))
             }
-            if let dashboard = dashboardFirstParagraph, !dashboard.isEmpty {
+            // Dashboard first paragraph is a secondary signal in both
+            // modes — under Status, it's flavor context; under About,
+            // it's the dashboard intro.
+            if let dashboard = dashboardFirstParagraph, !dashboard.isEmpty,
+               dashboard != currentStatus {
                 Text(prettifyMarkdown(dashboard))
                     .font(.captionFont(scale))
                     .foregroundColor(.secondary)
@@ -299,16 +334,21 @@ private struct StatusSubsection: View {
             }
         }
         .task(id: project.id) {
+            // Dashboard.md ## Current Status — real status when present.
+            // Reader contract (Phase 7 cleaner enrichment populates this).
+            if project.hasDashboard,
+               let raw = try? String(contentsOf: project.dashboardPath, encoding: .utf8) {
+                currentStatus = VaultProjectService.extractSection(named: "Current Status", from: raw)
+                dashboardFirstParagraph = VaultProjectService.extractFirstParagraph(from: raw)
+            } else {
+                currentStatus = nil
+                dashboardFirstParagraph = nil
+            }
+            // Tasks.md preamble — "About" fallback when no real status.
             if let raw = try? String(contentsOf: project.tasksPath, encoding: .utf8) {
                 preamble = VaultProjectService.extractPreamble(from: raw)
             } else {
                 preamble = nil
-            }
-            if project.hasDashboard,
-               let raw = try? String(contentsOf: project.dashboardPath, encoding: .utf8) {
-                dashboardFirstParagraph = VaultProjectService.extractFirstParagraph(from: raw)
-            } else {
-                dashboardFirstParagraph = nil
             }
         }
     }
@@ -609,6 +649,459 @@ private struct NoteFileRow: View {
             children: nil
         )
         FloatingNoteWindowManager.shared.openWindow(for: file)
+    }
+}
+
+// MARK: - Vault cockpit (Phase 5)
+
+/// Bottom-of-Projects subsection: ingest queue, sync status, settings.
+/// All three sections collapsed by default — low-signal once stable;
+/// surfaces conflicts and provides manual triggers when something
+/// breaks. Cleaner trigger (5b) deferred (needs GitHub PAT wiring).
+private struct VaultCockpitView: View {
+    @EnvironmentObject var ingestService: VaultIngestService
+    @EnvironmentObject var scriptInstaller: VaultScriptInstaller
+    @Environment(\.fontScale) private var scale
+    @State private var expanded: Set<String> = []
+
+    /// True when any installed managed script is `userEdited` or
+    /// `unmanagedDifferentBody` — needs the Force overwrite button.
+    private var hasInstallConflict: Bool {
+        scriptInstaller.lastAudit.values.contains { status in
+            switch status {
+            case .userEdited, .unmanagedDifferentBody: return true
+            default: return false
+            }
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            cockpitHeader
+
+            CockpitSection(
+                title: "Ingest",
+                summary: ingestSummary,
+                isExpanded: expanded.contains("ingest"),
+                onToggle: { toggle("ingest") },
+                content: { ingestQueueBody }
+            )
+
+            CockpitSection(
+                title: "Sync",
+                summary: syncSummary,
+                isExpanded: expanded.contains("sync"),
+                onToggle: { toggle("sync") },
+                content: { syncStatusBody }
+            )
+
+            CockpitSection(
+                title: "Settings",
+                summary: settingsSummary,
+                isExpanded: expanded.contains("settings"),
+                onToggle: { toggle("settings") },
+                content: { settingsBody }
+            )
+        }
+        .padding(.top, 4)
+    }
+
+    // MARK: Header
+
+    private var cockpitHeader: some View {
+        HStack(spacing: 6) {
+            Text("Cockpit")
+                .font(.captionFont(scale).weight(.semibold))
+                .foregroundColor(.secondary.opacity(0.7))
+                .textCase(.uppercase)
+                .tracking(0.6)
+            if ingestService.queue.paused {
+                Text("paused")
+                    .font(.custom("Fira Sans", size: 9 * scale).weight(.medium))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Color.orange.opacity(0.18))
+                    .foregroundColor(.orange)
+                    .clipShape(Capsule())
+            }
+            Spacer()
+            Button(action: { ingestService.refresh() }) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 10 * scale, weight: .semibold))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .hudTip("Refresh cockpit state")
+        }
+        .padding(.horizontal, 4)
+    }
+
+    // MARK: Summaries (collapsed-row right-hand text)
+
+    private var ingestSummary: String {
+        let q = ingestService.queue
+        var parts: [String] = []
+        if q.pending.count > 0 { parts.append("\(q.pending.count) pending") }
+        if q.failed.count > 0 { parts.append("\(q.failed.count) failed") }
+        if parts.isEmpty { parts.append("clear · \(q.doneLifetimeCount) ingested") }
+        return parts.joined(separator: " · ")
+    }
+
+    private var syncSummary: String {
+        let s = ingestService.sync
+        switch s.lastResult {
+        case .ok:
+            if let end = s.lastEnd { return "ok · \(relativeShort(end))" }
+            return "ok"
+        case .failed:
+            if let end = s.lastEnd ?? s.lastStart { return "failed · \(relativeShort(end))" }
+            return "failed"
+        case .unknown:
+            return "no log yet"
+        }
+    }
+
+    private var settingsSummary: String {
+        let installerLines = scriptInstaller.lastAudit.values
+        let needsAttention = installerLines.contains(where: {
+            if case .userEdited = $0 { return true }
+            if case .unmanagedDifferentBody = $0 { return true }
+            if case .outdated = $0 { return true }
+            return false
+        })
+        return needsAttention ? "scripts need attention" : "scripts current"
+    }
+
+    // MARK: Ingest section
+
+    private var ingestQueueBody: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !ingestService.queue.pending.isEmpty {
+                cockpitMiniHeader("Pending (\(ingestService.queue.pending.count))")
+                ForEach(ingestService.queue.pending.prefix(8)) { p in
+                    pendingRow(p)
+                }
+                if ingestService.queue.pending.count > 8 {
+                    Text("+ \(ingestService.queue.pending.count - 8) more")
+                        .font(.captionFont(scale))
+                        .foregroundColor(.secondary.opacity(0.5))
+                        .padding(.leading, 4)
+                }
+                HStack(spacing: 8) {
+                    cockpitButton("Process 10", system: "play.rectangle") {
+                        ingestService.runBacklog(limit: 10)
+                    }
+                    if ingestService.queue.pending.count > 10 {
+                        cockpitButton("Process 50", system: "play.rectangle.fill") {
+                            ingestService.runBacklog(limit: 50)
+                        }
+                    }
+                }
+                .padding(.top, 2)
+            }
+            if !ingestService.queue.failed.isEmpty {
+                cockpitMiniHeader("Failed (\(ingestService.queue.failed.count))")
+                ForEach(ingestService.queue.failed) { f in
+                    failedRow(f)
+                }
+                HStack(spacing: 8) {
+                    cockpitButton("Retry all", system: "arrow.counterclockwise") {
+                        ingestService.retryAllFailed()
+                    }
+                    cockpitButton("Run ingest now", system: "play.fill") {
+                        ingestService.triggerIngestNow()
+                    }
+                }
+                .padding(.top, 2)
+            }
+            if ingestService.queue.pending.isEmpty && ingestService.queue.failed.isEmpty {
+                Text("Queue clear. \(ingestService.queue.doneLifetimeCount) sessions ingested lifetime.")
+                    .font(.captionFont(scale))
+                    .foregroundColor(.secondary.opacity(0.7))
+            }
+        }
+    }
+
+    private func pendingRow(_ p: VaultIngestService.PendingTranscript) -> some View {
+        HStack(spacing: 6) {
+            Text(String(p.sessionID.prefix(8)))
+                .font(.custom("Fira Code", size: 10 * scale))
+                .foregroundColor(.secondary.opacity(0.7))
+            Text(byteString(p.bytes))
+                .font(.custom("Fira Code", size: 10 * scale))
+                .foregroundColor(.secondary.opacity(0.5))
+            Spacer()
+            Text(relativeShort(p.mtime))
+                .font(.custom("Fira Code", size: 10 * scale))
+                .foregroundColor(.secondary.opacity(0.5))
+            Button(action: {
+                NSWorkspace.shared.activateFileViewerSelecting([p.path])
+            }) {
+                Image(systemName: "doc.text.magnifyingglass")
+                    .font(.system(size: 10 * scale))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .hudTip("Reveal transcript")
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private func failedRow(_ f: VaultIngestService.FailedMarker) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 10 * scale))
+                .foregroundColor(.red)
+            Text(String(f.sessionID.prefix(8)))
+                .font(.custom("Fira Code", size: 10 * scale))
+                .foregroundColor(.secondary.opacity(0.7))
+            Text(byteString(f.bytes))
+                .font(.custom("Fira Code", size: 10 * scale))
+                .foregroundColor(.secondary.opacity(0.5))
+            Spacer()
+            Text(relativeShort(f.mtime))
+                .font(.custom("Fira Code", size: 10 * scale))
+                .foregroundColor(.secondary.opacity(0.5))
+            Button(action: { ingestService.retryFailed(f) }) {
+                Image(systemName: "arrow.counterclockwise")
+                    .font(.system(size: 10 * scale, weight: .semibold))
+                    .foregroundColor(.accentColor)
+            }
+            .buttonStyle(.borderless)
+            .hudTip("Clear .failed marker so next SessionEnd retries")
+        }
+        .padding(.horizontal, 4)
+    }
+
+    // MARK: Sync section
+
+    private var syncStatusBody: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            let s = ingestService.sync
+            if let end = s.lastEnd {
+                cockpitKeyValue(key: "Last sync end", value: absoluteTime(end))
+            } else {
+                cockpitKeyValue(key: "Last sync end", value: "—")
+            }
+            if let start = s.lastStart {
+                cockpitKeyValue(key: "Last sync start", value: absoluteTime(start))
+            }
+            cockpitKeyValue(key: "Result", value: s.lastResult.rawValue)
+            if let err = s.lastError {
+                Text(err)
+                    .font(.captionFont(scale))
+                    .foregroundColor(.red.opacity(0.8))
+                    .lineLimit(3)
+                    .padding(.top, 2)
+            }
+            HStack(spacing: 8) {
+                cockpitButton("Sync now", system: "arrow.triangle.2.circlepath") {
+                    ingestService.triggerSync()
+                }
+                cockpitButton("Open log", system: "doc.text") {
+                    let log = FileManager.default.homeDirectoryForCurrentUser
+                        .appending(path: "Library/Logs/obsidian-sync.log")
+                    NSWorkspace.shared.activateFileViewerSelecting([log])
+                }
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    // MARK: Settings section
+
+    private var settingsBody: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Paused toggle
+            HStack(spacing: 6) {
+                Toggle(isOn: Binding(
+                    get: { ingestService.queue.paused },
+                    set: { ingestService.setPaused($0) }
+                )) {
+                    Text("Pause ingest")
+                        .font(.captionFont(scale))
+                        .foregroundColor(.primary)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                Spacer()
+            }
+            .padding(.horizontal, 4)
+
+            // Script installer status — iterate the canonical list so
+            // order is stable (dictionary keys are not).
+            cockpitMiniHeader("Managed scripts (\(VaultScriptInstaller.managed.count))")
+            ForEach(VaultScriptInstaller.managed, id: \.self) { script in
+                installerRow(script)
+            }
+
+            HStack(spacing: 8) {
+                cockpitButton("Reveal in Finder", system: "folder") {
+                    ingestService.revealScriptsInFinder()
+                }
+                cockpitButton("Reinstall managed", system: "arrow.down.doc") {
+                    try? scriptInstaller.install(force: false)
+                    _ = scriptInstaller.audit()
+                    ingestService.refresh()
+                }
+            }
+            .padding(.top, 2)
+
+            // Force button surfaces whenever any installed script is
+            // in conflict (`userEdited` or `unmanagedDifferentBody`) —
+            // no `pendingReinstall` gating, because the user can see
+            // the per-script pills above and may want to force-overwrite
+            // without clicking Reinstall first.
+            if hasInstallConflict {
+                cockpitButton("Force overwrite (clobbers local edits)",
+                              system: "exclamationmark.triangle.fill") {
+                    try? scriptInstaller.install(force: true)
+                    _ = scriptInstaller.audit()
+                    ingestService.refresh()
+                }
+                .padding(.top, 2)
+            }
+        }
+    }
+
+    private func installerRow(_ script: VaultScriptInstaller.ManagedScript) -> some View {
+        let status = scriptInstaller.lastAudit[script]
+        return HStack(spacing: 6) {
+            Text(script.bundleResource)
+                .font(.custom("Fira Code", size: 10 * scale))
+                .foregroundColor(.secondary.opacity(0.85))
+                .lineLimit(1)
+            Spacer()
+            installerStatusBadge(status)
+        }
+        .padding(.horizontal, 4)
+    }
+
+    @ViewBuilder
+    private func installerStatusBadge(_ status: VaultScriptInstaller.Status?) -> some View {
+        let (label, color): (String, Color) = {
+            switch status {
+            case .current: return ("current", .secondary.opacity(0.55))
+            case .missing: return ("missing", .orange)
+            case .outdated: return ("outdated", .orange)
+            case .userEdited: return ("user-edited", .yellow)
+            case .unmanagedSameBody: return ("ready", .blue)
+            case .unmanagedDifferentBody: return ("conflict", .red)
+            case .none: return ("?", .secondary)
+            }
+        }()
+        Text(label)
+            .font(.custom("Fira Sans", size: 9 * scale).weight(.medium))
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(color.opacity(0.15))
+            .foregroundColor(color)
+            .clipShape(Capsule())
+    }
+
+    // MARK: Helpers
+
+    private func toggle(_ id: String) {
+        withAnimation(.easeInOut(duration: 0.12)) {
+            if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
+        }
+    }
+
+    private func cockpitMiniHeader(_ s: String) -> some View {
+        Text(s.uppercased())
+            .font(.system(size: 9 * scale, weight: .semibold))
+            .tracking(0.5)
+            .foregroundColor(.secondary.opacity(0.55))
+            .padding(.horizontal, 4)
+    }
+
+    private func cockpitKeyValue(key: String, value: String) -> some View {
+        HStack(spacing: 6) {
+            Text(key)
+                .font(.captionFont(scale))
+                .foregroundColor(.secondary.opacity(0.7))
+            Spacer()
+            Text(value)
+                .font(.custom("Fira Code", size: 10 * scale))
+                .foregroundColor(.secondary)
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private func cockpitButton(_ label: String, system: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: system)
+                    .font(.system(size: 9 * scale, weight: .semibold))
+                Text(label)
+                    .font(.custom("Fira Sans", size: 10 * scale).weight(.medium))
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.12)))
+            .foregroundColor(.primary)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func relativeShort(_ date: Date) -> String {
+        let secs = Date().timeIntervalSince(date)
+        if secs < 60 { return "just now" }
+        if secs < 3600 { return "\(Int(secs / 60))m ago" }
+        if secs < 86400 { return "\(Int(secs / 3600))h ago" }
+        return "\(Int(secs / 86400))d ago"
+    }
+
+    private func absoluteTime(_ date: Date) -> String {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "MMM d, h:mma"
+        return fmt.string(from: date)
+    }
+
+    private func byteString(_ bytes: Int) -> String {
+        let kb = Double(bytes) / 1024.0
+        if kb < 1024 { return String(format: "%.0f KB", kb) }
+        return String(format: "%.1f MB", kb / 1024.0)
+    }
+}
+
+private struct CockpitSection<Content: View>: View {
+    let title: String
+    let summary: String
+    let isExpanded: Bool
+    let onToggle: () -> Void
+    @ViewBuilder let content: () -> Content
+    @Environment(\.fontScale) private var scale
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button(action: onToggle) {
+                HStack(spacing: 6) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9 * scale, weight: .semibold))
+                        .foregroundColor(.secondary.opacity(0.5))
+                        .frame(width: 10)
+                    Text(title.uppercased())
+                        .font(.system(size: 10 * scale, weight: .semibold))
+                        .tracking(0.5)
+                        .foregroundColor(.secondary.opacity(0.75))
+                    Spacer()
+                    Text(summary)
+                        .font(.custom("Fira Code", size: 10 * scale))
+                        .foregroundColor(.secondary.opacity(0.55))
+                        .lineLimit(1)
+                }
+                .contentShape(Rectangle())
+                .padding(.vertical, 2)
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                content()
+                    .padding(.leading, 12)
+                    .padding(.bottom, 4)
+            }
+        }
     }
 }
 

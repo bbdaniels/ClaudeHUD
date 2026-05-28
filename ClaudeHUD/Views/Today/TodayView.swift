@@ -115,6 +115,12 @@ struct TodayView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.top, 40)
                     }
+
+                    // Daily note section absorbs the work the old Notes
+                    // tab carried. Quick-capture for today, last-N-lines
+                    // preview, open-in-floating-window for full edit.
+                    Divider().opacity(0.3).padding(.top, 8)
+                    DailyNoteSection(date: selectedDate)
                 }
             } else {
                 // Date nav bar (fixed, dark)
@@ -191,18 +197,30 @@ struct TodayView: View {
                         }
                     }
                     .padding(.horizontal, 10)
+
+                    // Daily note section absorbs the work the old Notes
+                    // tab carried. Quick-capture for today, last-N-lines
+                    // preview, open-in-floating-window for full edit.
+                    Divider().opacity(0.3).padding(.top, 8)
+                    DailyNoteSection(date: selectedDate)
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: dayOffset) {
+            // Pre-warm + state-change subscribers in BriefingService
+            // (wired by AppState.setup) cover today. This block runs
+            // when the user navigates to another day; for today it's
+            // idempotent (the refactored generateDaySummary is cache-
+            // key aware and no-ops on matched state). No clearDaySummary
+            // — it'd just flicker today's pre-warmed summary off and
+            // back on.
             let date = selectedDate
             calendarService.loadEvents(for: date)
             remindersService.loadReminders(for: date)
             vaultManager.ensureDailyNote(for: date)
             let obsidianTodos = vaultManager.scanTodos(for: date, includeRecent: Calendar.current.isDateInToday(date))
             let allTodos = remindersService.todos + obsidianTodos
-            briefingService.clearDaySummary()
             briefingService.generateDaySummary(
                 events: calendarService.todayEvents,
                 date: date,
@@ -745,4 +763,203 @@ extension Color {
         let b = Double(int & 0xFF) / 255.0
         self.init(red: r, green: g, blue: b)
     }
+}
+
+// MARK: - Daily Note section
+//
+// Renders `Daily Notes/<yyyy-MM-dd>.md` for the selected date with
+// a quick-capture text field (today only) that appends timestamped
+// bullets to the end of the file. Replaces the access pattern the old
+// standalone Notes tab carried: see today's note, drop a quick note
+// without context-switching to Obsidian, open the floating window for
+// full editing. Yesterday/tomorrow are read-only — capture only writes
+// to today.
+
+private struct DailyNoteSection: View {
+    let date: Date
+    @EnvironmentObject var vaultManager: VaultManager
+    @Environment(\.fontScale) private var scale
+    @AppStorage("today.dailyNoteCollapsed") private var collapsed = false
+    @State private var content: String? = nil
+    @State private var capture: String = ""
+
+    private var dailyNotePath: String? {
+        guard let vault = vaultManager.currentVault else { return nil }
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        return (vault.path as NSString)
+            .appendingPathComponent("Daily Notes/\(fmt.string(from: date)).md")
+    }
+
+    private var isToday: Bool { Calendar.current.isDateInToday(date) }
+
+    private var summary: String {
+        guard let content else { return "—" }
+        let lines = content.split(separator: "\n").count
+        return "\(lines) lines"
+    }
+
+    /// Last 25 lines of the daily note, joined back with newlines. The
+    /// daily note can get long (50–150 lines on heavy days); inline
+    /// preview only shows recent activity, full edit is the floating
+    /// window.
+    private var previewText: String? {
+        guard let content else { return nil }
+        let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
+        let tail = lines.suffix(25)
+        let s = tail.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return s.isEmpty ? nil : s
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            if !collapsed {
+                if isToday { captureField }
+                if let preview = previewText {
+                    Text(prettifyMarkdownInline(preview))
+                        .font(.captionFont(scale))
+                        .foregroundColor(.primary.opacity(0.85))
+                        .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 14)
+                        .padding(.top, 8)
+                } else {
+                    Text("No daily note yet for this date.")
+                        .font(.captionFont(scale))
+                        .foregroundColor(.secondary.opacity(0.7))
+                        .padding(.horizontal, 14)
+                        .padding(.top, 6)
+                }
+                openButton
+                    .padding(.top, 6)
+                    .padding(.bottom, 10)
+            }
+        }
+        .task(id: date) { loadContent() }
+    }
+
+    private var header: some View {
+        Button(action: {
+            withAnimation(.easeInOut(duration: 0.15)) { collapsed.toggle() }
+        }) {
+            HStack(spacing: 6) {
+                Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 9 * scale, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.6))
+                Text("Daily Note")
+                    .font(.captionFont(scale).weight(.semibold))
+                    .foregroundColor(.secondary.opacity(0.75))
+                    .textCase(.uppercase)
+                    .tracking(0.5)
+                Spacer()
+                Text(summary)
+                    .font(.custom("Fira Code", size: 10 * scale))
+                    .foregroundColor(.secondary.opacity(0.55))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
+            .background(Color(.textBackgroundColor).opacity(0.18))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var captureField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "plus.circle")
+                .font(.system(size: 11 * scale))
+                .foregroundColor(.secondary.opacity(0.6))
+            TextField("Add to today's note…", text: $capture)
+                .font(.smallFont(scale))
+                .textFieldStyle(.plain)
+                .onSubmit(append)
+            if !capture.isEmpty {
+                Button(action: append) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 12 * scale))
+                        .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.borderless)
+                .hudTip("Append timestamped line to today's note")
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .background(Color(.textBackgroundColor).opacity(0.08))
+    }
+
+    private var openButton: some View {
+        Button(action: openInFloatingWindow) {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.up.right.square")
+                    .font(.system(size: 10 * scale))
+                Text("Open in window")
+                    .font(.captionFont(scale))
+            }
+            .foregroundColor(.accentColor)
+            .padding(.horizontal, 14)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func loadContent() {
+        guard let path = dailyNotePath else { content = nil; return }
+        content = try? String(contentsOfFile: path, encoding: .utf8)
+    }
+
+    /// Append `- HH:MM <text>` to today's daily note. Creates the file
+    /// if missing (rare — `vaultManager.ensureDailyNote` runs on the
+    /// `.task(id: dayOffset)` earlier and would have populated it).
+    private func append() {
+        let text = capture.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty, isToday, let path = dailyNotePath else { return }
+        let fmt = DateFormatter()
+        fmt.dateFormat = "HH:mm"
+        let line = "- \(fmt.string(from: Date())) \(text)\n"
+        if let existing = try? String(contentsOfFile: path, encoding: .utf8) {
+            let sep = existing.hasSuffix("\n") ? "" : "\n"
+            try? (existing + sep + line).write(toFile: path, atomically: true, encoding: .utf8)
+        } else {
+            try? line.write(toFile: path, atomically: true, encoding: .utf8)
+        }
+        capture = ""
+        loadContent()
+    }
+
+    private func openInFloatingWindow() {
+        guard let path = dailyNotePath else { return }
+        let url = URL(fileURLWithPath: path)
+        let attrs = try? FileManager.default.attributesOfItem(atPath: path)
+        let modDate = attrs?[.modificationDate] as? Date
+        let file = NoteFile(
+            name: url.lastPathComponent,
+            path: path,
+            relativePath: "Daily Notes/\(url.lastPathComponent)",
+            isDirectory: false,
+            modificationDate: modDate,
+            children: nil
+        )
+        FloatingNoteWindowManager.shared.openWindow(for: file)
+    }
+}
+
+/// Inline-markdown helper: strip Obsidian wikilink brackets, let
+/// SwiftUI's built-in markdown parser handle bold/italic/code. Headings
+/// (`## `) and list bullets render as literal text — full markdown
+/// rendering requires the floating window.
+private func prettifyMarkdownInline(_ s: String) -> LocalizedStringKey {
+    var out = s
+    out = out.replacingOccurrences(
+        of: #"\[\[([^\]|]+)\|([^\]]+)\]\]"#,
+        with: "$2",
+        options: .regularExpression
+    )
+    out = out.replacingOccurrences(
+        of: #"\[\[([^\]]+)\]\]"#,
+        with: "$1",
+        options: .regularExpression
+    )
+    return LocalizedStringKey(out)
 }

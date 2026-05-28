@@ -65,6 +65,20 @@ class AppState: ObservableObject {
         vaultIngestService.start(vaultPath: vaultURL)
         vaultProjectService.start(vaultPath: vaultURL)
 
+        // Today tab pre-warm + state-change refresh. Hard rule: no LLM
+        // call on tab open (Documents/Obsidian/ClaudeHUD/Tasks.md
+        // §Today tab). `startAutoRefresh` subscribes to CalendarService
+        // and RemindersService publishers; the CombineLatest first
+        // emission acts as the launch pre-warm, subsequent emissions
+        // cover mid-day state drift. The Today tab itself reads only
+        // the cached `daySummary` / `briefings` outputs.
+        briefingService.startAutoRefresh(
+            calendarService: calendarService,
+            remindersService: remindersService,
+            vaultManager: vaultManager,
+            projectService: projectService
+        )
+
         // Unlock secrets vault — single Touch ID prompt for the whole session.
         // Services were initialized before secrets were available, so notify
         // them to re-read now.

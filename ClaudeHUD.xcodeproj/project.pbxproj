@@ -76,6 +76,7 @@
 		5DE96FC3E4C95A8BCFD6B8E8 /* NSImage+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B87051A2FE60BB08D085B5D /* NSImage+Extension.swift */; };
 		5E6501CEBB9899408CB2A50E /* PushNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2801C79D6EE1B4B43ED6B5A4 /* PushNotificationManager.swift */; };
 		5E8249E75BC7071A42BD394B /* MCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5CC94E94375F63C3B1C6D3 /* MCPClient.swift */; };
+		5F5595CBFA7B3C7816BDBD64 /* com.bbdaniels.vault-backfill.plist in Resources */ = {isa = PBXBuildFile; fileRef = 9F7E32B805364F1571248393 /* com.bbdaniels.vault-backfill.plist */; };
 		62681EDDCDBBA34D5BEC1B71 /* View+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33DB2BD0985C47EE12DA61AA /* View+Extension.swift */; };
 		62BA2D9F0205706B941FC1A1 /* GhosttyPackageMeta.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9034641E5D6BB5C261970D88 /* GhosttyPackageMeta.swift */; };
 		6849853A4E6B85FB19E3A411 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FD67A81EBE058854F735069 /* ChatView.swift */; };
@@ -288,6 +289,7 @@
 		9746A6576D360BAF0E62317B /* libdcimgui.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libdcimgui.a; sourceTree = "<group>"; };
 		9A39F72F605ECF71563A3E2E /* NSMenuItem+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSMenuItem+Extension.swift"; sourceTree = "<group>"; };
 		9AEA2D1DA808678730DAFAB2 /* AgentModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentModels.swift; sourceTree = "<group>"; };
+		9F7E32B805364F1571248393 /* com.bbdaniels.vault-backfill.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "com.bbdaniels.vault-backfill.plist"; sourceTree = "<group>"; };
 		A03300B3437AA67D3BAB11EE /* ObjCExceptionCatcher.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ObjCExceptionCatcher.m; sourceTree = "<group>"; };
 		A2D5D690DAB6FDFE2D23AAE9 /* Ghostty.Action.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Action.swift; sourceTree = "<group>"; };
 		A72C6D575DC0E64C605D2287 /* libsentry.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libsentry.a; sourceTree = "<group>"; };
@@ -581,6 +583,7 @@
 			isa = PBXGroup;
 			children = (
 				2EEF39238129551C8264F8B4 /* com.bbdaniels.obsidian-sync.plist */,
+				9F7E32B805364F1571248393 /* com.bbdaniels.vault-backfill.plist */,
 			);
 			path = LaunchAgents;
 			sourceTree = "<group>";
@@ -850,6 +853,7 @@
 				10839D1BC618E406833B95CC /* Assets.xcassets in Resources */,
 				4AFFCB2580A983F47F0BB0A1 /* GhosttyKit.xcframework in Resources */,
 				B8D06D4427A9E6FF2119DCC7 /* com.bbdaniels.obsidian-sync.plist in Resources */,
+				5F5595CBFA7B3C7816BDBD64 /* com.bbdaniels.vault-backfill.plist in Resources */,
 				F2237345BD07B5AF00CC973B /* libbreakpad.a in Resources */,
 				E544C1AC11413E5F3E07E88D /* libdcimgui.a in Resources */,
 				4167B772A7F89D1779F98239 /* libfreetype.a in Resources */,

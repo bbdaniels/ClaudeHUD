@@ -1,10 +1,28 @@
 #!/bin/bash
 # === Managed by ClaudeHUD ============================================
-# script-version: 1.0.0
+# script-version: 1.2.0
 # source: ClaudeHUD/Resources/Scripts/vault-ingest.sh
 # To edit, fork in the ClaudeHUD repo and rebuild. The installer
 # detects local edits to the installed copy and refuses to clobber
 # them — see Services/VaultScriptInstaller.swift.
+# =====================================================================
+# 1.2.0 (2026-05-28):
+#  * --backfill now extracts cwd from the transcript's own JSON
+#    metadata (a line carrying `"cwd":"..."`) instead of decoding the
+#    encoded-path name. Eliminates the hyphen-in-project-name SKIPs
+#    (estonia-qbs etc.). Falls back to the naive decode if no metadata
+#    line is present.
+#  * --backfill honors the PAUSED flag so a single pause toggle
+#    stops both the SessionEnd hook and the periodic backfill job.
+#  * Paired with com.bbdaniels.vault-backfill.plist (every 30 min
+#    background drain via launchd; backfill 10 sessions per tick).
+# 1.1.0 (2026-05-28):
+#  * Phase-1 filter and --audit now skip subagent transcripts
+#    (*/subagents/*) and home-cwd transcripts (project dir
+#    -Users-bbdaniels exactly): they don't belong in the ingest queue.
+#  * New --backfill [N] mode: run up to N pending eligible transcripts
+#    in sequence (cockpit "Process backlog" button). Drains the
+#    historical pile of un-ingested sessions one batch at a time.
 # =====================================================================
 # SessionEnd hook — distil a COMPLETED Claude session into the Obsidian
 # wiki (Karpathy "ingest"). Canonical-project model: the wiki is the sole
@@ -78,6 +96,24 @@ print(best)
 PY
 }
 
+# Predicate: should this transcript path be eligible for ingest?
+# Centralises the file-level filters used by --audit, --backfill, and
+# (informationally) the phase-1 SessionEnd hook. Mirror these in the
+# Swift HUD's VaultIngestService.scanPendingTranscripts so the cockpit
+# count agrees with what the worker will actually process.
+#
+#   Skip */subagents/*     — inner-agent transcripts, captured by parent
+#   Skip -Users-bbdaniels/ — sessions with cwd == $HOME (already filtered
+#                            by phase 1; this drops the historical pile)
+is_ingest_eligible_path() {
+  local p="$1"
+  case "$p" in
+    */subagents/*) return 1 ;;
+    "$HOME/.claude/projects/-Users-bbdaniels/"*) return 1 ;;
+  esac
+  return 0
+}
+
 # ---------------- --audit ----------------
 if [ "${1:-}" = "--audit" ]; then
   echo "=== vault-ingest --audit $(date -u +%FT%TZ) ==="
@@ -87,6 +123,7 @@ if [ "${1:-}" = "--audit" ]; then
   found=0
   while IFS= read -r f; do
     [ -z "$f" ] && continue
+    is_ingest_eligible_path "$f" || continue
     b=$(wc -c < "$f" 2>/dev/null | tr -d ' '); [ "${b:-0}" -lt "$FLOOR" ] && continue
     key="$(basename "$f").$b.done"
     [ -f "$STATE/$key" ] && continue
@@ -98,6 +135,54 @@ EOF
   exit 0
 fi
 
+# ---------------- --backfill [N] ----------------
+# Drain up to N pending eligible transcripts in sequence. Default N=10
+# so a single periodic tick (or cockpit click) costs ~10 short Claude
+# calls, not 1000+. Each one shells out to `--run` synchronously so we
+# can stop on the first non-zero exit and keep the failure visible as
+# `.failed`.
+#
+# cwd resolution: read the transcript's own JSON metadata
+# (`"cwd":"..."`) — this is the cwd Claude Code recorded at session
+# start and survives arbitrary hyphens in project directory names.
+# Falls back to the naive encoded-dir decode if no metadata line is
+# present (rare; only true for transcripts that never opened in a
+# project context).
+if [ "${1:-}" = "--backfill" ]; then
+  [ -f "$STATE/PAUSED" ] && { echo "PAUSED — skipping backfill"; exit 0; }
+  limit="${2:-10}"
+  case "$limit" in (*[!0-9]*) limit=10;; esac
+  [ "$limit" -lt 1 ] && limit=10
+  echo "=== vault-ingest --backfill N=$limit $(date -u +%FT%TZ) ==="
+  processed=0; skipped=0; failed=0
+  while IFS= read -r f; do
+    [ "$processed" -ge "$limit" ] && break
+    [ -z "$f" ] && continue
+    is_ingest_eligible_path "$f" || { skipped=$((skipped+1)); continue; }
+    b=$(wc -c < "$f" 2>/dev/null | tr -d ' '); [ "${b:-0}" -lt "$FLOOR" ] && continue
+    key="$(basename "$f").$b.done"
+    [ -f "$STATE/$key" ] && continue
+    # cwd from transcript JSON metadata; fall back to naive decode.
+    cwd="$(grep -m1 -oE '"cwd":"[^"]*"' "$f" 2>/dev/null | sed 's/"cwd":"//; s/"$//')"
+    if [ -z "$cwd" ] || [ ! -d "$cwd" ]; then
+      proj_dir="$(dirname "$f" | sed "s#$HOME/.claude/projects/##" | sed 's#/subagents##')"
+      cwd="/$(printf '%s' "$proj_dir" | tr '-' '/')"
+    fi
+    [ -d "$cwd" ] || { skipped=$((skipped+1)); continue; }
+    sid="$(basename "$f" .jsonl)"
+    echo "backfill [$((processed+1))/$limit] sid=$sid cwd=$cwd"
+    if bash "$0" --run "$sid" "$f" "$cwd"; then
+      processed=$((processed+1))
+    else
+      failed=$((failed+1))
+    fi
+  done <<EOF
+$(find "$HOME/.claude/projects" -name '*.jsonl' -mtime -14 2>/dev/null | sort)
+EOF
+  echo "=== backfill done: $processed processed, $skipped skipped, $failed failed ==="
+  exit 0
+fi
+
 # ---------------- phase 1: SessionEnd hook ----------------
 if [ "${1:-}" != "--run" ]; then
   [ -n "${VAULT_INGEST:-}" ] && exit 0          # loop guard (our own claude -p)
@@ -106,6 +191,9 @@ if [ "${1:-}" != "--run" ]; then
   rf() { printf '%s' "$payload" | python3 -c "import sys,json;print((json.load(sys.stdin) or {}).get('$1',''))" 2>/dev/null; }
   sid="$(rf session_id)"; tpath="$(rf transcript_path)"; cwd="$(rf cwd)"
   [ -z "$tpath" ] || [ ! -f "$tpath" ] && exit 0
+  # Subagent transcripts are sub-process Claude calls — the parent's
+  # session captures them, so they don't need their own digest.
+  is_ingest_eligible_path "$tpath" || exit 0
   case "$cwd" in
     "$VAULT"|"$VAULT"/*) exit 0;;
     "$HOME"|"$HOME/.claude"|"$HOME/.claude"/*) exit 0;;
