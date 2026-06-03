@@ -39,7 +39,14 @@ class HUDPanelController {
         panel.backgroundColor = NSColor.windowBackgroundColor
         panel.titlebarAppearsTransparent = true
         panel.titleVisibility = .hidden
-        panel.isMovableByWindowBackground = true
+        // Was true ("drag anywhere to move the window"), but AppKit's
+        // move-by-background tracking consumes mouse-drag sequences over the
+        // SwiftUI content before any in-content gesture or system drag sees them
+        // — clicks still land (tab switching works) but NO drag does (tab
+        // reordering, etc.). Off here; the window is still movable by its
+        // (hidden, transparent) title-bar strip at the very top. See
+        // HUDContentView.TabBar drag-to-reorder.
+        panel.isMovableByWindowBackground = false
         panel.minSize = NSSize(width: 380, height: 420)
         panel.setFrameAutosaveName("ClaudeHUDPanel")
 

@@ -172,6 +172,25 @@ enum FixedTab: String, CaseIterable {
     static func isHidden(_ tab: FixedTab) -> Bool {
         hiddenTabs().contains(tab.rawValue)
     }
+
+    /// User-customized tab order (drag-to-reorder in the tab bar), persisted in
+    /// UserDefaults `tabOrder` as comma-separated raw values. Any tabs not listed
+    /// — e.g. a tab added in a newer build — are appended in declaration order,
+    /// so the saved order never hides a new tab. Falls back to declaration order
+    /// when nothing is saved.
+    static func orderedTabs() -> [FixedTab] {
+        let raw = UserDefaults.standard.string(forKey: "tabOrder") ?? ""
+        let saved = raw.split(separator: ",").compactMap { FixedTab(rawValue: String($0)) }
+        var seen = Set(saved)
+        let appended = allCases.filter { !seen.contains($0) }
+        seen.formUnion(appended)
+        let result = saved + appended
+        return result.isEmpty ? allCases : result
+    }
+
+    static func setOrder(_ tabs: [FixedTab]) {
+        UserDefaults.standard.set(tabs.map(\.rawValue).joined(separator: ","), forKey: "tabOrder")
+    }
 }
 
 struct HUDContentView: View {
@@ -403,69 +422,131 @@ struct TabBar: View {
     @EnvironmentObject var tabManager: TabManager
     @Environment(\.fontScale) private var scale
     @AppStorage("hiddenTabs") private var hiddenTabsRaw: String = ""
+    // Read the persisted order so the bar re-renders when it changes.
+    @AppStorage("tabOrder") private var tabOrderRaw: String = ""
+    @State private var draggingTab: FixedTab?
+    @State private var dragOffset: CGFloat = 0
+
+    /// Visual width of one fixed-tab slot (matches the icon frame below; the
+    /// HStack spacing is 0). Used to convert drag distance → slots moved.
+    private let tabSlotWidth: CGFloat = 28
 
     private var visibleTabs: [FixedTab] {
         let hidden = FixedTab.hiddenTabs()
-        return FixedTab.allCases.filter { !hidden.contains($0.rawValue) }
+        return FixedTab.orderedTabs().filter { !hidden.contains($0.rawValue) }
+    }
+
+    /// Move `tab` by `slots` positions among the visible tabs, rewriting the
+    /// persisted full order (hidden tabs keep their relative spots). Writing
+    /// `tabOrderRaw` persists to UserDefaults AND re-renders; `orderedTabs()`
+    /// reads it back.
+    private func moveTab(_ tab: FixedTab, by slots: Int) {
+        let vis = visibleTabs
+        guard let idx = vis.firstIndex(of: tab) else { return }
+        let newIdx = max(0, min(vis.count - 1, idx + slots))
+        guard newIdx != idx else { return }
+        let landOn = vis[newIdx]
+        var order = FixedTab.orderedTabs()
+        guard let from = order.firstIndex(of: tab) else { return }
+        order.remove(at: from)
+        guard let to = order.firstIndex(of: landOn) else { return }
+        let insertAt = slots > 0 ? to + 1 : to
+        order.insert(tab, at: min(max(insertAt, 0), order.count))
+        withAnimation(.easeInOut(duration: 0.18)) {
+            tabOrderRaw = order.map(\.rawValue).joined(separator: ",")
+        }
     }
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 0) {
+            // Fixed view tabs. Deliberately NOT inside the horizontal ScrollView
+            // (its pan gesture swallowed the reorder drag) and NOT Buttons (the
+            // button press gesture competed with it). Plain tappable icons + a
+            // manual DragGesture: a click switches tab, a >6pt sideways drag
+            // reorders. (Also needs the panel's isMovableByWindowBackground off
+            // — see HUDPanelController — so window-move doesn't eat the drag.)
             HStack(spacing: 0) {
                 ForEach(visibleTabs, id: \.rawValue) { tab in
-                    Button(action: { activeFixedTab = tab }) {
-                        Group {
-                            if let asset = tab.assetIcon {
-                                // Template-rendered so we can tint to a flat
-                                // white silhouette instead of the brand-colored
-                                // glyph that lives in the asset catalog.
-                                Image(asset)
-                                    .resizable()
-                                    .renderingMode(.template)
-                                    .scaledToFit()
-                                    .foregroundColor(.white.opacity(activeFixedTab == tab ? 1.0 : 0.55))
-                                    .frame(width: 13 * scale, height: 13 * scale)
-                            } else {
-                                Image(systemName: tab.icon)
-                                    .font(.captionFont(scale))
-                                    .foregroundColor(activeFixedTab == tab ? .primary : .secondary)
-                            }
-                        }
-                        .frame(width: 28, height: 24)
+                    fixedTab(tab)
+                }
+            }
+
+            Divider()
+                .frame(height: 16)
+                .padding(.horizontal, 4)
+
+            // Conversation tabs can overflow, so they keep the horizontal scroll.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    ForEach(tabManager.tabs) { tab in
+                        TabButton(tab: tab, activeFixedTab: $activeFixedTab)
+                    }
+
+                    // Add tab button
+                    Button(action: {
+                        tabManager.addTab()
+                        activeFixedTab = nil
+                    }) {
+                        Image(systemName: "plus")
+                            .font(.captionFont(scale))
+                            .foregroundColor(.secondary)
+                            .frame(width: 24, height: 24)
                     }
                     .buttonStyle(.borderless)
-                    .background(
-                        RoundedRectangle(cornerRadius: 5)
-                            .fill(activeFixedTab == tab ? Color.accentColor.opacity(0.12) : Color.clear)
-                    )
-                    .hudTip(tab.help)
+                    .hudTip("New tab")
                 }
-
-                Divider()
-                    .frame(height: 16)
-                    .padding(.horizontal, 4)
-
-                ForEach(tabManager.tabs) { tab in
-                    TabButton(tab: tab, activeFixedTab: $activeFixedTab)
-                }
-
-                // Add tab button
-                Button(action: {
-                    tabManager.addTab()
-                    activeFixedTab = nil
-                }) {
-                    Image(systemName: "plus")
-                        .font(.captionFont(scale))
-                        .foregroundColor(.secondary)
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.borderless)
-                .hudTip("New tab")
             }
-            .padding(.horizontal, 8)
         }
+        .padding(.horizontal, 8)
         .frame(height: 30)
         .background(Color(.windowBackgroundColor).opacity(0.5))
+    }
+
+    @ViewBuilder
+    private func fixedTab(_ tab: FixedTab) -> some View {
+        Group {
+            if let asset = tab.assetIcon {
+                // Template-rendered so we can tint to a flat white silhouette
+                // instead of the brand-colored glyph in the asset catalog.
+                Image(asset)
+                    .resizable()
+                    .renderingMode(.template)
+                    .scaledToFit()
+                    .foregroundColor(.white.opacity(activeFixedTab == tab ? 1.0 : 0.55))
+                    .frame(width: 13 * scale, height: 13 * scale)
+            } else {
+                Image(systemName: tab.icon)
+                    .font(.captionFont(scale))
+                    .foregroundColor(activeFixedTab == tab ? .primary : .secondary)
+            }
+        }
+        .frame(width: 28, height: 24)
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(activeFixedTab == tab ? Color.accentColor.opacity(0.12) : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { activeFixedTab = tab }
+        .hudTip(tab.help)
+        .opacity(draggingTab == tab ? 0.6 : 1.0)
+        .offset(x: draggingTab == tab ? dragOffset : 0)
+        .zIndex(draggingTab == tab ? 1 : 0)
+        // Manual drag-to-reorder: the icon follows the cursor and snaps to the
+        // nearest slot on release. No ScrollView/Button competing now, so a
+        // plain `.gesture` is enough.
+        .gesture(
+            DragGesture(minimumDistance: 6)
+                .onChanged { value in
+                    if draggingTab != tab { draggingTab = tab }
+                    dragOffset = value.translation.width
+                }
+                .onEnded { value in
+                    let slots = Int((value.translation.width / tabSlotWidth).rounded())
+                    if slots != 0 { moveTab(tab, by: slots) }
+                    draggingTab = nil
+                    dragOffset = 0
+                }
+        )
     }
 }
 
