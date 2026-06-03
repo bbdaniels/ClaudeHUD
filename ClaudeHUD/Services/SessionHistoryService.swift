@@ -406,14 +406,23 @@ class SessionHistoryService: ObservableObject {
 // MARK: - Relative Date Formatting
 
 extension Date {
+    /// Shared formatter for week-plus-old dates. `DateFormatter` instantiation is
+    /// expensive (ICU/locale setup); `relativeString` is read by every row in the
+    /// Projects and Sessions lists, so allocating one per call made scrolling
+    /// beach-ball as `LazyVStack` realized rows. A configured `DateFormatter` is
+    /// safe to share for read-only formatting across threads.
+    private static let monthDayFormatter: DateFormatter = {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "MMM d"
+        return fmt
+    }()
+
     var relativeString: String {
         let diff = Date().timeIntervalSince(self)
         if diff < 60 { return "just now" }
         if diff < 3600 { return "\(Int(diff / 60))m ago" }
         if diff < 86400 { return "\(Int(diff / 3600))h ago" }
         if diff < 604800 { return "\(Int(diff / 86400))d ago" }
-        let fmt = DateFormatter()
-        fmt.dateFormat = "MMM d"
-        return fmt.string(from: self)
+        return Self.monthDayFormatter.string(from: self)
     }
 }

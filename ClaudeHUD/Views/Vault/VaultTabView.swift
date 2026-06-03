@@ -28,7 +28,18 @@ struct VaultTabView: View {
             header
             Divider().opacity(0.3)
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 6) {
+                // NOTE: must be a plain VStack, NOT LazyVStack. The rows have
+                // wildly variable heights (a collapsed row is one line; an
+                // expanded row renders Status + Tasks + Notes). Inside a
+                // ScrollView, LazyVStack estimates content height from realized
+                // rows, and with heights this variable the estimate oscillates:
+                // ScrollView.sizeThatFits ↔ LazySubviewPlacements.placeSubviews
+                // re-trigger each other every runloop pass and never converge,
+                // pinning the main thread at 100% (the Projects-tab pinwheel,
+                // confirmed via `sample`). A non-lazy VStack gives the ScrollView
+                // a deterministic content height. The list is only tens of rows
+                // and collapsed rows are cheap headers, so eager layout is fine.
+                VStack(alignment: .leading, spacing: 6) {
                     ForEach(activeProjects) { project in
                         ProjectRowView(
                             project: project,

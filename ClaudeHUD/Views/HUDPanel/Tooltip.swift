@@ -41,11 +41,25 @@ private struct HUDTipModifier: ViewModifier {
                     armed = false
                 }
             }
-            .anchorPreference(key: TooltipPreferenceKey.self, value: .bounds) { anchor in
-                armed && !text.isEmpty
-                    ? [TooltipPreferenceKey.Item(anchor: anchor, text: text)]
-                    : []
-            }
+            // Only publish the bounds anchor while actually armed (hovered past
+            // the delay). Attaching `.anchorPreference(.bounds)` to EVERY `.hudTip`
+            // unconditionally forces the root `overlayPreferenceValue`
+            // (`hudTooltipLayer`) to resolve bounds anchors *through* the enclosing
+            // ScrollView+LazyVStack on every layout pass. Inside the Projects/Vault
+            // tab that never converges and pins the main thread at ~100%
+            // (the scrolling-pinwheel bug). Emitting the anchor via a gated
+            // background keeps `content`'s identity stable while leaving the
+            // resting view tree free of anchor writers, so the lazy stack stays lazy.
+            .background(anchorEmitter)
+    }
+
+    @ViewBuilder private var anchorEmitter: some View {
+        if armed && !text.isEmpty {
+            Color.clear
+                .anchorPreference(key: TooltipPreferenceKey.self, value: .bounds) { anchor in
+                    [TooltipPreferenceKey.Item(anchor: anchor, text: text)]
+                }
+        }
     }
 }
 

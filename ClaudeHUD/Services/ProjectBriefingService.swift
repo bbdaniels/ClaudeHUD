@@ -84,12 +84,17 @@ class ProjectBriefingService: ObservableObject {
             briefings[project.id]?.isLoading = true
         }
 
-        let context = gatherContext(for: project)
         let cliPath = claudePath
         let projectId = project.id
         let projectName = project.name
+        let obsidianPath = project.obsidianPath
+        let sessions = project.recentSessions
+        let events = project.upcomingEvents
 
         Task.detached(priority: .userInitiated) {
+            // Read Tasks.md + every note off the main thread. gatherContext does
+            // synchronous multi-file I/O that otherwise hung the UI on first expand.
+            let context = Self.gatherContext(obsidianPath: obsidianPath, sessions: sessions, events: events)
             let result = await Self.runClaude(context: context, projectName: projectName, claudePath: cliPath)
             if result.error == nil {
                 Self.saveToDisk(projectId: projectId, briefing: result)
@@ -154,20 +159,22 @@ class ProjectBriefingService: ObservableObject {
 
     // MARK: - Context Gathering
 
-    private func gatherContext(for project: Project) -> String {
+    nonisolated private static func gatherContext(obsidianPath: String,
+                                                  sessions: [SessionInfo],
+                                                  events: [CalendarEvent]) -> String {
         var parts: [String] = []
 
         // Tasks.md gets special treatment as the authoritative task source
         let fm = FileManager.default
-        let tasksPath = "\(project.obsidianPath)/Tasks.md"
+        let tasksPath = "\(obsidianPath)/Tasks.md"
         if let tasksContent = try? String(contentsOfFile: tasksPath, encoding: .utf8) {
             parts.append("## AUTHORITATIVE TASK LIST (Tasks.md)\n\(String(tasksContent.prefix(4000)))")
         }
 
         // Other Obsidian notes content
-        if let files = try? fm.contentsOfDirectory(atPath: project.obsidianPath) {
+        if let files = try? fm.contentsOfDirectory(atPath: obsidianPath) {
             for file in files.sorted() where file.hasSuffix(".md") && file != "Tasks.md" {
-                let path = "\(project.obsidianPath)/\(file)"
+                let path = "\(obsidianPath)/\(file)"
                 if let content = try? String(contentsOfFile: path, encoding: .utf8) {
                     let name = String(file.dropLast(3))
                     let truncated = String(content.prefix(3000))
@@ -177,18 +184,18 @@ class ProjectBriefingService: ObservableObject {
         }
 
         // Recent session previews
-        if !project.recentSessions.isEmpty {
+        if !sessions.isEmpty {
             var sessionBlock = "## Recent Claude Sessions\n"
-            for session in project.recentSessions {
+            for session in sessions {
                 sessionBlock += "- \(session.timestamp.relativeString): \(session.preview)\n"
             }
             parts.append(sessionBlock)
         }
 
         // Today's calendar events
-        if !project.upcomingEvents.isEmpty {
+        if !events.isEmpty {
             var calBlock = "## Today's Calendar Events\n"
-            for event in project.upcomingEvents {
+            for event in events {
                 let fmt = DateFormatter()
                 fmt.dateFormat = "h:mma"
                 let time = fmt.string(from: event.startDate).lowercased()
