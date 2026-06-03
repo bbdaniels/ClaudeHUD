@@ -1,11 +1,21 @@
 #!/bin/bash
 # === Managed by ClaudeHUD ============================================
-# script-version: 1.2.0
+# script-version: 1.3.0
 # source: ClaudeHUD/Resources/Scripts/vault-ingest.sh
 # To edit, fork in the ClaudeHUD repo and rebuild. The installer
 # detects local edits to the installed copy and refuses to clobber
 # them — see Services/VaultScriptInstaller.swift.
 # =====================================================================
+# 1.3.0 (2026-05-28):
+#  * --backfill skips sessions whose resolved cwd is "/" or otherwise
+#    outside $HOME. Matches phase-1's hook filter (which already
+#    excludes these). These sessions resolve to Misc (unclaimed) with
+#    no durable content, and `claude -p` invoked on them probes the
+#    broadest possible TCC surface — triggers Dropbox / Documents /
+#    Downloads permission prompts on every cycle. The phase-1 filter
+#    already caught them at SessionEnd time; this brings --backfill
+#    in line so the historical pile of cwd=/ transcripts stops
+#    pinging.
 # 1.2.0 (2026-05-28):
 #  * --backfill now extracts cwd from the transcript's own JSON
 #    metadata (a line carrying `"cwd":"..."`) instead of decoding the
@@ -169,6 +179,16 @@ if [ "${1:-}" = "--backfill" ]; then
       cwd="/$(printf '%s' "$proj_dir" | tr '-' '/')"
     fi
     [ -d "$cwd" ] || { skipped=$((skipped+1)); continue; }
+    # Same eligibility surface as phase-1 (the SessionEnd hook): cwd
+    # must be a real subdir of $HOME, not vault, not .claude, not "/",
+    # not /tmp etc. Stops `claude -p` from running with the broadest
+    # possible TCC scope (Dropbox / Documents / Downloads prompts).
+    case "$cwd" in
+      "$VAULT"|"$VAULT"/*) skipped=$((skipped+1)); continue ;;
+      "$HOME"|"$HOME/.claude"|"$HOME/.claude"/*) skipped=$((skipped+1)); continue ;;
+      "$HOME"/*) ;;
+      *) skipped=$((skipped+1)); continue ;;
+    esac
     sid="$(basename "$f" .jsonl)"
     echo "backfill [$((processed+1))/$limit] sid=$sid cwd=$cwd"
     if bash "$0" --run "$sid" "$f" "$cwd"; then

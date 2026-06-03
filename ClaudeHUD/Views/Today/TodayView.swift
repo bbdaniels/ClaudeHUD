@@ -208,29 +208,33 @@ struct TodayView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: dayOffset) {
-            // Pre-warm + state-change subscribers in BriefingService
-            // (wired by AppState.setup) cover today. This block runs
-            // when the user navigates to another day; for today it's
-            // idempotent (the refactored generateDaySummary is cache-
-            // key aware and no-ops on matched state). No clearDaySummary
-            // — it'd just flicker today's pre-warmed summary off and
-            // back on.
             let date = selectedDate
             calendarService.loadEvents(for: date)
             remindersService.loadReminders(for: date)
             vaultManager.ensureDailyNote(for: date)
-            let obsidianTodos = vaultManager.scanTodos(for: date, includeRecent: Calendar.current.isDateInToday(date))
-            let allTodos = remindersService.todos + obsidianTodos
-            briefingService.generateDaySummary(
-                events: calendarService.todayEvents,
-                date: date,
-                todos: allTodos
-            )
-            briefingService.preloadAll(
-                events: calendarService.todayEvents,
-                vaultPath: vaultManager.currentVault?.path,
-                projects: projectService.projects
-            )
+
+            // Today is owned by `BriefingService.startAutoRefresh`
+            // (wired in `AppState.setup`): pre-warms at launch, refreshes
+            // on calendar/todos state change. Calling generateDaySummary
+            // here for today races the subscriber's cache key (their
+            // todo counts can drift if reminders fire mid-tab-open),
+            // causing spurious cache misses → spinner flashes → LLM
+            // calls. So: skip on today. For yesterday/tomorrow (day
+            // navigation), lazy-generate via the same code path.
+            if !Calendar.current.isDateInToday(date) {
+                let obsidianTodos = vaultManager.scanTodos(for: date, includeRecent: false)
+                let allTodos = remindersService.todos + obsidianTodos
+                briefingService.generateDaySummary(
+                    events: calendarService.todayEvents,
+                    date: date,
+                    todos: allTodos
+                )
+                briefingService.preloadAll(
+                    events: calendarService.todayEvents,
+                    vaultPath: vaultManager.currentVault?.path,
+                    projects: projectService.projects
+                )
+            }
         }
     }
 }
@@ -799,16 +803,42 @@ private struct DailyNoteSection: View {
         return "\(lines) lines"
     }
 
-    /// Last 25 lines of the daily note, joined back with newlines. The
-    /// daily note can get long (50–150 lines on heavy days); inline
-    /// preview only shows recent activity, full edit is the floating
-    /// window.
+    /// Last 25 lines of the daily note, with source-markdown soft
+    /// newlines reflowed (single `\n` inside a paragraph becomes a
+    /// space; blank lines stay as paragraph breaks). Without this,
+    /// the daily note's 80-char source wrapping leaks into the panel
+    /// as hard line breaks mid-sentence. Full markdown (headings,
+    /// bullets) is left to the floating window — this preview is for
+    /// scanning recent activity, not rendering structure.
     private var previewText: String? {
         guard let content else { return nil }
-        let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
-        let tail = lines.suffix(25)
-        let s = tail.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        return s.isEmpty ? nil : s
+        let lines = content.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let tail = Array(lines.suffix(25))
+        let reflowed = Self.reflowParagraphs(tail)
+        return reflowed.isEmpty ? nil : reflowed
+    }
+
+    /// Join consecutive non-empty lines with a single space; preserve
+    /// blank lines as paragraph breaks (`\n\n`). Mirrors
+    /// `VaultProjectService.reflowProse` — same markdown convention
+    /// (soft break = space) applied to a different surface.
+    private static func reflowParagraphs(_ lines: [String]) -> String {
+        var paragraphs: [[String]] = [[]]
+        for line in lines {
+            if line.trimmingCharacters(in: .whitespaces).isEmpty {
+                if !paragraphs[paragraphs.count - 1].isEmpty {
+                    paragraphs.append([])
+                }
+            } else {
+                paragraphs[paragraphs.count - 1]
+                    .append(line.trimmingCharacters(in: .whitespaces))
+            }
+        }
+        return paragraphs
+            .filter { !$0.isEmpty }
+            .map { $0.joined(separator: " ") }
+            .joined(separator: "\n\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var body: some View {

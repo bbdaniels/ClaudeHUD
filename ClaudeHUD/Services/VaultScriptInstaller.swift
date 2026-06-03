@@ -45,7 +45,7 @@ final class VaultScriptInstaller: ObservableObject {
 
     @Published private(set) var lastAudit: [ManagedScript: Status] = [:]
 
-    static let bundledVersion = "1.2.0"
+    static let bundledVersion = "1.3.0"
 
     static let managed: [ManagedScript] = {
         let home = FileManager.default.homeDirectoryForCurrentUser

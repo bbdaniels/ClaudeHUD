@@ -1326,7 +1326,7 @@ struct ProjectRow: View {
         // {{STEP2}} is the folder-resolution step, which differs depending on
         // whether the canonical project↔vault registry resolved this repo.
         let template = [
-            "Fresh session on the Obsidian vault project: {{PROJECT}}. Load context from the wiki at ~/Documents/Obsidian (the source of truth) — not from a chat recap or a prior-session summary. Use the mcp__obsidian__ tools (fall back to Read).",
+            "Fresh session on the Obsidian vault project: {{PROJECT}}. Load context from the wiki at ~/Documents/Obsidian (the source of truth) — not from a chat recap or a prior-session summary. Tool priority: (1) mcp__obsidian__ tools for structured metadata; (2) Obsidian CLI (/Applications/Obsidian.app/Contents/MacOS/obsidian <cmd>; see `obsidian help`) — fast for `search`, `tasks`, `append`, `create`, `read`, `backlinks`; (3) direct file Read/Write/Edit at the vault path.",
             "1. Read schema.md (the vault contract).",
             "{{STEP2}}",
             "3. Read that project's Dashboard.md, Tasks.md (its \"## Active\" section), and Technical Notes.md.",
@@ -1355,7 +1355,13 @@ struct ProjectRow: View {
         // (`git reset --hard`, `updated:`) and `$` so they cannot be executed as
         // command substitution — which double-quoting would NOT prevent.
         let escapedPrompt = prompt.replacingOccurrences(of: "'", with: "'\\''")
-        let command = daemonizedClaudeCommand("\(launchFlags) '\(escapedPrompt)'")
+        // Enable Remote Control on magic-launched sessions so each one is
+        // reachable from outside its terminal tab. Name = project name so
+        // sessions are humanly identifiable in the remote-control list.
+        let command = daemonizedClaudeCommand(
+            "\(launchFlags) '\(escapedPrompt)'",
+            remoteControlName: projectName
+        )
         let ghosttyPath = "/Applications/Ghostty.app"
         let app = FileManager.default.fileExists(atPath: ghosttyPath) ? ghosttyPath : nil
         let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
@@ -1383,9 +1389,22 @@ struct ProjectRow: View {
 ///
 /// `argSuffix` is everything after `claude` (e.g. ` --effort high`,
 /// ` --resume <id> --dangerously-skip-permissions`, or flags + a prompt).
-fileprivate func daemonizedClaudeCommand(_ argSuffix: String) -> String {
-    let bg = "claude --bg" + argSuffix
-    let plain = "claude" + argSuffix
+///
+/// `remoteControlName` — when non-nil, prepends `--remote-control "<name>"`
+/// so the session is reachable via Claude Code Remote Control. Names are
+/// shell-escaped here. Magic-launched sessions pass the project name so
+/// each session is named after the project it serves.
+fileprivate func daemonizedClaudeCommand(_ argSuffix: String, remoteControlName: String? = nil) -> String {
+    let rcFlag: String
+    if let name = remoteControlName, !name.isEmpty {
+        // Single-quote escape: every ' becomes '\'' and wrap in '...'.
+        let escaped = name.replacingOccurrences(of: "'", with: "'\\''")
+        rcFlag = " --remote-control '\(escaped)'"
+    } else {
+        rcFlag = ""
+    }
+    let bg = "claude --bg" + rcFlag + argSuffix
+    let plain = "claude" + rcFlag + argSuffix
     return "__o=$(\(bg) 2>&1); "
         + "__i=$(printf '%s' \"$__o\" | perl -pe 's/\\e\\[[0-9;]*m//g' "
         + "| grep -oE 'backgrounded[^0-9a-f]*[0-9a-f]{8}' "
