@@ -1,11 +1,22 @@
 #!/bin/bash
 # === Managed by ClaudeHUD ============================================
-# script-version: 1.3.0
+# script-version: 1.5.0
 # source: ClaudeHUD/Resources/Scripts/vault-ingest.sh
 # To edit, fork in the ClaudeHUD repo and rebuild. The installer
 # detects local edits to the installed copy and refuses to clobber
 # them — see Services/VaultScriptInstaller.swift.
 # =====================================================================
+# 1.5.0 (2026-06-04):
+#  * Digest `claude -p` now runs with cwd=$tmpd (the throwaway copy dir),
+#    so its OWN session transcript records a cwd that the ingest filter
+#    rejects (not under a real project; gone after exit). Stops the
+#    feedback loop where every ingest spawned a fresh ingestible session
+#    — latent under the cron, acute under a bulk backfill drain.
+# 1.4.0 (2026-06-04):
+#  * Digest model is overridable via $VAULT_INGEST_MODEL (default
+#    unchanged: claude-sonnet-4-6). Lets a one-time bulk backlog drain
+#    run on a cheaper/faster model (haiku) without touching normal
+#    cron/hook operation.
 # 1.3.0 (2026-05-28):
 #  * --backfill skips sessions whose resolved cwd is "/" or otherwise
 #    outside $HOME. Matches phase-1's hook filter (which already
@@ -268,8 +279,13 @@ SESSION_ID: $sid
 SESSION_CWD: $cwd
 TODAY_UTC: $(date -u +%Y-%m-%d)"
 
-out="$("$CLAUDE" -p \
-  --model claude-sonnet-4-6 \
+## Run from inside $tmpd so this digest session's OWN transcript records
+## cwd=$tmpd — a throwaway dir, not a real project, gone after we exit.
+## Both the cwd filter and the `[ -d "$cwd" ]` check then reject it, so
+## machine-generated digest sessions never re-enter the ingest queue.
+## (Without this the digest inherits a real-project cwd → infinite loop.)
+out="$(cd "$tmpd" && "$CLAUDE" -p \
+  --model "${VAULT_INGEST_MODEL:-claude-sonnet-4-6}" \
   --permission-mode default \
   --allowedTools "Read,Grep,Glob" \
   --add-dir "$tmpd" \

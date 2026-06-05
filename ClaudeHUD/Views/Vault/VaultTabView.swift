@@ -65,10 +65,9 @@ struct VaultTabView: View {
                     }
 
                     // Phase 5 cockpit — ingest queue, sync status,
-                    // settings. Collapsed by default, low-signal once
-                    // stable.
+                    // settings. Hidden while healthy; surfaces itself
+                    // only on a sync failure or large ingest backlog.
                     VaultCockpitView()
-                        .padding(.top, 12)
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
@@ -686,35 +685,52 @@ private struct VaultCockpitView: View {
         }
     }
 
+    /// The cockpit stays hidden while healthy and appears only when
+    /// there's something to ACT on: a failed sync, failed ingest items,
+    /// or a paused queue. A deep-but-draining pending queue is normal
+    /// (backfill works it off on a timer) and deliberately does NOT
+    /// surface the panel — otherwise the structural backlog would keep
+    /// it on permanently. Script "needs attention" is also not a trigger.
+    private var hasProblem: Bool {
+        let q = ingestService.queue
+        if case .failed = ingestService.sync.lastResult { return true }
+        if q.failed.count > 0 { return true }
+        if q.paused { return true }
+        return false
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            cockpitHeader
+        // Hidden while healthy; only renders when `hasProblem` is true.
+        if hasProblem {
+            VStack(alignment: .leading, spacing: 8) {
+                cockpitHeader
 
-            CockpitSection(
-                title: "Ingest",
-                summary: ingestSummary,
-                isExpanded: expanded.contains("ingest"),
-                onToggle: { toggle("ingest") },
-                content: { ingestQueueBody }
-            )
+                CockpitSection(
+                    title: "Ingest",
+                    summary: ingestSummary,
+                    isExpanded: expanded.contains("ingest"),
+                    onToggle: { toggle("ingest") },
+                    content: { ingestQueueBody }
+                )
 
-            CockpitSection(
-                title: "Sync",
-                summary: syncSummary,
-                isExpanded: expanded.contains("sync"),
-                onToggle: { toggle("sync") },
-                content: { syncStatusBody }
-            )
+                CockpitSection(
+                    title: "Sync",
+                    summary: syncSummary,
+                    isExpanded: expanded.contains("sync"),
+                    onToggle: { toggle("sync") },
+                    content: { syncStatusBody }
+                )
 
-            CockpitSection(
-                title: "Settings",
-                summary: settingsSummary,
-                isExpanded: expanded.contains("settings"),
-                onToggle: { toggle("settings") },
-                content: { settingsBody }
-            )
+                CockpitSection(
+                    title: "Settings",
+                    summary: settingsSummary,
+                    isExpanded: expanded.contains("settings"),
+                    onToggle: { toggle("settings") },
+                    content: { settingsBody }
+                )
+            }
+            .padding(.top, 12)
         }
-        .padding(.top, 4)
     }
 
     // MARK: Header

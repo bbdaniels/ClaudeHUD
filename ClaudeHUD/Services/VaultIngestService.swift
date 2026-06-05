@@ -389,11 +389,13 @@ final class VaultIngestService: ObservableObject {
         refresh()
     }
 
-    /// Fire `~/.claude/scripts/obsidian-sync.sh` in the background.
+    /// Fire `~/.local/bin/obsidian-sync.sh` in the background — this is
+    /// where `VaultScriptInstaller` installs it and what the launchd job
+    /// runs, so the "Sync now" button hits the same script as the cron.
     /// Best-effort — failures land in `~/Library/Logs/obsidian-sync.log`
     /// and surface via `parseSyncLog()` on the next refresh.
     func triggerSync() {
-        let script = home.appending(path: ".claude/scripts/obsidian-sync.sh").path
+        let script = home.appending(path: ".local/bin/obsidian-sync.sh").path
         guard FileManager.default.isExecutableFile(atPath: script) else {
             logger.warning("obsidian-sync.sh not installed at \(script)")
             return
