@@ -285,7 +285,7 @@ class VaultManager: ObservableObject {
         var lines = content.components(separatedBy: "\n")
         guard lineNumber < lines.count else { return }
 
-        lines[lineNumber] = lines[lineNumber].replacingOccurrences(of: "[ ] ", with: "[x] ")
+        lines[lineNumber] = Self.markBulletChecked(lines[lineNumber])
         let newContent = lines.joined(separator: "\n")
         try? newContent.write(to: url, atomically: true, encoding: .utf8)
 
@@ -405,6 +405,22 @@ class VaultManager: ObservableObject {
         return (title, rest.isEmpty ? title : text)
     }
 
+    /// Mark a list line done. Flips an existing `[ ]` → `[x]`; for a
+    /// non-checkbox bullet (`- **Title**`, now surfaced on the Today tab)
+    /// it inserts a checked box right after the list marker, so completing
+    /// such a task from the Today tab actually persists (otherwise the
+    /// re-scan would resurface it). Idempotent on already-checked lines.
+    static func markBulletChecked(_ line: String) -> String {
+        if line.contains("[x] ") || line.contains("[X] ") { return line }
+        if line.contains("[ ] ") {
+            return line.replacingOccurrences(of: "[ ] ", with: "[x] ")
+        }
+        if let r = line.range(of: #"^(\s*[-*•] )"#, options: .regularExpression) {
+            return String(line[..<r.upperBound]) + "[x] " + String(line[r.upperBound...])
+        }
+        return line
+    }
+
     /// Move any [x] items from ## Active to ## Completed in a Tasks.md file
     func sweepCompletedFromActive(in filePath: String) {
         guard filePath.hasSuffix("/Tasks.md") else { return }
@@ -458,56 +474,82 @@ class VaultManager: ObservableObject {
         try? newContent.write(toFile: filePath, atomically: true, encoding: .utf8)
     }
 
-    /// Extract tasks from the ## Active section of a Tasks.md file.
-    /// Project identity is carried in `projectName` (canonical = folder name);
-    /// `### Heading` subsections within Active populate `sectionHeading` and do not
-    /// overwrite project identity.
+    /// Extract the actionable tasks from a project's task file as `TodoItem`s
+    /// for the Today tab's "What's Next" rollup.
+    ///
+    /// `Tasks.md` is routed through the SHARED heading-aware parser
+    /// (`VaultProjectService.parseActiveTasks`) — the same one the Projects/
+    /// Vault tab uses — so the two tabs agree: `### ` headings become
+    /// sections, the (unchecked) bullets under them become tasks, nested
+    /// detail folds into its parent (counted once), `- **Title**`
+    /// non-checkbox tasks are included, and done items are skipped. Each
+    /// emitted item keeps the source line so it can be toggled in place.
+    ///
+    /// Legacy flat task files (`Action Items.md`, `Revisions for *.md`, …)
+    /// have no `## Active` section, so they keep the old line-by-line scan.
     func extractActiveTasks(from filePath: String, noteName: String, projectName: String?) -> [TodoItem] {
         guard let content = try? String(contentsOfFile: filePath, encoding: .utf8) else { return [] }
+        let canonicalProject = projectName ?? noteName
+
+        guard filePath.hasSuffix("/Tasks.md") else {
+            return extractLegacyTasks(content: content, filePath: filePath, project: canonicalProject)
+        }
+
+        var items: [TodoItem] = []
+        func emit(rawTitle: String, display: String, line: Int?, section: String?) {
+            items.append(TodoItem(
+                title: rawTitle,
+                source: .obsidian(grouping: canonicalProject),
+                dueDate: nil, isOverdue: false, priority: 0,
+                reminderIdentifier: nil,
+                obsidianFilePath: filePath,
+                obsidianLineNumber: line,
+                projectName: canonicalProject,
+                sectionHeading: section,
+                boldTitle: display
+            ))
+        }
+
+        for task in VaultProjectService.parseActiveTasks(from: content) {
+            if task.isHeading {
+                // Heading group → its (not-done) children are the tasks.
+                for child in task.subBullets where !child.isDone {
+                    emit(rawTitle: child.text,
+                         display: VaultProjectService.splitBullet(child.text).title,
+                         line: child.line >= 0 ? child.line : nil,
+                         section: task.title)
+                }
+            } else if !task.isDone {
+                // Flat top-level task (no heading); nested detail already
+                // folded in by the parser, so it counts as a single item.
+                emit(rawTitle: task.title, display: task.title,
+                     line: task.line, section: nil)
+            }
+        }
+        return items
+    }
+
+    /// Old scan for legacy (non-`Tasks.md`) flat task files: every unchecked
+    /// list line is a task, `### Heading` lines are section labels.
+    private func extractLegacyTasks(content: String, filePath: String, project: String) -> [TodoItem] {
         let lines = content.components(separatedBy: "\n")
         var items: [TodoItem] = []
         var currentSection: String? = nil
-        var inActiveSection = false
-        let isTasksMd = filePath.hasSuffix("/Tasks.md")
-        let canonicalProject = projectName ?? noteName
-
         for (idx, line) in lines.enumerated() {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-
-            // For Tasks.md files, only parse the ## Active section
-            if isTasksMd {
-                if trimmed.hasPrefix("## Active") {
-                    inActiveSection = true
-                    continue
-                }
-                if inActiveSection && trimmed.hasPrefix("## ") {
-                    break // Hit ## Completed or ## Context — stop
-                }
-                guard inActiveSection else { continue }
-            }
-
-            // Track ### headings as in-file section names (not project identity)
-            if trimmed.hasPrefix("### ") {
-                currentSection = String(trimmed.dropFirst(4))
-                continue
-            }
-
+            if trimmed.hasPrefix("### ") { currentSection = String(trimmed.dropFirst(4)); continue }
             guard ObsidianMarkdownView.isListLine(line) else { continue }
             let parsed = ObsidianMarkdownView.parseListItem(line, lineNumber: idx)
             guard parsed.checkState == false else { continue }
-
             let (boldTitle, _) = parseBoldTitle(parsed.text)
-
             items.append(TodoItem(
                 title: parsed.text,
-                source: .obsidian(grouping: canonicalProject),
-                dueDate: nil,
-                isOverdue: false,
-                priority: 0,
+                source: .obsidian(grouping: project),
+                dueDate: nil, isOverdue: false, priority: 0,
                 reminderIdentifier: nil,
                 obsidianFilePath: filePath,
                 obsidianLineNumber: idx,
-                projectName: canonicalProject,
+                projectName: project,
                 sectionHeading: currentSection,
                 boldTitle: boldTitle
             ))

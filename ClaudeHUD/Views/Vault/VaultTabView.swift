@@ -16,12 +16,12 @@ import AppKit
 struct VaultTabView: View {
     @EnvironmentObject var projectService: VaultProjectService
     @EnvironmentObject var ingestService: VaultIngestService
-    @EnvironmentObject var scriptInstaller: VaultScriptInstaller
     @EnvironmentObject var vaultManager: VaultManager
     @Environment(\.fontScale) private var scale
 
     @State private var expandedProjects: Set<URL> = []
-    @State private var showInactive: Bool = false
+    @State private var collapsedSections: Set<String> = []
+    @State private var searchText = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -39,38 +39,37 @@ struct VaultTabView: View {
                 // confirmed via `sample`). A non-lazy VStack gives the ScrollView
                 // a deterministic content height. The list is only tens of rows
                 // and collapsed rows are cheap headers, so eager layout is fine.
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(activeProjects) { project in
-                        ProjectRowView(
-                            project: project,
-                            isExpanded: expandedProjects.contains(project.id),
-                            ingestService: ingestService,
-                            vaultPath: vaultPath,
-                            onToggle: { toggle(project.id) }
-                        )
-                    }
-                    if !inactiveProjects.isEmpty {
-                        inactiveDivider
-                        if showInactive {
-                            ForEach(inactiveProjects) { project in
-                                ProjectRowView(
-                                    project: project,
-                                    isExpanded: expandedProjects.contains(project.id),
-                                    ingestService: ingestService,
-                                    vaultPath: vaultPath,
-                                    onToggle: { toggle(project.id) }
-                                )
+                VStack(alignment: .leading, spacing: 0) {
+                    let sections = recencySections
+                    if sections.isEmpty {
+                        Text(searchText.isEmpty ? "No projects." : "No matches")
+                            .font(.smallFont(scale))
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 40)
+                    } else {
+                        ForEach(sections, id: \.title) { section in
+                            sectionHeader(
+                                title: section.title,
+                                count: section.projects.count,
+                                collapsed: collapsedSections.contains(section.title),
+                                onToggle: { toggleSection(section.title) }
+                            )
+                            if !collapsedSections.contains(section.title) {
+                                ForEach(section.projects) { project in
+                                    ProjectRowView(
+                                        project: project,
+                                        isExpanded: expandedProjects.contains(project.id),
+                                        ingestService: ingestService,
+                                        vaultPath: vaultPath,
+                                        onToggle: { toggle(project.id) }
+                                    )
+                                }
                             }
                         }
                     }
-
-                    // Phase 5 cockpit — ingest queue, sync status,
-                    // settings. Hidden while healthy; surfaces itself
-                    // only on a sync failure or large ingest backlog.
-                    VaultCockpitView()
                 }
                 .padding(.horizontal, 10)
-                .padding(.vertical, 6)
             }
         }
         .onAppear {
@@ -87,24 +86,62 @@ struct VaultTabView: View {
             ?? vaultManager.currentVault.map { URL(fileURLWithPath: $0.path) }
     }
 
-    private var activeProjects: [VaultProjectService.Project] {
-        projectService.projects.filter { !$0.isInactive }
+    /// Projects matching the search box (name or status text). An empty
+    /// query returns everything.
+    private var filteredProjects: [VaultProjectService.Project] {
+        let q = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return projectService.projects }
+        return projectService.projects.filter {
+            $0.name.lowercased().contains(q) || $0.status.lowercased().contains(q)
+        }
     }
-    private var inactiveProjects: [VaultProjectService.Project] {
-        projectService.projects.filter { $0.isInactive }
+
+    /// Projects partitioned by recency of their `updated:` date — "when to
+    /// pick up" — mirroring Session History's time sections. `updated:` is
+    /// bumped whenever a session edits the project's Tasks.md (per the
+    /// task-management workflow) and kept in sync by the cleaner, so these
+    /// buckets re-sort themselves with no manual tagging.
+    private var recencySections: [(title: String, projects: [VaultProjectService.Project])] {
+        let cal = Calendar.current
+        let startOfToday = cal.startOfDay(for: Date())
+        let startOfWeek = cal.date(byAdding: .day, value: -7, to: startOfToday)!
+        let startOfMonth = cal.date(byAdding: .day, value: -30, to: startOfToday)!
+
+        func rank(_ p: VaultProjectService.Project) -> Int {
+            let d = p.updated ?? .distantPast
+            if d >= startOfToday { return 0 }
+            if d >= startOfWeek { return 1 }
+            if d >= startOfMonth { return 2 }
+            return 3
+        }
+        let titles = ["Today", "This Week", "This Month", "Older"]
+        let fp = filteredProjects
+        var out: [(title: String, projects: [VaultProjectService.Project])] = []
+        for (idx, title) in titles.enumerated() {
+            let group = fp.filter { rank($0) == idx }
+                          .sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }
+            if !group.isEmpty { out.append((title: title, projects: group)) }
+        }
+        return out
     }
 
     private var header: some View {
         HStack(spacing: 6) {
-            Text("\(activeProjects.count) active")
-                .font(.smallFont(scale))
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11 * scale))
                 .foregroundColor(.secondary)
-            if projectService.lastRefresh > .distantPast {
-                Text("· refreshed \(relativeShort(projectService.lastRefresh))")
-                    .font(.custom("Fira Code", size: 10 * scale))
-                    .foregroundColor(.secondary.opacity(0.5))
+            TextField("Search projects...", text: $searchText)
+                .font(.smallFont(scale))
+                .textFieldStyle(.plain)
+            if !searchText.isEmpty {
+                Button(action: { searchText = "" }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11 * scale))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .hudTip("Clear search")
             }
-            Spacer()
             Button(action: { projectService.refresh() }) {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 11 * scale, weight: .semibold))
@@ -118,16 +155,25 @@ struct VaultTabView: View {
         .background(Color(.textBackgroundColor).opacity(0.3))
     }
 
-    private var inactiveDivider: some View {
-        Button(action: { withAnimation(.easeInOut(duration: 0.15)) { showInactive.toggle() } }) {
+    /// Collapsible recency-section header — mirrors Session History's
+    /// `TimeSectionView` header (chevron · uppercase title · count badge).
+    private func sectionHeader(title: String, count: Int, collapsed: Bool,
+                               onToggle: @escaping () -> Void) -> some View {
+        Button(action: onToggle) {
             HStack(spacing: 4) {
-                Image(systemName: showInactive ? "chevron.down" : "chevron.right")
+                Image(systemName: collapsed ? "chevron.right" : "chevron.down")
                     .font(.system(size: 9 * scale, weight: .semibold))
                     .foregroundColor(.secondary.opacity(0.5))
-                Text("\(inactiveProjects.count) done/archived")
+                Text(title)
                     .font(.captionFont(scale).weight(.semibold))
                     .foregroundColor(.secondary.opacity(0.7))
                     .textCase(.uppercase)
+                Text("\(count)")
+                    .font(.custom("Fira Code", size: 10 * scale))
+                    .foregroundColor(.secondary.opacity(0.6))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
                 Spacer()
             }
             .padding(.horizontal, 4)
@@ -136,7 +182,14 @@ struct VaultTabView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .hudTip(showInactive ? "Hide done/archived" : "Show done/archived")
+        .hudTip(collapsed ? "Expand section" : "Collapse section")
+    }
+
+    private func toggleSection(_ title: String) {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            if collapsedSections.contains(title) { collapsedSections.remove(title) }
+            else { collapsedSections.insert(title) }
+        }
     }
 
     private func toggle(_ id: URL) {
@@ -147,14 +200,6 @@ struct VaultTabView: View {
                 expandedProjects.insert(id)
             }
         }
-    }
-
-    private func relativeShort(_ date: Date) -> String {
-        let secs = Date().timeIntervalSince(date)
-        if secs < 60 { return "just now" }
-        if secs < 3600 { return "\(Int(secs / 60))m ago" }
-        if secs < 86400 { return "\(Int(secs / 3600))h ago" }
-        return "\(Int(secs / 86400))d ago"
     }
 }
 
@@ -193,7 +238,6 @@ private struct ProjectRowView: View {
                 .padding(.bottom, 8)
             }
         }
-        .padding(.vertical, 2)
     }
 
     private var rowHeader: some View {
@@ -207,16 +251,6 @@ private struct ProjectRowView: View {
                     .font(.smallMedium(scale))
                     .foregroundColor(.primary)
                     .lineLimit(1)
-                StatusPill(status: project.status)
-                if project.isStale {
-                    Text("stale")
-                        .font(.custom("Fira Sans", size: 10 * scale).weight(.medium))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Color.orange.opacity(0.15))
-                        .foregroundColor(.orange)
-                        .clipShape(Capsule())
-                }
                 if ingestedCount > 0 {
                     Text("\(ingestedCount)")
                         .font(.custom("Fira Code", size: 10 * scale))
@@ -232,6 +266,9 @@ private struct ProjectRowView: View {
                         .foregroundColor(.secondary.opacity(0.5))
                 }
             }
+            // Match Session History's project-row rhythm: 8pt vertical
+            // padding on the compact line, flush rows (VStack spacing 0).
+            .padding(.vertical, 8)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -432,16 +469,31 @@ private struct TaskCardView: View {
                     }
                     .frame(width: 10, alignment: .center)
 
-                    Image(systemName: task.isDone ? "checkmark.square" : "square")
-                        .font(.system(size: 12 * scale))
-                        .foregroundColor(task.isDone ? .secondary : .secondary.opacity(0.5))
+                    if task.isHeading {
+                        // Section header: no checkbox, never struck; a
+                        // subtle done/total tallies its checkbox children.
+                        Text(prettifyMarkdown(task.title))
+                            .font(.captionFont(scale).weight(.bold))
+                            .foregroundColor(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .multilineTextAlignment(.leading)
+                        if childTotal > 0 {
+                            Text("\(childDone)/\(childTotal)")
+                                .font(.custom("Fira Code", size: 9 * scale))
+                                .foregroundColor(.secondary.opacity(0.55))
+                        }
+                    } else {
+                        Image(systemName: task.isDone ? "checkmark.square" : "square")
+                            .font(.system(size: 12 * scale))
+                            .foregroundColor(task.isDone ? .secondary : .secondary.opacity(0.5))
 
-                    Text(prettifyMarkdown(task.title))
-                        .font(.captionFont(scale).weight(.semibold))
-                        .foregroundColor(task.isDone ? .secondary : .primary)
-                        .strikethrough(task.isDone)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .multilineTextAlignment(.leading)
+                        Text(prettifyMarkdown(task.title))
+                            .font(.captionFont(scale).weight(.semibold))
+                            .foregroundColor(task.isDone ? .secondary : .primary)
+                            .strikethrough(task.isDone)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .multilineTextAlignment(.leading)
+                    }
                     Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
@@ -458,9 +510,9 @@ private struct TaskCardView: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.bottom, task.subBullets.isEmpty ? 0 : 2)
                     }
-                    ForEach(Array(task.subBullets.enumerated()), id: \.offset) { idx, raw in
+                    ForEach(Array(task.subBullets.enumerated()), id: \.offset) { idx, bullet in
                         SubBulletRow(
-                            raw: raw,
+                            bullet: bullet,
                             isExpanded: expandedSubBullets.contains(idx),
                             onToggle: {
                                 withAnimation(.easeInOut(duration: 0.12)) {
@@ -474,11 +526,14 @@ private struct TaskCardView: View {
                         )
                     }
                 }
-                .padding(.leading, 28)
+                .padding(.leading, task.isHeading ? 16 : 28)
                 .padding(.top, 2)
             }
         }
     }
+
+    private var childTotal: Int { task.subBullets.count }
+    private var childDone: Int { task.subBullets.filter { $0.isDone }.count }
 }
 
 /// A sub-bullet rendered as its own one-line row. The sub-bullet text in
@@ -486,7 +541,7 @@ private struct TaskCardView: View {
 /// own one-liner); we extract the bold portion as the title and hide the
 /// body behind a click, same idiom as the parent task.
 private struct SubBulletRow: View {
-    let raw: String
+    let bullet: VaultProjectService.SubBullet
     let isExpanded: Bool
     let onToggle: () -> Void
     @Environment(\.fontScale) private var scale
@@ -494,24 +549,16 @@ private struct SubBulletRow: View {
     private struct Parsed {
         let title: String
         let body: String
-        let isDone: Bool
     }
 
     private var parsed: Parsed {
-        let isDone = raw.contains("✅") || raw.contains(" DONE")
-        let ns = raw as NSString
-        let pattern = try? NSRegularExpression(pattern: #"^\*\*(.+?)\*\*:?\s*(.*)$"#)
-        if let m = pattern?.firstMatch(in: raw, range: NSRange(location: 0, length: ns.length)),
-           m.numberOfRanges >= 3 {
-            let title = ns.substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespaces)
-            let body = ns.substring(with: m.range(at: 2)).trimmingCharacters(in: .whitespaces)
-            return Parsed(title: title, body: body, isDone: isDone)
-        }
-        return Parsed(title: raw, body: "", isDone: isDone)
+        let split = VaultProjectService.splitBullet(bullet.text)
+        return Parsed(title: split.title, body: split.body)
     }
 
     var body: some View {
         let p = parsed
+        let isDone = bullet.isDone
         let canExpand = !p.body.isEmpty
         VStack(alignment: .leading, spacing: 2) {
             Button(action: {
@@ -530,14 +577,14 @@ private struct SubBulletRow: View {
                     }
                     .frame(width: 8, alignment: .center)
 
-                    Image(systemName: p.isDone ? "checkmark.square" : "square")
+                    Image(systemName: isDone ? "checkmark.square" : "square")
                         .font(.system(size: 10 * scale))
-                        .foregroundColor(p.isDone ? .secondary.opacity(0.7) : .secondary.opacity(0.4))
+                        .foregroundColor(isDone ? .secondary.opacity(0.7) : .secondary.opacity(0.4))
 
                     Text(prettifyMarkdown(p.title))
                         .font(.captionFont(scale))
-                        .foregroundColor(p.isDone ? .secondary.opacity(0.7) : .secondary)
-                        .strikethrough(p.isDone)
+                        .foregroundColor(isDone ? .secondary.opacity(0.7) : .secondary)
+                        .strikethrough(isDone)
                         .fixedSize(horizontal: false, vertical: true)
                         .multilineTextAlignment(.leading)
                     Spacer(minLength: 0)
@@ -662,12 +709,15 @@ private struct NoteFileRow: View {
     }
 }
 
-// MARK: - Vault cockpit (Phase 5)
+// MARK: - Vault cockpit (Phase 5) — NO LONGER RENDERED
 
-/// Bottom-of-Projects subsection: ingest queue, sync status, settings.
-/// All three sections collapsed by default — low-signal once stable;
-/// surfaces conflicts and provides manual triggers when something
-/// breaks. Cleaner trigger (5b) deferred (needs GitHub PAT wiring).
+/// Ingest queue, sync status, settings. **Removed from the Projects tab
+/// 2026-06-07** (the tab is now a clean project list matching Session
+/// History). Kept inert — same "instantiated-but-unused, re-enable later"
+/// pattern as `ProjectBriefingService` — in case it returns as a dedicated
+/// Settings surface. The ingest/sync recovery actions it exposed remain
+/// available via the scripts (`obsidian-sync.sh`, `vault-ingest.sh`).
+/// Cleaner trigger (5b) was always deferred (needs GitHub PAT wiring).
 private struct VaultCockpitView: View {
     @EnvironmentObject var ingestService: VaultIngestService
     @EnvironmentObject var scriptInstaller: VaultScriptInstaller

@@ -803,42 +803,60 @@ private struct DailyNoteSection: View {
         return "\(lines) lines"
     }
 
-    /// Last 25 lines of the daily note, with source-markdown soft
-    /// newlines reflowed (single `\n` inside a paragraph becomes a
-    /// space; blank lines stay as paragraph breaks). Without this,
-    /// the daily note's 80-char source wrapping leaks into the panel
-    /// as hard line breaks mid-sentence. Full markdown (headings,
-    /// bullets) is left to the floating window — this preview is for
-    /// scanning recent activity, not rendering structure.
-    private var previewText: String? {
-        guard let content else { return nil }
-        let lines = content.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        let tail = Array(lines.suffix(25))
-        let reflowed = Self.reflowParagraphs(tail)
-        return reflowed.isEmpty ? nil : reflowed
-    }
-
-    /// Join consecutive non-empty lines with a single space; preserve
-    /// blank lines as paragraph breaks (`\n\n`). Mirrors
-    /// `VaultProjectService.reflowProse` — same markdown convention
-    /// (soft break = space) applied to a different surface.
-    private static func reflowParagraphs(_ lines: [String]) -> String {
-        var paragraphs: [[String]] = [[]]
-        for line in lines {
-            if line.trimmingCharacters(in: .whitespaces).isEmpty {
-                if !paragraphs[paragraphs.count - 1].isEmpty {
-                    paragraphs.append([])
-                }
-            } else {
-                paragraphs[paragraphs.count - 1]
-                    .append(line.trimmingCharacters(in: .whitespaces))
-            }
+    /// Structured preview of the daily note (most-recent tail): YAML
+    /// frontmatter dropped, headings and bullets kept on their own lines,
+    /// and only *runs of prose* reflowed (a single source `\n` inside a
+    /// paragraph becomes a space, so the note's 80-char source wrapping
+    /// doesn't leak as mid-sentence breaks). This is a light scan — full
+    /// markdown (tables, images, math, nested lists) is still the floating
+    /// window's job. The redundant H1 date heading is dropped (the section
+    /// header + date nav already show the date).
+    private static let previewLineCap = 40
+    private var previewRows: [DailyNotePreviewRow] {
+        guard let content else { return [] }
+        var lines = content.components(separatedBy: "\n")
+        // Drop a leading `---` … `---` frontmatter block.
+        if lines.first?.trimmingCharacters(in: .whitespaces) == "---",
+           let close = lines.dropFirst().firstIndex(where: {
+               $0.trimmingCharacters(in: .whitespaces) == "---"
+           }) {
+            lines = Array(lines[(close + 1)...])
         }
-        return paragraphs
-            .filter { !$0.isEmpty }
-            .map { $0.joined(separator: " ") }
-            .joined(separator: "\n\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if lines.count > Self.previewLineCap { lines = Array(lines.suffix(Self.previewLineCap)) }
+
+        var rows: [DailyNotePreviewRow] = []
+        var prose: [String] = []
+        func flushProse() {
+            let joined = prose.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+            if !joined.isEmpty { rows.append(.prose(joined)) }
+            prose = []
+        }
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { flushProse(); continue }
+            // Heading (`#`…`######` + space).
+            if trimmed.hasPrefix("#") {
+                let hashes = trimmed.prefix(while: { $0 == "#" }).count
+                let rest = trimmed.drop(while: { $0 == "#" })
+                if rest.first == " " {
+                    flushProse()
+                    if hashes > 1 {   // skip the H1 date heading
+                        rows.append(.heading(text: rest.trimmingCharacters(in: .whitespaces), level: hashes))
+                    }
+                    continue
+                }
+            }
+            // Bullet / checkbox — reuse the shared list parser.
+            if ObsidianMarkdownView.isListLine(line) {
+                flushProse()
+                let item = ObsidianMarkdownView.parseListItem(line, lineNumber: 0)
+                rows.append(.bullet(text: item.text, checked: item.checkState, indent: item.level))
+                continue
+            }
+            prose.append(trimmed)
+        }
+        flushProse()
+        return rows
     }
 
     var body: some View {
@@ -846,21 +864,23 @@ private struct DailyNoteSection: View {
             header
             if !collapsed {
                 if isToday { captureField }
-                if let preview = previewText {
-                    Text(prettifyMarkdownInline(preview))
-                        .font(.captionFont(scale))
-                        .foregroundColor(.primary.opacity(0.85))
-                        .lineSpacing(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
-                        .padding(.horizontal, 14)
-                        .padding(.top, 8)
-                } else {
+                let rows = previewRows
+                if rows.isEmpty {
                     Text("No daily note yet for this date.")
                         .font(.captionFont(scale))
                         .foregroundColor(.secondary.opacity(0.7))
                         .padding(.horizontal, 14)
                         .padding(.top, 6)
+                } else {
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                            DailyNotePreviewRowView(row: row)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 8)
                 }
                 openButton
                     .padding(.top, 6)
@@ -992,4 +1012,58 @@ private func prettifyMarkdownInline(_ s: String) -> LocalizedStringKey {
         options: .regularExpression
     )
     return LocalizedStringKey(out)
+}
+
+// MARK: - Daily Note preview rows
+
+/// One structured line of the daily-note preview. Headings and bullets are
+/// kept distinct from prose so the preview renders as a readable outline
+/// instead of a reflowed wall of text (see `DailyNoteSection.previewRows`).
+private enum DailyNotePreviewRow {
+    case heading(text: String, level: Int)
+    case bullet(text: String, checked: Bool?, indent: Int)
+    case prose(String)
+}
+
+private struct DailyNotePreviewRowView: View {
+    let row: DailyNotePreviewRow
+    @Environment(\.fontScale) private var scale
+
+    var body: some View {
+        switch row {
+        case .heading(let text, let level):
+            Text(prettifyMarkdownInline(text))
+                .font(.custom("Fira Sans", size: (level <= 2 ? 12.5 : 11.5) * scale).weight(.semibold))
+                .foregroundColor(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 3)
+        case .bullet(let text, let checked, let indent):
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Group {
+                    if let checked {
+                        Image(systemName: checked ? "checkmark.square" : "square")
+                            .font(.system(size: 10 * scale))
+                            .foregroundColor(.secondary.opacity(0.6))
+                    } else {
+                        Text("•")
+                            .font(.captionFont(scale))
+                            .foregroundColor(.secondary.opacity(0.6))
+                    }
+                }
+                .frame(width: 12, alignment: .leading)
+                Text(prettifyMarkdownInline(text))
+                    .font(.captionFont(scale))
+                    .foregroundColor(.primary.opacity(checked == true ? 0.5 : 0.85))
+                    .strikethrough(checked == true)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.leading, CGFloat(min(indent, 3)) * 12)
+        case .prose(let text):
+            Text(prettifyMarkdownInline(text))
+                .font(.captionFont(scale))
+                .foregroundColor(.primary.opacity(0.85))
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
 }
