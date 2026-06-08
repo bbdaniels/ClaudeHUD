@@ -383,73 +383,79 @@ private struct StatusPill: View {
     }
 }
 
-// MARK: - Status subsection
+// MARK: - Status / Briefing subsection
 
-/// Renders either a real "Status" block (when `Dashboard.md` has a
-/// `## Current Status` section, populated by Phase 7 cleaner enrichment)
-/// or falls back to an "About" block built from the `Tasks.md` preamble
-/// + `Dashboard.md` first paragraph. The subsection owns its own
-/// `SectionLabel` because the label is conditional on the content; the
-/// other two subsections (Tasks, Notes) keep the parent-owns-label
-/// pattern.
+/// The project's top "where things stand" slot, in priority order:
+///   1. **Briefing** — the cleaner-generated `<!-- gen:briefing -->` block in
+///      `Dashboard.md` (Now / Next / Recently done / Later). The live human
+///      surface; it **replaces "About"** because the static description is
+///      already known — the briefing is the marginal, current info.
+///   2. **Status** — `Dashboard.md` `## Current Status`, if present and no briefing.
+///   3. **About** — the `Tasks.md` preamble (static description), only when
+///      there's no briefing/status yet.
+/// Owns its own `SectionLabel` because the label depends on which tier renders.
 private struct StatusSubsection: View {
     let project: VaultProjectService.Project
     @Environment(\.fontScale) private var scale
+    @State private var briefing: String? = nil
     @State private var currentStatus: String? = nil
     @State private var preamble: String? = nil
-    @State private var dashboardFirstParagraph: String? = nil
-
-    private var hasRealStatus: Bool {
-        !(currentStatus ?? "").isEmpty
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            SectionLabel(hasRealStatus ? "Status" : "About")
-            if hasRealStatus {
-                Text(prettifyMarkdown(currentStatus!))
+            if let briefing {
+                SectionLabel("Briefing")
+                briefingView(briefing)
+            } else if let s = currentStatus, !s.isEmpty {
+                SectionLabel("Status")
+                Text(prettifyMarkdown(s))
                     .font(.smallFont(scale))
                     .foregroundColor(.primary)
                     .fixedSize(horizontal: false, vertical: true)
             } else if let preamble {
+                SectionLabel("About")
                 Text(prettifyMarkdown(preamble))
                     .font(.smallFont(scale))
                     .foregroundColor(.primary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
+                SectionLabel("About")
                 Text("No project description in Tasks.md.")
                     .font(.captionFont(scale))
                     .foregroundColor(.secondary.opacity(0.7))
             }
-            // Dashboard first paragraph is a secondary signal in both
-            // modes — under Status, it's flavor context; under About,
-            // it's the dashboard intro.
-            if let dashboard = dashboardFirstParagraph, !dashboard.isEmpty,
-               dashboard != currentStatus {
-                Text(prettifyMarkdown(dashboard))
-                    .font(.captionFont(scale))
-                    .foregroundColor(.secondary)
-                    .italic()
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 2)
-            }
         }
         .task(id: project.id) {
-            // Dashboard.md ## Current Status — real status when present.
-            // Reader contract (Phase 7 cleaner enrichment populates this).
             if project.hasDashboard,
                let raw = try? String(contentsOf: project.dashboardPath, encoding: .utf8) {
+                briefing = VaultProjectService.extractBriefing(from: raw)
                 currentStatus = VaultProjectService.extractSection(named: "Current Status", from: raw)
-                dashboardFirstParagraph = VaultProjectService.extractFirstParagraph(from: raw)
             } else {
+                briefing = nil
                 currentStatus = nil
-                dashboardFirstParagraph = nil
             }
-            // Tasks.md preamble — "About" fallback when no real status.
             if let raw = try? String(contentsOf: project.tasksPath, encoding: .utf8) {
                 preamble = VaultProjectService.extractPreamble(from: raw)
             } else {
                 preamble = nil
+            }
+        }
+    }
+
+    /// Render the briefing block — each non-empty line as markdown so the
+    /// **Now**/**Next**/… labels bold naturally. Tolerant of whatever shape the
+    /// cleaner emits (plain lines, bullets, or label–dash).
+    @ViewBuilder
+    private func briefingView(_ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(Array(text.components(separatedBy: "\n").enumerated()), id: \.offset) { _, raw in
+                let line = raw.trimmingCharacters(in: .whitespaces)
+                if !line.isEmpty {
+                    Text(prettifyMarkdown(line))
+                        .font(.smallFont(scale))
+                        .foregroundColor(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
@@ -524,14 +530,21 @@ private struct TaskCardView: View {
                     .frame(width: 10, alignment: .center)
 
                     if task.isHeading {
-                        // Section header: no checkbox, never struck; a
+                        // Section header: no checkbox. A done heading (`### ✅ …`
+                        // or fully struck) is a finished milestone — render it
+                        // struck + muted with no count, not "0/N to do". Else a
                         // subtle done/total tallies its checkbox children.
                         Text(prettifyMarkdown(task.title))
                             .font(.captionFont(scale).weight(.bold))
-                            .foregroundColor(.primary)
+                            .foregroundColor(task.isDone ? .secondary.opacity(0.7) : .primary)
+                            .strikethrough(task.isDone)
                             .fixedSize(horizontal: false, vertical: true)
                             .multilineTextAlignment(.leading)
-                        if childTotal > 0 {
+                        if task.isDone {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 9 * scale, weight: .bold))
+                                .foregroundColor(.secondary.opacity(0.5))
+                        } else if childTotal > 0 {
                             Text("\(childDone)/\(childTotal)")
                                 .font(.custom("Fira Code", size: 9 * scale))
                                 .foregroundColor(.secondary.opacity(0.55))

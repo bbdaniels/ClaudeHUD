@@ -351,6 +351,21 @@ final class VaultProjectService: ObservableObject {
         return collected.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// The cleaner-generated briefing block from a `Dashboard.md` body — the
+    /// text between `<!-- gen:briefing -->` and `<!-- /gen:briefing -->`. This
+    /// is the project's human surface (Now / Next / Recently done / Later),
+    /// regenerated nightly. Returns nil if absent/empty. Format-independent:
+    /// just delimiter extraction; the view renders whatever markdown is inside.
+    static func extractBriefing(from content: String) -> String? {
+        guard let start = content.range(of: "<!-- gen:briefing -->"),
+              let end = content.range(of: "<!-- /gen:briefing -->",
+                                     range: start.upperBound..<content.endIndex)
+        else { return nil }
+        let inner = content[start.upperBound..<end.lowerBound]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return inner.isEmpty ? nil : inner
+    }
+
     /// Split a `**Title**: body` (or `**Title** — body`) string into
     /// (title, body) without assuming the closing `**` sits on one line —
     /// it scans the whole string. Falls back to (wholeString, "") when
@@ -484,9 +499,13 @@ final class VaultProjectService: ObservableObject {
         func flushOpen() {
             flushChild()
             if let h = openHeading {
+                // A heading is normally never "done" — but a `### ✅ …` or a
+                // fully-struck heading IS a finished milestone (the user's
+                // "✅ DNS done … 0/8" lingering in Active). Mark it so the view
+                // can strike it and drop the misleading 0/N count.
                 tasks.append(ActiveTask(
                     title: h, body: reflowProse(openBodyLines),
-                    subBullets: openChildren, isDone: false, isHeading: true
+                    subBullets: openChildren, isDone: titleIsDone(h), isHeading: true
                 ))
             } else if openFlat {
                 let (title, body) = splitTitleBody(reflowProse(openBodyLines))
