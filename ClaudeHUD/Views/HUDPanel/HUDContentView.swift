@@ -145,8 +145,10 @@ enum FixedTab: String, CaseIterable {
         }
     }
 
-    /// Tabs that cannot be hidden
-    var isRequired: Bool { self == .history }
+    /// Tabs that cannot be hidden. Projects is the spine (the undeletable
+    /// home), so the anchor moved off `.history` → `.vault` in the 6→4
+    /// consolidation.
+    var isRequired: Bool { self == .vault }
 
     static func hiddenTabs() -> Set<String> {
         let raw = UserDefaults.standard.string(forKey: "hiddenTabs") ?? ""
@@ -321,6 +323,12 @@ struct HUDContentView: View {
                         .environmentObject(appState.vaultIngestService)
                         .environmentObject(appState.vaultScriptInstaller)
                         .environmentObject(vaultManager)
+                        // Harvested spine dependencies (sessions, terminal,
+                        // tabManager, cross-ProjectService, calendar come from
+                        // the panel root). Agents + AI briefings are injected
+                        // here because only the Projects/Library tabs use them.
+                        .environmentObject(appState.agentsService)
+                        .environmentObject(appState.projectBriefingService)
                 case .today:
                     TodayView()
                         .environmentObject(calendarService)
@@ -1383,59 +1391,83 @@ struct ProjectRow: View {
     }
 
     private func magicLaunchInGhostty() {
-        // Wiki-bootstrap prompt: the launched session loads its context from the
-        // Obsidian vault (the source of truth), NOT from a lossy summary of prior
-        // session transcripts. Kept as one line so it survives every delivery
-        // path (Ghostty temp script, Terminal/iTerm2 AppleScript `do script`,
-        // clipboard fallback). {{PROJECT}} is filled with the project name;
-        // {{STEP2}} is the folder-resolution step, which differs depending on
-        // whether the canonical project↔vault registry resolved this repo.
-        let template = [
-            "Fresh session on the Obsidian vault project: {{PROJECT}}. Load context from the wiki at ~/Documents/Obsidian (the source of truth) — not from a chat recap or a prior-session summary. Tool priority: (1) mcp__obsidian__ tools for structured metadata; (2) Obsidian CLI (/Applications/Obsidian.app/Contents/MacOS/obsidian <cmd>; see `obsidian help`) — fast for `search`, `tasks`, `append`, `create`, `read`, `backlinks`; (3) direct file Read/Write/Edit at the vault path.",
-            "1. Read schema.md (the vault contract).",
-            "{{STEP2}}",
-            "3. Read that project's Dashboard.md, Tasks.md (its \"## Active\" section), and Technical Notes.md.",
-            "4. Report in ~3 lines: project status, the top 1–3 active tasks, and any \"Attention needed\" flags. Then stop and wait for the user to choose what to work on — do NOT start a task automatically.",
-            "Rules: Tasks.md is the source of truth — as work completes or appears, update its ## Active / ## Completed and the `updated:` frontmatter, append a daily-note entry, and externalize decisions into the project notes (never leave state only in chat). Never `git reset --hard` or `git clean` the vault; local edits become durable only when pushed (the 15-min sync, or ~/.claude/scripts/vault-reset.sh).",
-        ].joined(separator: " ")
-
         // Canonical registry lookup keyed by this project's absolute repo
-        // working directory. On a hit, name the resolved absolute vault folder
-        // directly and drop the legacy "confirm with the user" ambiguity. On a
-        // miss, preserve today's fuzzy index.md resolution behavior verbatim.
+        // working directory. On a hit the shared launcher names the resolved
+        // vault folder directly (dropping the legacy "confirm with the user"
+        // ambiguity); on a miss it preserves the fuzzy index.md behavior.
         let resolvedVaultPath = projectService.vaultFolderPath(forRepoPath: projectPath)
-        let step2: String
-        if let vaultPath = resolvedVaultPath {
-            step2 = "2. This project's vault folder is already resolved: \"\(vaultPath)\". Use it directly — do NOT re-derive it from index.md and do NOT ask the user to confirm the path."
-        } else {
-            step2 = "2. Read index.md (or HOME.md) to resolve \"{{PROJECT}}\" to its folder. If there is no exact folder match, pick the closest catalog entry and confirm the path with the user in one line before proceeding."
-        }
-
-        let prompt = template
-            .replacingOccurrences(of: "{{STEP2}}", with: step2)
-            .replacingOccurrences(of: "{{PROJECT}}", with: projectName)
-        // Single-quote the prompt for the shell (the canonical safe form, same as
-        // the directory path in TerminalService): every ' becomes '\'' and the
-        // whole string is wrapped in '...'. This neutralises the backticks
-        // (`git reset --hard`, `updated:`) and `$` so they cannot be executed as
-        // command substitution — which double-quoting would NOT prevent.
-        let escapedPrompt = prompt.replacingOccurrences(of: "'", with: "'\\''")
-        // Enable Remote Control on magic-launched sessions so each one is
-        // reachable from outside its terminal tab. Name = project name so
-        // sessions are humanly identifiable in the remote-control list.
-        let command = daemonizedClaudeCommand(
-            "\(launchFlags) '\(escapedPrompt)'",
-            remoteControlName: projectName
+        let auto = performMagicLaunch(
+            projectName: projectName, cwd: projectPath,
+            resolvedVaultPath: resolvedVaultPath, launchFlags: launchFlags,
+            terminalService: terminalService
         )
-        let ghosttyPath = "/Applications/Ghostty.app"
-        let app = FileManager.default.fileExists(atPath: ghosttyPath) ? ghosttyPath : nil
-        let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
-        let bg = useColors ? TerminalService.projectColor(for: projectName) : nil
-        let auto = terminalService.launchWithCommand(command, inDirectory: projectPath, usingApp: app, backgroundColor: bg)
         feedback = auto ? "Opened!" : "Cmd+V"
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
     }
 
+}
+
+// MARK: - GitHub Repo Indicator
+
+/// Reserved-slot indicator. Always renders so rows stay aligned: a white mark
+/// when the project has a GitHub remote, a greyed-out mark with a diagonal
+/// slash when it doesn't. `nil` info covers both "no remote" and "not yet
+/// fetched"; the slot is stable across both states. (Moved here from the
+/// deleted ProjectDashboardView husk — its only consumer is the ProjectRow.)
+struct GitHubRepoIndicator: View {
+    let info: GitHubRepoInfo?
+    let scale: CGFloat
+
+    private var tooltip: String {
+        guard let info else { return "No GitHub remote" }
+        let host = info.url
+            .replacingOccurrences(of: "https://", with: "")
+            .replacingOccurrences(of: "http://", with: "")
+        return "\(info.isPrivate ? "Private" : "Public") · \(host)"
+    }
+
+    var body: some View {
+        Group {
+            if let info {
+                Button {
+                    if let url = URL(string: info.url) {
+                        NSWorkspace.shared.open(url)
+                    }
+                } label: {
+                    ZStack(alignment: .bottomTrailing) {
+                        markImage.foregroundColor(.white)
+                        if info.isPrivate {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 6 * scale, weight: .bold))
+                                .foregroundColor(.green)
+                                // Push the lock just past the bottom-right of
+                                // the mark so it reads as an overlay glyph.
+                                .offset(x: 2, y: 2)
+                        }
+                    }
+                }
+                .buttonStyle(.borderless)
+            } else {
+                ZStack {
+                    markImage.foregroundColor(.secondary.opacity(0.35))
+                    Rectangle()
+                        .frame(width: 14 * scale, height: 1.5 * scale)
+                        .rotationEffect(.degrees(-45))
+                        .foregroundColor(.secondary.opacity(0.7))
+                }
+                .frame(width: 12 * scale, height: 12 * scale)
+            }
+        }
+        .hudTip(tooltip)
+    }
+
+    private var markImage: some View {
+        Image("GitHubMark")
+            .renderingMode(.template)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: 12 * scale, height: 12 * scale)
+    }
 }
 
 // MARK: - Daemon registration
@@ -1459,7 +1491,7 @@ struct ProjectRow: View {
 /// so the session is reachable via Claude Code Remote Control. Names are
 /// shell-escaped here. Magic-launched sessions pass the project name so
 /// each session is named after the project it serves.
-fileprivate func daemonizedClaudeCommand(_ argSuffix: String, remoteControlName: String? = nil) -> String {
+func daemonizedClaudeCommand(_ argSuffix: String, remoteControlName: String? = nil) -> String {
     let rcFlag: String
     if let name = remoteControlName, !name.isEmpty {
         // Single-quote escape: every ' becomes '\'' and wrap in '...'.
@@ -1478,6 +1510,63 @@ fileprivate func daemonizedClaudeCommand(_ argSuffix: String, remoteControlName:
         + "echo \"[registered with daemon: $__i -- run 'claude agents' to supervise]\"; "
         + "claude attach \"$__i\"; "
         + "else printf '%s\\n' \"$__o\"; \(plain); fi"
+}
+
+// MARK: - Magic launch (shared by Session History + Projects spine)
+
+/// Build the wiki-bootstrap magic-launch prompt: the launched session loads
+/// context from the Obsidian vault (the source of truth), not a lossy chat
+/// recap. `resolvedVaultPath` non-nil → step 2 names the resolved folder
+/// directly (no index.md re-derivation, no user confirmation); nil → legacy
+/// index.md resolution. Kept on one line so it survives every delivery path
+/// (Ghostty temp script, Terminal/iTerm AppleScript `do script`, clipboard).
+/// {{PROJECT}} is the project name.
+func magicLaunchPrompt(projectName: String, resolvedVaultPath: String?) -> String {
+    let template = [
+        "Fresh session on the Obsidian vault project: {{PROJECT}}. Load context from the wiki at ~/Documents/Obsidian (the source of truth) — not from a chat recap or a prior-session summary. Tool priority: (1) mcp__obsidian__ tools for structured metadata; (2) Obsidian CLI (/Applications/Obsidian.app/Contents/MacOS/obsidian <cmd>; see `obsidian help`) — fast for `search`, `tasks`, `append`, `create`, `read`, `backlinks`; (3) direct file Read/Write/Edit at the vault path.",
+        "1. Read schema.md (the vault contract).",
+        "{{STEP2}}",
+        "3. Read that project's Dashboard.md, Tasks.md (its \"## Active\" section), and Technical Notes.md.",
+        "4. Report in ~3 lines: project status, the top 1–3 active tasks, and any \"Attention needed\" flags. Then stop and wait for the user to choose what to work on — do NOT start a task automatically.",
+        "Rules: Tasks.md is the source of truth — as work completes or appears, update its ## Active / ## Completed and the `updated:` frontmatter, append a daily-note entry, and externalize decisions into the project notes (never leave state only in chat). Never `git reset --hard` or `git clean` the vault; local edits become durable only when pushed (the 15-min sync, or ~/.claude/scripts/vault-reset.sh).",
+    ].joined(separator: " ")
+
+    let step2: String
+    if let vaultPath = resolvedVaultPath {
+        step2 = "2. This project's vault folder is already resolved: \"\(vaultPath)\". Use it directly — do NOT re-derive it from index.md and do NOT ask the user to confirm the path."
+    } else {
+        step2 = "2. Read index.md (or HOME.md) to resolve \"{{PROJECT}}\" to its folder. If there is no exact folder match, pick the closest catalog entry and confirm the path with the user in one line before proceeding."
+    }
+
+    return template
+        .replacingOccurrences(of: "{{STEP2}}", with: step2)
+        .replacingOccurrences(of: "{{PROJECT}}", with: projectName)
+}
+
+/// Fire a magic launch for `projectName` rooted at repo `cwd`, loading vault
+/// context. `resolvedVaultPath` non-nil → folder already resolved (the Projects
+/// spine knows it directly; Session History resolves it via the canonical
+/// `vaultFolderPath`). Returns whether the terminal auto-opened (false →
+/// clipboard fallback). Enables Remote Control named after the project so each
+/// session is identifiable in the agents list.
+@MainActor
+func performMagicLaunch(projectName: String, cwd: String, resolvedVaultPath: String?,
+                        launchFlags: String, terminalService: TerminalService) -> Bool {
+    let prompt = magicLaunchPrompt(projectName: projectName, resolvedVaultPath: resolvedVaultPath)
+    // Single-quote the prompt for the shell (every ' becomes '\'' and the whole
+    // string is wrapped in '...'). Neutralises the backticks (`git reset
+    // --hard`, `updated:`) and `$` so they cannot run as command substitution —
+    // which double-quoting would NOT prevent.
+    let escapedPrompt = prompt.replacingOccurrences(of: "'", with: "'\\''")
+    let command = daemonizedClaudeCommand(
+        "\(launchFlags) '\(escapedPrompt)'",
+        remoteControlName: projectName
+    )
+    let ghosttyPath = "/Applications/Ghostty.app"
+    let app = FileManager.default.fileExists(atPath: ghosttyPath) ? ghosttyPath : nil
+    let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
+    let bg = useColors ? TerminalService.projectColor(for: projectName) : nil
+    return terminalService.launchWithCommand(command, inDirectory: cwd, usingApp: app, backgroundColor: bg)
 }
 
 // MARK: - Session Detail Row (inside expanded project)

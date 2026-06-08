@@ -17,6 +17,13 @@ struct VaultTabView: View {
     @EnvironmentObject var projectService: VaultProjectService
     @EnvironmentObject var ingestService: VaultIngestService
     @EnvironmentObject var vaultManager: VaultManager
+    // Harvested-spine sources (Phase 1): the WORK section needs sessions +
+    // live agents; People/Meetings/Emails + Briefing bridge to the cross
+    // ProjectService by folder name. Warmed in `.onAppear` so an expanded
+    // row renders without a cold wait. All read-only / idempotent.
+    @EnvironmentObject var sessionHistory: SessionHistoryService
+    @EnvironmentObject var agentsService: AgentsService
+    @EnvironmentObject var crossProjectService: ProjectService
     @Environment(\.fontScale) private var scale
 
     @State private var expandedProjects: Set<URL> = []
@@ -77,6 +84,15 @@ struct VaultTabView: View {
                 projectService.start(vaultPath: URL(fileURLWithPath: path))
             } else {
                 projectService.refresh()
+            }
+            // Warm the harvested-spine sources so an expanded row's WORK +
+            // People/Meetings/Emails render without a cold wait. Idempotent:
+            // `start()` no-ops if already polling, `refresh()` is cheap, and
+            // sessions only reload when not already present.
+            agentsService.start()
+            crossProjectService.refresh()
+            if sessionHistory.sessions.isEmpty {
+                Task { await sessionHistory.refresh() }
             }
         }
     }
@@ -230,8 +246,22 @@ private struct ProjectRowView: View {
                     SectionLabel("Tasks")
                     TasksSubsection(project: project)
                     Divider().opacity(0.18)
+                    // WORK — this project's sessions + live agents + Launch +
+                    // resume/Safe-Unsafe/effort, keyed by the canonical cwds:
+                    // resolver. Owns its own "Work" label (controls share the
+                    // header line). Tasks stay READ-ONLY in Projects (Phase 1).
+                    WorkSubsection(project: project)
+                    // People / Meetings / Emails — harvested from the cross
+                    // ProjectService intel, bridged by folder name; self-hides
+                    // (incl. its leading divider) when there's nothing to show.
+                    ProjectIntelSubsection(project: project)
+                    Divider().opacity(0.18)
                     SectionLabel("Notes")
                     NotesSubsection(project: project, vaultPath: vaultPath)
+                    Divider().opacity(0.18)
+                    // Briefing — lazy, on-demand only (button, never on expand),
+                    // honoring the "no LLM call on view open" rule.
+                    BriefingSubsection(project: project)
                 }
                 .padding(.leading, 20)
                 .padding(.top, 6)
@@ -1203,4 +1233,427 @@ private func prettifyMarkdown(_ s: String) -> LocalizedStringKey {
         options: .regularExpression
     )
     return LocalizedStringKey(out)
+}
+
+// MARK: - Work subsection (Phase 1 harvest — sessions + live agents + launch)
+
+/// The spine's WORK section: every session and currently-alive agent whose
+/// repo working directory canonically resolves to THIS project's vault folder
+/// (the `cwds:` join key shared with the ingest hook), plus a wiki-bootstrap
+/// Launch and the per-project Safe/Unsafe + effort toggles. Sessions reuse the
+/// Session-History `SessionDetailRow` verbatim (resume buttons + ingest badge).
+///
+/// Resolution is done by `VaultProjectService.primeResolution` (off the main
+/// actor, memoized) so filtering thousands of sessions costs only cache reads.
+/// READ + LAUNCH only — no Tasks.md write happens here (Phase 1 keeps Projects
+/// read-only for tasks; the toggle stays in Today).
+private struct WorkSubsection: View {
+    let project: VaultProjectService.Project
+    @EnvironmentObject var sessionHistory: SessionHistoryService
+    @EnvironmentObject var agentsService: AgentsService
+    @EnvironmentObject var vaultProjects: VaultProjectService
+    @EnvironmentObject var terminalService: TerminalService
+    @Environment(\.fontScale) private var scale
+
+    @State private var primed = false
+    @State private var showAll = false
+    @State private var unsafeMode: Bool
+    @State private var effort: String
+    @State private var feedback: String?
+
+    private let sessionCap = 5
+    private static let effortLevels = ["default", "low", "medium", "high", "max"]
+
+    init(project: VaultProjectService.Project) {
+        self.project = project
+        // Key the per-project flags by the repo cwd so they're shared with the
+        // Session-History row for the same project (one source of truth); fall
+        // back to the folder name when the project declares no cwd.
+        let key = project.primaryCwd ?? project.name
+        _unsafeMode = State(initialValue: UserDefaults.standard.bool(forKey: "history.unsafe.\(key)"))
+        _effort = State(initialValue: UserDefaults.standard.string(forKey: "history.effort.\(key)") ?? "default")
+    }
+
+    private var defaultsKey: String { "history.unsafe.\(project.primaryCwd ?? project.name)" }
+    private var effortKey: String { "history.effort.\(project.primaryCwd ?? project.name)" }
+    private var launchFlags: String {
+        var f = ""
+        if unsafeMode { f += " --dangerously-skip-permissions" }
+        if effort != "default" { f += " --effort \(effort)" }
+        return f
+    }
+
+    /// Sessions whose repo cwd resolves to this project's vault folder. Empty
+    /// until `primed`; afterwards a live filter over the published session list.
+    private var work: [SessionInfo] {
+        guard primed else { return [] }
+        return sessionHistory.sessions.filter {
+            vaultProjects.folderName(forCwd: $0.projectPath) == project.name
+        }
+    }
+    private var visibleSessions: [SessionInfo] {
+        (showAll || work.count <= sessionCap) ? work : Array(work.prefix(sessionCap))
+    }
+    /// Currently-alive agents rooted in this project (same canonical join key).
+    private var liveAgents: [AgentSession] {
+        guard primed else { return [] }
+        return agentsService.agents.filter {
+            $0.isAlive && vaultProjects.folderName(forCwd: $0.cwd) == project.name
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            header
+            ForEach(liveAgents) { agentRow($0) }
+            if visibleSessions.isEmpty {
+                Text(primed ? "No sessions in this project yet." : "Resolving sessions…")
+                    .font(.captionFont(scale))
+                    .foregroundColor(.secondary.opacity(0.7))
+            } else {
+                ForEach(visibleSessions) { session in
+                    SessionDetailRow(
+                        session: session,
+                        launchFlags: launchFlags,
+                        searchResult: nil,
+                        onDelete: { sessionHistory.deleteSession(id: session.id) }
+                    )
+                }
+                if work.count > sessionCap {
+                    Button(action: { withAnimation(.easeInOut(duration: 0.15)) { showAll.toggle() } }) {
+                        Text(showAll ? "Show less" : "Show all \(work.count) sessions")
+                            .font(.custom("Fira Sans", size: 11 * scale))
+                            .foregroundColor(.accentColor)
+                    }
+                    .buttonStyle(.borderless)
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+        .task(id: project.id) {
+            // Start the agent poller (idempotent) and resolve every distinct
+            // session/agent cwd ONCE, off the main actor, into the memoized
+            // cache. Subsequent renders just read the cache.
+            agentsService.start()
+            var cwds = Set(sessionHistory.sessions.map { $0.projectPath })
+            cwds.formUnion(agentsService.agents.map { $0.cwd })
+            await vaultProjects.primeResolution(forCwds: cwds)
+            primed = true
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            SectionLabel("Work")
+            Spacer()
+            // Per-project Safe/Unsafe (persisted, shared with Session History).
+            Button(action: {
+                unsafeMode.toggle()
+                UserDefaults.standard.set(unsafeMode, forKey: defaultsKey)
+            }) {
+                Image(systemName: unsafeMode ? "lock.open.fill" : "lock.fill")
+                    .font(.system(size: 11 * scale))
+                    .foregroundColor(unsafeMode ? .red : .green)
+            }
+            .buttonStyle(.borderless)
+            .hudTip(unsafeMode ? "Unsafe mode (click to toggle)" : "Safe mode (click to toggle)")
+
+            // Per-project effort (persisted, shared with Session History).
+            Button(action: { cycleEffort() }) {
+                Image(systemName: effortIcon)
+                    .font(.system(size: 11 * scale))
+                    .foregroundColor(effortColor)
+            }
+            .buttonStyle(.borderless)
+            .hudTip("Effort: \(effort) (click to cycle)")
+
+            // Launch — magic wiki-bootstrap session in the project's repo cwd.
+            // The vault folder is known directly here, so the prompt always
+            // takes the "already resolved" branch (no index.md re-derivation).
+            if let feedback {
+                Text(feedback)
+                    .font(.custom("Fira Sans", size: 11 * scale))
+                    .foregroundColor(.green)
+            } else if let cwd = project.primaryCwd {
+                Button(action: { launch(cwd: cwd) }) {
+                    Image(systemName: "pencil.and.outline")
+                        .font(.system(size: 11 * scale, weight: .semibold))
+                        .foregroundColor(.white)
+                }
+                .buttonStyle(.borderless)
+                .hudTip("New session — loads project context from the Obsidian wiki")
+            } else {
+                // No launchable cwd: greyed + struck, same idiom as the
+                // Session-History "no prior sessions" / GitHub "no remote" mark.
+                ZStack {
+                    Image(systemName: "pencil.and.outline")
+                        .font(.system(size: 11 * scale, weight: .semibold))
+                        .foregroundColor(.secondary.opacity(0.35))
+                    Rectangle()
+                        .frame(width: 14 * scale, height: 1.5 * scale)
+                        .rotationEffect(.degrees(-45))
+                        .foregroundColor(.secondary.opacity(0.7))
+                }
+                .hudTip("No working directory in cwds: — can't launch")
+            }
+        }
+    }
+
+    private func agentRow(_ a: AgentSession) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(agentColor(a))
+                .frame(width: 6, height: 6)
+            Text(a.name)
+                .font(.captionFont(scale))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+            if a.isOpen {
+                Text("open")
+                    .font(.custom("Fira Sans", size: 9 * scale).weight(.medium))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.green.opacity(0.16))
+                    .foregroundColor(.green)
+                    .clipShape(Capsule())
+            }
+            Spacer()
+            if let u = a.updatedAt {
+                Text(u.relativeString)
+                    .font(.custom("Fira Code", size: 9.5 * scale))
+                    .foregroundColor(.secondary.opacity(0.5))
+            }
+        }
+        .padding(.vertical, 2)
+        .hudTip("Live agent — \(a.rawState). Manage it in the Claude tab.")
+    }
+
+    private func agentColor(_ a: AgentSession) -> Color {
+        if a.inFlightTasks > 0 || a.rawState == "working" { return .green }
+        if a.rawState == "blocked" { return .orange }
+        return .secondary.opacity(0.6)
+    }
+
+    private func launch(cwd: String) {
+        let auto = performMagicLaunch(
+            projectName: project.name, cwd: cwd,
+            resolvedVaultPath: project.folder.path, launchFlags: launchFlags,
+            terminalService: terminalService
+        )
+        feedback = auto ? "Opened!" : "Cmd+V"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
+    }
+
+    private func cycleEffort() {
+        guard let idx = Self.effortLevels.firstIndex(of: effort) else { effort = "default"; return }
+        effort = Self.effortLevels[(idx + 1) % Self.effortLevels.count]
+        UserDefaults.standard.set(effort, forKey: effortKey)
+    }
+
+    private var effortIcon: String {
+        switch effort {
+        case "low": return "gauge.with.dots.needle.0percent"
+        case "medium": return "gauge.with.dots.needle.33percent"
+        case "high": return "gauge.with.dots.needle.67percent"
+        case "max": return "gauge.with.dots.needle.100percent"
+        default: return "gauge.with.dots.needle.50percent"
+        }
+    }
+    private var effortColor: Color {
+        switch effort {
+        case "low": return .red
+        case "medium": return .orange
+        case "high": return .white
+        case "max": return .green
+        default: return .secondary
+        }
+    }
+}
+
+// MARK: - Project intel subsection (Phase 1 harvest — People / Meetings / Emails)
+
+/// People, today's meetings, and recent emails for this project — harvested
+/// from the cross `ProjectService` aggregation engine, bridged by folder name
+/// (`ProjectService.Project.id == folder == VaultProjectService.Project.name`).
+/// `loadIntel` runs lazily on expand (Spark email DB + calendar). Renders
+/// nothing — including its own leading divider — when there's no intel, so an
+/// expanded row stays compact for projects with no people/mail/meetings.
+private struct ProjectIntelSubsection: View {
+    let project: VaultProjectService.Project
+    @EnvironmentObject var crossProjectService: ProjectService
+    @Environment(\.fontScale) private var scale
+    @State private var bridged: Project?
+
+    private var intel: ProjectIntel? { bridged.flatMap { crossProjectService.intel[$0.id] } }
+
+    var body: some View {
+        let people = intel?.people ?? []
+        let emails = intel?.emails ?? []
+        let events = bridged?.upcomingEvents ?? []
+        Group {
+            if people.isEmpty && emails.isEmpty && events.isEmpty {
+                EmptyView()
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Divider().opacity(0.18)
+                    if !events.isEmpty {
+                        SectionLabel("Today")
+                        ForEach(events) { event in
+                            HStack(spacing: 6) {
+                                Text(event.title)
+                                    .font(.captionFont(scale))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+                                Spacer()
+                                Text(shortClockTime(event.startDate))
+                                    .font(.custom("Fira Code", size: 9.5 * scale))
+                                    .foregroundColor(.secondary.opacity(0.5))
+                            }
+                        }
+                    }
+                    if !people.isEmpty {
+                        SectionLabel("People")
+                        ForEach(people.prefix(6)) { contact in
+                            HStack(spacing: 6) {
+                                Image(systemName: "person")
+                                    .font(.system(size: 8 * scale))
+                                    .foregroundColor(.secondary.opacity(0.5))
+                                    .frame(width: 12)
+                                Text(contact.name)
+                                    .font(.captionFont(scale))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+                                if !contact.org.isEmpty {
+                                    Text("(\(contact.org))")
+                                        .font(.custom("Fira Code", size: 9 * scale))
+                                        .foregroundColor(.secondary.opacity(0.5))
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                            }
+                        }
+                    }
+                    if !emails.isEmpty {
+                        SectionLabel("Emails")
+                        ForEach(emails.prefix(4)) { email in
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(email.subject)
+                                    .font(.captionFont(scale))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+                                HStack(spacing: 4) {
+                                    Text(email.from)
+                                        .font(.custom("Fira Sans", size: 10.5 * scale))
+                                        .foregroundColor(.secondary.opacity(0.5))
+                                        .lineLimit(1)
+                                    Text("·").foregroundColor(.secondary.opacity(0.3))
+                                    Text(email.date)
+                                        .font(.custom("Fira Sans", size: 10.5 * scale))
+                                        .foregroundColor(.secondary.opacity(0.5))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .task(id: project.id) {
+            bridged = crossProjectService.projects.first { $0.name == project.name }
+            if let b = bridged { crossProjectService.loadIntel(for: b) }
+        }
+    }
+}
+
+// MARK: - Briefing subsection (Phase 1 harvest — lazy, on-demand AI briefing)
+
+/// On-demand AI project briefing (priorities / blockers / next), bridged by
+/// folder name. Generation runs ONLY on the button tap — never on expand —
+/// honoring the "no LLM call on view open" rule. Display-only: the harvested
+/// push-to-Tasks.md actions are deliberately dropped (Phase 1 keeps Projects
+/// read-only for tasks).
+private struct BriefingSubsection: View {
+    let project: VaultProjectService.Project
+    @EnvironmentObject var crossProjectService: ProjectService
+    @EnvironmentObject var projectBriefing: ProjectBriefingService
+    @Environment(\.fontScale) private var scale
+    @State private var bridged: Project?
+
+    private var briefing: ProjectBriefing? { bridged.flatMap { projectBriefing.briefings[$0.id] } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                SectionLabel("Briefing")
+                Spacer()
+                if briefing?.isLoading == true {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Button(action: {
+                        guard let b = bridged else { return }
+                        projectBriefing.invalidate(projectId: b.id)
+                        projectBriefing.generateBriefing(for: b)
+                    }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: briefing == nil ? "sparkles" : "arrow.clockwise")
+                                .font(.system(size: 9 * scale))
+                            Text(briefing == nil ? "Generate" : "Refresh")
+                                .font(.captionFont(scale))
+                        }
+                        .foregroundColor(bridged == nil ? .secondary.opacity(0.4) : .accentColor)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(bridged == nil)
+                    .hudTip(bridged == nil
+                            ? "No cross-project record yet (needs prior sessions or notes)"
+                            : "Run an AI briefing for this project (one LLM call)")
+                }
+            }
+            if let b = briefing {
+                if let error = b.error {
+                    Text(error)
+                        .font(.captionFont(scale))
+                        .foregroundColor(.secondary)
+                } else if !b.isLoading {
+                    if !b.priorities.isEmpty { briefingList("Priorities", b.priorities, .blue) }
+                    if !b.blockers.isEmpty { briefingList("Blockers", b.blockers, .orange) }
+                    if !b.nextActions.isEmpty { briefingList("Next", b.nextActions, .green) }
+                    if b.priorities.isEmpty && b.blockers.isEmpty && b.nextActions.isEmpty {
+                        Text(b.summary.isEmpty ? "No briefing items." : b.summary)
+                            .font(.captionFont(scale))
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+        .task(id: project.id) {
+            bridged = crossProjectService.projects.first { $0.name == project.name }
+        }
+    }
+
+    private func briefingList(_ title: String, _ items: [String], _ color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.captionFont(scale).weight(.semibold))
+                .foregroundColor(color.opacity(0.8))
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("•").foregroundColor(color.opacity(0.6))
+                    Text(item)
+                        .font(.captionFont(scale))
+                        .foregroundColor(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .padding(.leading, 2)
+            }
+        }
+    }
+}
+
+/// Lowercase `h:mma` clock time for the meetings rows.
+private func shortClockTime(_ date: Date) -> String {
+    let fmt = DateFormatter()
+    fmt.dateFormat = "h:mma"
+    return fmt.string(from: date).lowercased()
 }

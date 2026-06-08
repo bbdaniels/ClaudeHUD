@@ -102,9 +102,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
-        let event = NSApp.currentEvent!
-
-        if event.type == .rightMouseUp {
+        // `NSApp.currentEvent` is nil when the item is activated without a real
+        // mouse event — e.g. an accessibility/synthetic click (VoiceOver, UI
+        // automation) or programmatic `performClick`. Force-unwrapping it
+        // trapped in those cases; treat a missing event (and any non-right-
+        // click) as a normal left-click that toggles the panel.
+        if NSApp.currentEvent?.type == .rightMouseUp {
             showContextMenu(sender)
         } else {
             panelController?.toggle()

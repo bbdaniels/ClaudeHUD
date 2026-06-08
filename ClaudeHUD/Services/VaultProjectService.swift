@@ -581,6 +581,43 @@ final class VaultProjectService: ObservableObject {
         flushOpen()
         return tasks
     }
+
+    // MARK: - Canonical cwd → vault-folder resolution (the WORK-section join key)
+
+    /// Cache of repo working-directory → resolved vault folder NAME. The value
+    /// is itself optional: `.some(nil)` records a cwd that resolves to NO
+    /// project (so it is not re-scanned); an absent key means "not yet
+    /// resolved." Keyed by absolute cwd. Primed off the main actor by
+    /// `primeResolution`; read synchronously via `folderName(forCwd:)`.
+    private var cwdFolderCache: [String: String?] = [:]
+
+    /// Resolve every cwd in `cwds` to its vault folder using the ONE canonical
+    /// rule — `ProjectService.resolveProjectFolder`, the same longest-`cwds:`-
+    /// glob resolver the ingest hook (`vault-ingest.sh`) and the launcher use —
+    /// caching the results. The disk scan runs off the main actor; only the
+    /// small cache merge touches the actor. Call this before reading
+    /// `folderName(forCwd:)` in a render path so lookups are warm. Cheap on
+    /// repeat: only cache misses are scanned.
+    func primeResolution(forCwds cwds: Set<String>) async {
+        guard let vaultRoot = vaultPath?.path else { return }
+        let misses = cwds.filter { cwdFolderCache[$0] == nil }
+        guard !misses.isEmpty else { return }
+        let resolved: [String: String?] = await Task.detached(priority: .userInitiated) {
+            var out: [String: String?] = [:]
+            for cwd in misses {
+                out[cwd] = ProjectService.resolveProjectFolder(cwd: cwd, vaultPath: vaultRoot)
+            }
+            return out
+        }.value
+        for (k, v) in resolved { cwdFolderCache[k] = v }
+    }
+
+    /// Cached resolved vault folder NAME for a repo cwd (nil = unclaimed, or
+    /// not yet primed). Pure cache read — call `primeResolution(forCwds:)`
+    /// first. Matches `Project.name` (the folder basename) for filtering.
+    func folderName(forCwd cwd: String) -> String? {
+        cwdFolderCache[cwd] ?? nil
+    }
 }
 
 // MARK: - Date helpers

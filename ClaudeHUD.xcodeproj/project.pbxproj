@@ -50,7 +50,6 @@
 		344F340CDF4EAE1B18B24EE1 /* SecretsVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E8596B647276D0A1586779 /* SecretsVault.swift */; };
 		3AC79C0378BBFE5D3C197E09 /* InputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A6ED39AD22EDDA61258DC0F /* InputBar.swift */; };
 		3D1E8016AF772DEC464B2404 /* ClaudeTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9537964108C725A1208851B5 /* ClaudeTypes.swift */; };
-		3E169BE12229516556AB41E4 /* ProjectDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20CBE976E7574FE2DD92FAD6 /* ProjectDashboardView.swift */; };
 		4167B772A7F89D1779F98239 /* libfreetype.a in Resources */ = {isa = PBXBuildFile; fileRef = AB8F3ADA72810AD4176731B5 /* libfreetype.a */; };
 		42864B88ABA61875B75A624B /* RemindersService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E97B3A1EBC63741CC858FC /* RemindersService.swift */; };
 		456A775AEB1CC14776BC7C28 /* vault-ingest-prompt.md in Resources */ = {isa = PBXBuildFile; fileRef = 11FF9297DE2CD760A7CBB416 /* vault-ingest-prompt.md */; };
@@ -195,7 +194,6 @@
 		1E2B6EB27428FDED67DA72B9 /* GameController.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = GameController.framework; path = System/Library/Frameworks/GameController.framework; sourceTree = SDKROOT; };
 		207CDABC03F0B223AFE35A88 /* VaultIngestService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultIngestService.swift; sourceTree = "<group>"; };
 		20C8F30012EA810713672AFE /* SurfaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceView.swift; sourceTree = "<group>"; };
-		20CBE976E7574FE2DD92FAD6 /* ProjectDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectDashboardView.swift; sourceTree = "<group>"; };
 		211DB459023617D0C32E6D55 /* ObjCExceptionCatcher.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ObjCExceptionCatcher.h; sourceTree = "<group>"; };
 		249A52B6A9AEA0717F65772E /* TabTitleEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabTitleEditor.swift; sourceTree = "<group>"; };
 		266D9E2A1D7C837357F1A963 /* Array+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array+Extension.swift"; sourceTree = "<group>"; };
@@ -390,14 +388,6 @@
 			path = Services;
 			sourceTree = "<group>";
 		};
-		1428430AFBD3D13084CDEB36 /* Projects */ = {
-			isa = PBXGroup;
-			children = (
-				20CBE976E7574FE2DD92FAD6 /* ProjectDashboardView.swift */,
-			);
-			path = Projects;
-			sourceTree = "<group>";
-		};
 		1EF9B12F40FA80B3C5E3D19E /* GhosttySurface */ = {
 			isa = PBXGroup;
 			children = (
@@ -521,20 +511,6 @@
 			path = Library;
 			sourceTree = "<group>";
 		};
-		8446420217BF7BA2786DFC90 /* People */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = People;
-			sourceTree = "<group>";
-		};
-		8F2E22B4A10D92CEA2755788 /* Substack */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = Substack;
-			sourceTree = "<group>";
-		};
 		93E4847722E8EC553BBC38B4 /* Private */ = {
 			isa = PBXGroup;
 			children = (
@@ -542,13 +518,6 @@
 				C351829385CF609EED3E826E /* Dock.swift */,
 			);
 			path = Private;
-			sourceTree = "<group>";
-		};
-		9B435E31995D5B29A482D8FA /* Settings */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = Settings;
 			sourceTree = "<group>";
 		};
 		9CAC8DAC3F016020147131CD /* Agents */ = {
@@ -610,10 +579,6 @@
 				6AA81EE2EE9C0A51482701D9 /* HUDPanel */,
 				83B7E7EAA19BBD98DB3E4D7C /* Library */,
 				C397A64B546A235D0748698F /* Obsidian */,
-				8446420217BF7BA2786DFC90 /* People */,
-				1428430AFBD3D13084CDEB36 /* Projects */,
-				9B435E31995D5B29A482D8FA /* Settings */,
-				8F2E22B4A10D92CEA2755788 /* Substack */,
 				DB36E8D3AF61BCB4DB487E7A /* Today */,
 				C468B11AFE7AFC843FD71149 /* Vault */,
 				D113A8D1E82B8E920CDC8A3F /* Workspace */,
@@ -950,7 +915,6 @@
 				F2846511D5CDD3512D19E178 /* PermissionRequest.swift in Sources */,
 				18C337C2013A07B85298D28F /* PermissionWatcherService.swift in Sources */,
 				4E15F066AF2BD94F369A7C5A /* ProjectBriefingService.swift in Sources */,
-				3E169BE12229516556AB41E4 /* ProjectDashboardView.swift in Sources */,
 				BEB2851E74A402D792BD5639 /* ProjectService.swift in Sources */,
 				5E6501CEBB9899408CB2A50E /* PushNotificationManager.swift in Sources */,
 				42864B88ABA61875B75A624B /* RemindersService.swift in Sources */,
