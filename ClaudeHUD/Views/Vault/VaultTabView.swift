@@ -29,6 +29,11 @@ struct VaultTabView: View {
     @State private var expandedProjects: Set<URL> = []
     @State private var collapsedSections: Set<String> = []
     @State private var searchText = ""
+    /// folder name → most-recent session timestamp for that project (resolved
+    /// via the canonical cwds: resolver). Drives "real activity" recency so a
+    /// project that's busy in sessions but whose `updated:` went stale still
+    /// sorts as recent. Primed off-main in `.task`.
+    @State private var folderLatestSession: [String: Date] = [:]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -69,6 +74,7 @@ struct VaultTabView: View {
                                         isExpanded: expandedProjects.contains(project.id),
                                         ingestService: ingestService,
                                         vaultPath: vaultPath,
+                                        effectiveDate: effectiveUpdated(project),
                                         onToggle: { toggle(project.id) }
                                     )
                                 }
@@ -95,6 +101,21 @@ struct VaultTabView: View {
                 Task { await sessionHistory.refresh() }
             }
         }
+        // Build folder → latest-session-timestamp so recency reflects real
+        // activity, not just `updated:`. Primes the canonical resolver cache
+        // off-main; re-runs when the session set changes. Read-only.
+        .task(id: sessionHistory.sessions.count) {
+            let sessions = sessionHistory.sessions
+            guard !sessions.isEmpty else { return }
+            await projectService.primeResolution(forCwds: Set(sessions.map { $0.projectPath }))
+            var map: [String: Date] = [:]
+            for s in sessions {
+                guard let folder = projectService.folderName(forCwd: s.projectPath) else { continue }
+                if let cur = map[folder], cur >= s.timestamp { continue }
+                map[folder] = s.timestamp
+            }
+            folderLatestSession = map
+        }
     }
 
     private var vaultPath: URL? {
@@ -112,11 +133,16 @@ struct VaultTabView: View {
         }
     }
 
-    /// Projects partitioned by recency of their `updated:` date — "when to
-    /// pick up" — mirroring Session History's time sections. `updated:` is
-    /// bumped whenever a session edits the project's Tasks.md (per the
-    /// task-management workflow) and kept in sync by the cleaner, so these
-    /// buckets re-sort themselves with no manual tagging.
+    /// "When to pick up" recency, by REAL activity — `max(updated:, latest
+    /// session in the project)`. `updated:` alone goes stale (it's only bumped
+    /// when a session edits Tasks.md), so a project that's busy in sessions but
+    /// whose `updated:` lagged (e.g. Cayda) would wrongly sink to "Older." The
+    /// latest-session signal (resolved via the canonical cwds: resolver, primed
+    /// in `.task`) floats it back up. Mirrors Session History's time sections.
+    private func effectiveUpdated(_ p: VaultProjectService.Project) -> Date {
+        max(p.updated ?? .distantPast, folderLatestSession[p.name] ?? .distantPast)
+    }
+
     private var recencySections: [(title: String, projects: [VaultProjectService.Project])] {
         let cal = Calendar.current
         let startOfToday = cal.startOfDay(for: Date())
@@ -124,7 +150,7 @@ struct VaultTabView: View {
         let startOfMonth = cal.date(byAdding: .day, value: -30, to: startOfToday)!
 
         func rank(_ p: VaultProjectService.Project) -> Int {
-            let d = p.updated ?? .distantPast
+            let d = effectiveUpdated(p)
             if d >= startOfToday { return 0 }
             if d >= startOfWeek { return 1 }
             if d >= startOfMonth { return 2 }
@@ -135,7 +161,7 @@ struct VaultTabView: View {
         var out: [(title: String, projects: [VaultProjectService.Project])] = []
         for (idx, title) in titles.enumerated() {
             let group = fp.filter { rank($0) == idx }
-                          .sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }
+                          .sorted { effectiveUpdated($0) > effectiveUpdated($1) }
             if !group.isEmpty { out.append((title: title, projects: group)) }
         }
         return out
@@ -226,6 +252,8 @@ private struct ProjectRowView: View {
     let isExpanded: Bool
     let ingestService: VaultIngestService
     let vaultPath: URL?
+    /// max(updated:, latest session) — the recency the row is bucketed by.
+    let effectiveDate: Date
     let onToggle: () -> Void
     @Environment(\.fontScale) private var scale
 
@@ -251,11 +279,6 @@ private struct ProjectRowView: View {
                     // resolver. Owns its own "Work" label (controls share the
                     // header line). Tasks stay READ-ONLY in Projects (Phase 1).
                     WorkSubsection(project: project)
-                    // Recent activity — pre-computed Session Log digests
-                    // (Did / Decisions / Open-next, written by the ingest hook).
-                    // No LLM at view time; owns its leading divider; self-hides
-                    // when the project has no digests yet.
-                    AccomplishmentsSubsection(project: project)
                     // People / Meetings / Emails — harvested from the cross
                     // ProjectService intel, bridged by folder name; self-hides
                     // (incl. its leading divider) when there's nothing to show.
@@ -291,8 +314,8 @@ private struct ProjectRowView: View {
                         .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
                 }
                 Spacer()
-                if let updated = project.updated {
-                    Text(relativeAge(updated))
+                if effectiveDate > .distantPast {
+                    Text(relativeAge(effectiveDate))
                         .font(.custom("Fira Code", size: 10 * scale))
                         .foregroundColor(.secondary.opacity(0.5))
                 }
@@ -1561,119 +1584,6 @@ private struct ProjectIntelSubsection: View {
         .task(id: project.id) {
             bridged = crossProjectService.projects.first { $0.name == project.name }
             if let b = bridged { crossProjectService.loadIntel(for: b) }
-        }
-    }
-}
-
-// MARK: - Accomplishments subsection (Phase 1b — pre-computed Session Log digests)
-
-/// "What happened here," read straight from the project's `Session Log.md`
-/// digests (Did / Decisions / Open-next, written by the ingest hook at
-/// SessionEnd). NO LLM call at view time — the synthesis already ran in the
-/// hook, so this is the at-the-ready answer to "where did I leave off." Shows
-/// the newest "Open / next" up top, then a few recent digests, each expandable.
-/// Owns its leading divider; self-hides when the project has no digests yet.
-/// (The overnight cleaner can later enrich Dashboard.md further — Phase 7 —
-/// but this needs no cleaner change: the digests already exist.)
-private struct AccomplishmentsSubsection: View {
-    let project: VaultProjectService.Project
-    @Environment(\.fontScale) private var scale
-    @State private var digests: [VaultProjectService.Digest] = []
-    @State private var expanded: Set<UUID> = []
-
-    private let cap = 4
-
-    var body: some View {
-        Group {
-            if digests.isEmpty {
-                EmptyView()
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    Divider().opacity(0.18)
-                    SectionLabel("Recent")
-                    // "Where we left off" — the newest digest's Open / next.
-                    if let latest = digests.first, !latest.openNext.isEmpty {
-                        HStack(alignment: .firstTextBaseline, spacing: 5) {
-                            Image(systemName: "arrow.turn.down.right")
-                                .font(.system(size: 9 * scale))
-                                .foregroundColor(.accentColor.opacity(0.7))
-                            Text(prettifyMarkdown(latest.openNext))
-                                .font(.captionFont(scale))
-                                .foregroundColor(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .padding(.bottom, 2)
-                    }
-                    ForEach(digests.prefix(cap)) { d in
-                        digestRow(d)
-                    }
-                }
-            }
-        }
-        .task(id: project.id) {
-            guard project.hasSessionLog else { digests = []; return }
-            let path = project.sessionLogPath
-            // Read + parse off the main actor; the file can be large.
-            let parsed: [VaultProjectService.Digest] = await Task.detached(priority: .userInitiated) {
-                guard let raw = try? String(contentsOf: path, encoding: .utf8) else { return [] }
-                return VaultProjectService.parseSessionLog(from: raw)
-            }.value
-            digests = parsed
-        }
-    }
-
-    private func digestRow(_ d: VaultProjectService.Digest) -> some View {
-        let isOpen = expanded.contains(d.id)
-        return VStack(alignment: .leading, spacing: 3) {
-            Button(action: {
-                withAnimation(.easeInOut(duration: 0.12)) {
-                    if isOpen { expanded.remove(d.id) } else { expanded.insert(d.id) }
-                }
-            }) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Image(systemName: isOpen ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 8 * scale, weight: .semibold))
-                        .foregroundColor(.secondary.opacity(0.6))
-                        .frame(width: 9)
-                    Text(prettifyMarkdown(d.title))
-                        .font(.captionFont(scale).weight(.medium))
-                        .foregroundColor(.primary)
-                        .lineLimit(isOpen ? nil : 1)
-                        .multilineTextAlignment(.leading)
-                    Spacer(minLength: 4)
-                    Text(d.date)
-                        .font(.custom("Fira Code", size: 9 * scale))
-                        .foregroundColor(.secondary.opacity(0.5))
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if isOpen {
-                VStack(alignment: .leading, spacing: 4) {
-                    digestField("Did", d.did, .secondary)
-                    digestField("Decisions", d.decisions, .secondary)
-                    digestField("Open / next", d.openNext, .accentColor.opacity(0.85))
-                }
-                .padding(.leading, 15)
-                .padding(.top, 1)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func digestField(_ label: String, _ text: String, _ color: Color) -> some View {
-        if !text.isEmpty {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(label.uppercased())
-                    .font(.system(size: 8 * scale, weight: .semibold))
-                    .tracking(0.5)
-                    .foregroundColor(color.opacity(0.7))
-                Text(prettifyMarkdown(text))
-                    .font(.captionFont(scale))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
     }
 }
