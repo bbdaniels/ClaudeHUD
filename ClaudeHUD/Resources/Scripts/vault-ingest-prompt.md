@@ -1,6 +1,6 @@
 <!--
 === Managed by ClaudeHUD ============================================
-script-version: 1.0.0
+script-version: 1.1.0
 source: ClaudeHUD/Resources/Scripts/vault-ingest-prompt.md
 To edit, fork in the ClaudeHUD repo and rebuild. The installer
 detects local edits to the installed copy and refuses to clobber
@@ -39,13 +39,28 @@ script does all file writes. You have read-only tools by design.
 
 ```
 <<<DIGEST>>>
-## <TODAY_UTC> — <=8-word title
+## <TODAY_UTC> — <title>
 - Did: <2-4 sentences, abstract: what & why>
 - Decisions: <bullets, or "none">
-- Open / next: <bullets, or "none">
+- Open / next: <concrete next actions — imperative, specific — or "none">
 - Session: <SESSION_ID>
 <<<END>>>
 ```
+
+**TITLE — the marginal, distinguishing outcome (≤8 words).** A human picks a
+session from this title in a list already grouped under the project, so it must
+carry only what the project name doesn't:
+- **NEVER include the project name.** PROJECT is always shown in context (this
+  digest lives in the project's own folder/group); padding the title with it
+  wastes the line. A Cayda session about the Novartis pitch is
+  `Novartis pitch: cut hedging, fixed dashes` — NOT `Cayda copy editing and
+  style guide`.
+- **Lead with the specific named thread/entity** (client, partner, deliverable,
+  file, subsystem — `Novartis pitch`, `LTI 1.3`, `credit_scan.py`), then the
+  **concrete outcome** (what changed / was decided / produced).
+- It must **distinguish this session from its siblings** on the same thread.
+  NEVER a bare category (`review`, `refinement`, `updates`, `session`,
+  `context`, `planning`) without its specific object. Outcome over topic.
 
 Keep it one tight dated block — you are summarizing, not transcribing.
 Actionable items go in "Open / next" only; never suggest editing
