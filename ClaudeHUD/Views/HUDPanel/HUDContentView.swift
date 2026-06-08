@@ -317,6 +317,9 @@ struct HUDContentView: View {
                         .environmentObject(terminalService)
                         .environmentObject(appState.projectService)
                         .environmentObject(appState.vaultIngestService)
+                        // For the unclaimed-cwd marker: same canonical resolver
+                        // cache the Projects spine uses (inverse of the WORK filter).
+                        .environmentObject(appState.vaultProjectService)
                 case .vault:
                     VaultTabView()
                         .environmentObject(appState.vaultProjectService)
@@ -325,10 +328,11 @@ struct HUDContentView: View {
                         .environmentObject(vaultManager)
                         // Harvested spine dependencies (sessions, terminal,
                         // tabManager, cross-ProjectService, calendar come from
-                        // the panel root). Agents + AI briefings are injected
-                        // here because only the Projects/Library tabs use them.
+                        // the panel root). Agents injected here because only the
+                        // Projects/Library tabs use the live roster. (Recent
+                        // activity reads pre-computed Session Log digests — no
+                        // ProjectBriefingService / LLM call at view time.)
                         .environmentObject(appState.agentsService)
-                        .environmentObject(appState.projectBriefingService)
                 case .today:
                     TodayView()
                         .environmentObject(calendarService)
@@ -823,8 +827,10 @@ struct PushPopover: View {
 struct SessionHistoryView: View {
     @EnvironmentObject var sessionHistory: SessionHistoryService
     @EnvironmentObject var terminalService: TerminalService
+    @EnvironmentObject var vaultProjects: VaultProjectService
     @Environment(\.fontScale) private var scale
     @State private var searchText = ""
+    @State private var resolvePrimed = false
     @State private var searchDebounceTask: Task<Void, Never>?
     @State private var useColors = UserDefaults.standard.bool(forKey: "history.useColors")
     @State private var starredPaths: Set<String> = {
@@ -980,7 +986,11 @@ struct SessionHistoryView: View {
                                     starredPaths: starredPaths,
                                     searchResults: sessionHistory.searchResults,
                                     onToggleStar: { toggleStar($0) },
-                                    onDeleteSession: { deleteSession($0, projectPath: $1) }
+                                    onDeleteSession: { deleteSession($0, projectPath: $1) },
+                                    // Unclaimed = repo cwd resolves to no vault
+                                    // project (the Session Inbox set). Only after
+                                    // the resolver cache is primed.
+                                    isUnclaimed: { resolvePrimed && vaultProjects.folderName(forCwd: $0) == nil }
                                 )
                             }
                         }
@@ -992,6 +1002,22 @@ struct SessionHistoryView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             Task { await sessionHistory.refresh() }
+        }
+        // Prime the canonical cwd→folder cache for every project group (the
+        // worktree-merged paths the rows key on), so the unclaimed marker can
+        // resolve. Re-runs when the session set changes; cheap on repeat
+        // (only new cwds are scanned). Read-only.
+        .task(id: sessionHistory.sessions.count) {
+            var paths = Set<String>()
+            for s in sessionHistory.sessions {
+                if let r = s.projectPath.range(of: "/.claude/worktrees/") {
+                    paths.insert(String(s.projectPath[..<r.lowerBound]))
+                } else {
+                    paths.insert(s.projectPath)
+                }
+            }
+            await vaultProjects.primeResolution(forCwds: paths)
+            resolvePrimed = true
         }
     }
 
@@ -1035,6 +1061,8 @@ struct TimeSectionView: View {
     let searchResults: [String: SessionSearchResult]
     let onToggleStar: (String) -> Void
     let onDeleteSession: (String, String) -> Void
+    /// True when a group's repo cwd resolves to no vault project.
+    let isUnclaimed: (String) -> Bool
     @State private var collapsed = false
     @State private var hoveredFolder: String?
     @Environment(\.fontScale) private var scale
@@ -1114,6 +1142,7 @@ struct TimeSectionView: View {
                             projectPath: group.path,
                             sessions: group.sessions,
                             isStarred: starredPaths.contains(group.path),
+                            isUnclaimed: isUnclaimed(group.path),
                             searchResults: searchResults,
                             onToggleStar: { onToggleStar(group.path) },
                             onDeleteSession: { sessionId in
@@ -1135,6 +1164,8 @@ struct ProjectRow: View {
     let projectPath: String
     let sessions: [SessionInfo]
     let isStarred: Bool
+    /// Repo cwd resolves to no vault project → show the Session-Inbox marker.
+    let isUnclaimed: Bool
     let searchResults: [String: SessionSearchResult]
     let onToggleStar: () -> Void
     let onDeleteSession: (String) -> Void
@@ -1199,13 +1230,15 @@ struct ProjectRow: View {
     }
 
     init(projectName: String, projectPath: String, sessions: [SessionInfo],
-         isStarred: Bool, searchResults: [String: SessionSearchResult] = [:],
+         isStarred: Bool, isUnclaimed: Bool = false,
+         searchResults: [String: SessionSearchResult] = [:],
          onToggleStar: @escaping () -> Void,
          onDeleteSession: @escaping (String) -> Void) {
         self.projectName = projectName
         self.projectPath = projectPath
         self.sessions = sessions
         self.isStarred = isStarred
+        self.isUnclaimed = isUnclaimed
         self.searchResults = searchResults
         self.onToggleStar = onToggleStar
         self.onDeleteSession = onDeleteSession
@@ -1266,6 +1299,16 @@ struct ProjectRow: View {
                     .font(.smallMedium(scale))
                     .foregroundColor(.primary)
                     .lineLimit(1)
+
+                // Unclaimed-cwd marker (Phase 2): this repo maps to no vault
+                // project — the Session Inbox set. A quiet triage nudge, not a
+                // loud badge; the Projects spine never shows these.
+                if isUnclaimed {
+                    Image(systemName: "tray")
+                        .font(.system(size: 9 * scale))
+                        .foregroundColor(.secondary.opacity(0.45))
+                        .hudTip("Unclaimed — maps to no vault project (Session Inbox). Add a vault folder or a cwds: glob in its Tasks.md to claim it.")
+                }
 
                 if sessions.count > 1 {
                     Text("\(sessions.count)")

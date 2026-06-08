@@ -251,6 +251,11 @@ private struct ProjectRowView: View {
                     // resolver. Owns its own "Work" label (controls share the
                     // header line). Tasks stay READ-ONLY in Projects (Phase 1).
                     WorkSubsection(project: project)
+                    // Recent activity — pre-computed Session Log digests
+                    // (Did / Decisions / Open-next, written by the ingest hook).
+                    // No LLM at view time; owns its leading divider; self-hides
+                    // when the project has no digests yet.
+                    AccomplishmentsSubsection(project: project)
                     // People / Meetings / Emails — harvested from the cross
                     // ProjectService intel, bridged by folder name; self-hides
                     // (incl. its leading divider) when there's nothing to show.
@@ -258,10 +263,6 @@ private struct ProjectRowView: View {
                     Divider().opacity(0.18)
                     SectionLabel("Notes")
                     NotesSubsection(project: project, vaultPath: vaultPath)
-                    Divider().opacity(0.18)
-                    // Briefing — lazy, on-demand only (button, never on expand),
-                    // honoring the "no LLM call on view open" rule.
-                    BriefingSubsection(project: project)
                 }
                 .padding(.leading, 20)
                 .padding(.top, 6)
@@ -1564,88 +1565,114 @@ private struct ProjectIntelSubsection: View {
     }
 }
 
-// MARK: - Briefing subsection (Phase 1 harvest — lazy, on-demand AI briefing)
+// MARK: - Accomplishments subsection (Phase 1b — pre-computed Session Log digests)
 
-/// On-demand AI project briefing (priorities / blockers / next), bridged by
-/// folder name. Generation runs ONLY on the button tap — never on expand —
-/// honoring the "no LLM call on view open" rule. Display-only: the harvested
-/// push-to-Tasks.md actions are deliberately dropped (Phase 1 keeps Projects
-/// read-only for tasks).
-private struct BriefingSubsection: View {
+/// "What happened here," read straight from the project's `Session Log.md`
+/// digests (Did / Decisions / Open-next, written by the ingest hook at
+/// SessionEnd). NO LLM call at view time — the synthesis already ran in the
+/// hook, so this is the at-the-ready answer to "where did I leave off." Shows
+/// the newest "Open / next" up top, then a few recent digests, each expandable.
+/// Owns its leading divider; self-hides when the project has no digests yet.
+/// (The overnight cleaner can later enrich Dashboard.md further — Phase 7 —
+/// but this needs no cleaner change: the digests already exist.)
+private struct AccomplishmentsSubsection: View {
     let project: VaultProjectService.Project
-    @EnvironmentObject var crossProjectService: ProjectService
-    @EnvironmentObject var projectBriefing: ProjectBriefingService
     @Environment(\.fontScale) private var scale
-    @State private var bridged: Project?
+    @State private var digests: [VaultProjectService.Digest] = []
+    @State private var expanded: Set<UUID> = []
 
-    private var briefing: ProjectBriefing? { bridged.flatMap { projectBriefing.briefings[$0.id] } }
+    private let cap = 4
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                SectionLabel("Briefing")
-                Spacer()
-                if briefing?.isLoading == true {
-                    ProgressView().controlSize(.mini)
-                } else {
-                    Button(action: {
-                        guard let b = bridged else { return }
-                        projectBriefing.invalidate(projectId: b.id)
-                        projectBriefing.generateBriefing(for: b)
-                    }) {
-                        HStack(spacing: 3) {
-                            Image(systemName: briefing == nil ? "sparkles" : "arrow.clockwise")
+        Group {
+            if digests.isEmpty {
+                EmptyView()
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Divider().opacity(0.18)
+                    SectionLabel("Recent")
+                    // "Where we left off" — the newest digest's Open / next.
+                    if let latest = digests.first, !latest.openNext.isEmpty {
+                        HStack(alignment: .firstTextBaseline, spacing: 5) {
+                            Image(systemName: "arrow.turn.down.right")
                                 .font(.system(size: 9 * scale))
-                            Text(briefing == nil ? "Generate" : "Refresh")
+                                .foregroundColor(.accentColor.opacity(0.7))
+                            Text(prettifyMarkdown(latest.openNext))
                                 .font(.captionFont(scale))
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                        .foregroundColor(bridged == nil ? .secondary.opacity(0.4) : .accentColor)
+                        .padding(.bottom, 2)
                     }
-                    .buttonStyle(.borderless)
-                    .disabled(bridged == nil)
-                    .hudTip(bridged == nil
-                            ? "No cross-project record yet (needs prior sessions or notes)"
-                            : "Run an AI briefing for this project (one LLM call)")
-                }
-            }
-            if let b = briefing {
-                if let error = b.error {
-                    Text(error)
-                        .font(.captionFont(scale))
-                        .foregroundColor(.secondary)
-                } else if !b.isLoading {
-                    if !b.priorities.isEmpty { briefingList("Priorities", b.priorities, .blue) }
-                    if !b.blockers.isEmpty { briefingList("Blockers", b.blockers, .orange) }
-                    if !b.nextActions.isEmpty { briefingList("Next", b.nextActions, .green) }
-                    if b.priorities.isEmpty && b.blockers.isEmpty && b.nextActions.isEmpty {
-                        Text(b.summary.isEmpty ? "No briefing items." : b.summary)
-                            .font(.captionFont(scale))
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                    ForEach(digests.prefix(cap)) { d in
+                        digestRow(d)
                     }
                 }
             }
         }
         .task(id: project.id) {
-            bridged = crossProjectService.projects.first { $0.name == project.name }
+            guard project.hasSessionLog else { digests = []; return }
+            let path = project.sessionLogPath
+            // Read + parse off the main actor; the file can be large.
+            let parsed: [VaultProjectService.Digest] = await Task.detached(priority: .userInitiated) {
+                guard let raw = try? String(contentsOf: path, encoding: .utf8) else { return [] }
+                return VaultProjectService.parseSessionLog(from: raw)
+            }.value
+            digests = parsed
         }
     }
 
-    private func briefingList(_ title: String, _ items: [String], _ color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.captionFont(scale).weight(.semibold))
-                .foregroundColor(color.opacity(0.8))
-            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text("•").foregroundColor(color.opacity(0.6))
-                    Text(item)
-                        .font(.captionFont(scale))
-                        .foregroundColor(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
+    private func digestRow(_ d: VaultProjectService.Digest) -> some View {
+        let isOpen = expanded.contains(d.id)
+        return VStack(alignment: .leading, spacing: 3) {
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.12)) {
+                    if isOpen { expanded.remove(d.id) } else { expanded.insert(d.id) }
                 }
-                .padding(.leading, 2)
+            }) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: isOpen ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 8 * scale, weight: .semibold))
+                        .foregroundColor(.secondary.opacity(0.6))
+                        .frame(width: 9)
+                    Text(prettifyMarkdown(d.title))
+                        .font(.captionFont(scale).weight(.medium))
+                        .foregroundColor(.primary)
+                        .lineLimit(isOpen ? nil : 1)
+                        .multilineTextAlignment(.leading)
+                    Spacer(minLength: 4)
+                    Text(d.date)
+                        .font(.custom("Fira Code", size: 9 * scale))
+                        .foregroundColor(.secondary.opacity(0.5))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isOpen {
+                VStack(alignment: .leading, spacing: 4) {
+                    digestField("Did", d.did, .secondary)
+                    digestField("Decisions", d.decisions, .secondary)
+                    digestField("Open / next", d.openNext, .accentColor.opacity(0.85))
+                }
+                .padding(.leading, 15)
+                .padding(.top, 1)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func digestField(_ label: String, _ text: String, _ color: Color) -> some View {
+        if !text.isEmpty {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label.uppercased())
+                    .font(.system(size: 8 * scale, weight: .semibold))
+                    .tracking(0.5)
+                    .foregroundColor(color.opacity(0.7))
+                Text(prettifyMarkdown(text))
+                    .font(.captionFont(scale))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

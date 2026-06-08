@@ -618,6 +618,131 @@ final class VaultProjectService: ObservableObject {
     func folderName(forCwd cwd: String) -> String? {
         cwdFolderCache[cwd] ?? nil
     }
+
+    // MARK: - Session Log digests (Phase 1b — "what happened here", no LLM)
+
+    /// One ingested session digest from `Session Log.md`. The ingest hook
+    /// (`vault-ingest.sh`) writes these at SessionEnd as:
+    ///
+    ///     ## <YYYY-MM-DD> — <title>
+    ///     - Did: <prose>
+    ///     - Decisions: <prose | nested bullets>
+    ///     - Open / next: <prose | nested bullets>
+    ///     - Session: <uuid>
+    ///
+    /// so the synthesis already ran in the hook — this is pre-computed,
+    /// at-the-ready "what happened," with no LLM call at view time. (The
+    /// overnight cleaner can later enrich `Dashboard.md` further; this is the
+    /// data that already exists.)
+    struct Digest: Identifiable, Hashable {
+        let id = UUID()
+        let date: String          // raw "YYYY-MM-DD"
+        let parsedDate: Date?
+        let title: String
+        let did: String
+        let decisions: String
+        let openNext: String
+        let sessionID: String?
+        func hash(into h: inout Hasher) { h.combine(id) }
+        static func == (l: Digest, r: Digest) -> Bool { l.id == r.id }
+    }
+
+    /// Parse `Session Log.md` into digests, newest-first. Tolerant of the
+    /// `- Did:` / `- **Did**:` variants and of inline-or-nested field values.
+    /// `nonisolated` so it can run off the main actor.
+    nonisolated static func parseSessionLog(from content: String) -> [Digest] {
+        var out: [Digest] = []
+        var date = "", title = "", did = "", decisions = "", openNext = ""
+        var session: String? = nil
+        var current: String? = nil      // field that loose lines append to
+        var have = false
+
+        func flush() {
+            guard have else { return }
+            out.append(Digest(
+                date: date,
+                parsedDate: DateFormatter.iso8601Date.date(from: date),
+                title: title,
+                did: did.trimmingCharacters(in: .whitespacesAndNewlines),
+                decisions: decisions.trimmingCharacters(in: .whitespacesAndNewlines),
+                openNext: openNext.trimmingCharacters(in: .whitespacesAndNewlines),
+                sessionID: session
+            ))
+        }
+        func reset() {
+            date = ""; title = ""; did = ""; decisions = ""; openNext = ""
+            session = nil; current = nil; have = false
+        }
+        func append(_ field: String?, _ text: String) {
+            let t = text.trimmingCharacters(in: .whitespaces)
+            guard !t.isEmpty else { return }
+            switch field {
+            case "did": did += (did.isEmpty ? "" : " ") + t
+            case "decisions": decisions += (decisions.isEmpty ? "" : "; ") + t
+            case "open": openNext += (openNext.isEmpty ? "" : "; ") + t
+            default: break
+            }
+        }
+
+        for rawLine in content.components(separatedBy: "\n") {
+            if rawLine.hasPrefix("## ") {
+                flush(); reset()
+                let head = String(rawLine.dropFirst(3))
+                var split = false
+                for sep in [" — ", " -- ", " – ", " - "] {
+                    if let r = head.range(of: sep) {
+                        date = String(head[..<r.lowerBound]).trimmingCharacters(in: .whitespaces)
+                        title = String(head[r.upperBound...]).trimmingCharacters(in: .whitespaces)
+                        split = true; break
+                    }
+                }
+                if !split { title = head.trimmingCharacters(in: .whitespaces) }
+                have = true
+                continue
+            }
+            guard have else { continue }   // skip H1 + intro before first digest
+
+            let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { continue }
+
+            if let (field, value) = digestField(trimmed) {
+                current = field
+                if field == "session" { session = value.isEmpty ? nil : value }
+                else { append(field, value) }
+                continue
+            }
+            // Nested bullet / continuation → current field (skip the italic
+            // relocated-from note the ingest hook sometimes appends).
+            if trimmed.hasPrefix("- ") {
+                append(current, String(trimmed.dropFirst(2)))
+            } else if !trimmed.hasPrefix("_(") {
+                append(current, trimmed)
+            }
+        }
+        flush()
+        return out.sorted { ($0.parsedDate ?? .distantPast) > ($1.parsedDate ?? .distantPast) }
+    }
+
+    /// Recognize a digest field line (`- Did:`, `- **Open / next**:`, …) and
+    /// return (canonicalField, inlineValue), or nil if it isn't a known field
+    /// (so nested bullets that merely contain a colon aren't misread).
+    nonisolated private static func digestField(_ trimmed: String) -> (String, String)? {
+        guard trimmed.hasPrefix("- ") else { return nil }
+        let rest = String(trimmed.dropFirst(2)).replacingOccurrences(of: "**", with: "")
+        guard let colon = rest.firstIndex(of: ":") else { return nil }
+        let label = String(rest[..<colon]).trimmingCharacters(in: .whitespaces).lowercased()
+        let value = String(rest[rest.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+        let canonical: String?
+        switch label {
+        case "did": canonical = "did"
+        case "decisions", "decided": canonical = "decisions"
+        case "open / next", "open/next", "open next", "next", "open": canonical = "open"
+        case "session": canonical = "session"
+        default: canonical = nil
+        }
+        guard let c = canonical else { return nil }
+        return (c, value)
+    }
 }
 
 // MARK: - Date helpers
