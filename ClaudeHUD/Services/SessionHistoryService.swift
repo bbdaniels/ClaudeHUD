@@ -125,6 +125,12 @@ class SessionHistoryService: ObservableObject {
         let fm = FileManager.default
         guard let projectDirs = try? fm.contentsOfDirectory(atPath: baseDir) else { return [] }
 
+        // Close-out titles written by the vault-ingest pipeline at SessionEnd
+        // (see loadSidecarTitles). When present they ARE the label — they
+        // summarize what the session accomplished, which Claude Code's
+        // ai-title never captures for magic-launched sessions.
+        let sidecarTitles = loadSidecarTitles()
+
         var found: [SessionInfo] = []
 
         for dir in projectDirs {
@@ -143,16 +149,23 @@ class SessionHistoryService: ObservableObject {
                 guard let attrs = try? fm.attributesOfItem(atPath: filePath),
                       let modDate = attrs[.modificationDate] as? Date else { continue }
 
-                let preview = readPreview(from: filePath)
-
-                // Skip automated skill-selector invocations — these are Claude Code's
-                // internal haiku-model queries that run a skill catalog selector as if
-                // it were a user prompt. They clutter the history with identical content.
-                if isSkillSelectorPreview(preview) { continue }
-
-                // Skip abandoned sessions that never produced a real user/assistant turn
-                // (file contains only queue-operation or file-history-snapshot records).
-                if preview == "Session" { continue }
+                let preview: String
+                if let title = sidecarTitles[sessionId] {
+                    // Ingested, substantive session: the close-out digest title
+                    // wins outright. Skill-selector / probe one-shots produce
+                    // NO_DURABLE_CONTENT, so they get no sidecar and still hit the
+                    // drop filters below. Also skips the readPreview head read.
+                    preview = title
+                } else {
+                    let p = readPreview(from: filePath)
+                    // Skip automated skill-selector invocations — Claude Code's
+                    // internal haiku skill-catalog queries logged as a user prompt.
+                    if isSkillSelectorPreview(p) { continue }
+                    // Skip abandoned / probe sessions with no real user turn
+                    // (readPreview returns the "Session" sentinel).
+                    if p == "Session" { continue }
+                    preview = p
+                }
 
                 found.append(SessionInfo(
                     id: sessionId,
@@ -166,6 +179,31 @@ class SessionHistoryService: ObservableObject {
         }
 
         return found.sorted { $0.timestamp > $1.timestamp }
+    }
+
+    /// Close-out session titles written by the vault-ingest pipeline at
+    /// SessionEnd (vault-ingest.sh → write_title_sidecar): the digest's
+    /// "## <date> — <title>" heading, keyed by session id under
+    /// ~/.claude/hud/session-titles/<id>.txt. These summarize what a session
+    /// ACCOMPLISHED — far better than Claude Code's ai-title, which is
+    /// generated from the opening turn and freezes at "context load" for every
+    /// magic-launched vault session. Loaded once per scan; absent for
+    /// un-ingested sessions, which fall back to readPreview (ai-title / first
+    /// prompt). Only substantive sessions get a digest, so a sidecar's mere
+    /// presence also means the session is worth listing.
+    nonisolated private static func loadSidecarTitles() -> [String: String] {
+        let dir = "\(NSHomeDirectory())/.claude/hud/session-titles"
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(atPath: dir) else { return [:] }
+        var map: [String: String] = [:]
+        map.reserveCapacity(files.count)
+        for f in files where f.hasSuffix(".txt") {
+            let sid = String(f.dropLast(4))
+            guard let raw = try? String(contentsOfFile: "\(dir)/\(f)", encoding: .utf8) else { continue }
+            let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !t.isEmpty { map[sid] = String(t.prefix(100)) }
+        }
+        return map
     }
 
     /// Detect Claude Code's internal skill-selector prompts that are logged as user
@@ -355,6 +393,24 @@ class SessionHistoryService: ObservableObject {
                 // there is none the loop falls through to the "Session"
                 // sentinel, which the caller drops from history.
                 if trimmed.isEmpty || isPassThroughPrompt(trimmed) { continue }
+                // External remote-control connectivity probes — Claude Code's
+                // mobile/web app pinging the `--remote-control <project>` named
+                // sessions that magic-launch registers — spawn throwaway
+                // one-shot sessions in the project dir whose only user message
+                // is a fixed liveness/echo string. Drop the whole session; it
+                // is not the user's work. ("Session" → caller skips it.)
+                if isProbePrompt(trimmed) { return "Session" }
+                // Magic-launched vault sessions all open with the same long
+                // bootstrap boilerplate, so in history every one reads as an
+                // identical truncated "Fresh session on the Obsidian vault
+                // project: …". Prefer Claude Code's own evolving `ai-title`
+                // (written near the END of the transcript, past this 16 KB head
+                // window — hence the separate tail read); until the first one
+                // exists, fall back to a short label that names the project.
+                if trimmed.hasPrefix(magicLaunchPrefix) {
+                    if let title = readLastAITitle(from: path) { return String(title.prefix(100)) }
+                    if let project = magicLaunchProject(trimmed) { return "Vault session: \(project)" }
+                }
                 return String(trimmed.prefix(100))
             }
         }
@@ -372,6 +428,66 @@ class SessionHistoryService: ObservableObject {
         if s.hasPrefix("You select the single most relevant skill") { return true }
         if s.hasPrefix("# Session Ingest") { return true }                    // session digest pipeline
         return false
+    }
+
+    /// Fixed liveness/echo prompts sent by an external Claude Code remote-control
+    /// client (mobile/web app) to the `--remote-control <project>` sessions that
+    /// magic-launch registers. Each lands as its own throwaway one-shot session
+    /// in the project dir; matching the opening of its sole user message lets us
+    /// drop it from history. Explicit prefixes, not a heuristic — same
+    /// philosophy as `isPassThroughPrompt`; extend as new probe forms appear.
+    nonisolated private static func isProbePrompt(_ s: String) -> Bool {
+        if s.hasPrefix("Reply with exactly the word: PONG") { return true }
+        if s.hasPrefix("Return ONLY this JSON object") { return true }
+        return false
+    }
+
+    /// Exact opening of the magic-launch vault bootstrap prompt, generated
+    /// verbatim by `magicLaunchInGhostty()` in HUDContentView. Recognising it
+    /// lets history relabel these sessions with their ai-title instead of the
+    /// identical boilerplate. Keep in sync with the template there.
+    nonisolated private static let magicLaunchPrefix = "Fresh session on the Obsidian vault project: "
+
+    /// Project name carried by a magic-launch bootstrap prompt — the text
+    /// between `magicLaunchPrefix` and the first period — or nil if absent.
+    nonisolated private static func magicLaunchProject(_ s: String) -> String? {
+        guard s.hasPrefix(magicLaunchPrefix) else { return nil }
+        let rest = s.dropFirst(magicLaunchPrefix.count)
+        guard let dot = rest.firstIndex(of: ".") else { return nil }
+        let name = rest[..<dot].trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? nil : name
+    }
+
+    /// Claude Code's most recent `ai-title` for a session — a short,
+    /// human-readable title it refines as the session runs. These entries live
+    /// near the END of the transcript (after the big attachment/tool lines that
+    /// overflow the 16 KB head budget), so read a tail window and take the last
+    /// one. Returns nil for sessions that predate ai-titles or have none yet.
+    nonisolated private static func readLastAITitle(from path: String) -> String? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { handle.closeFile() }
+
+        let size = handle.seekToEndOfFile()
+        let window: UInt64 = 65536
+        handle.seek(toFileOffset: size > window ? size - window : 0)
+        let data = handle.readDataToEndOfFile()
+        // Lenient decode: the window may begin mid-character, which would make a
+        // strict UTF-8 conversion fail outright. Any garbled bytes land only in
+        // the partial first line, which fails to parse and is skipped anyway.
+        let text = String(decoding: data, as: UTF8.self)
+
+        var title: String?
+        for line in text.components(separatedBy: "\n") {
+            guard line.contains("\"ai-title\""),
+                  let lineData = line.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  json["type"] as? String == "ai-title",
+                  let t = (json["aiTitle"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !t.isEmpty
+            else { continue }
+            title = t  // keep scanning; last ai-title in the file is the freshest
+        }
+        return title
     }
 
     /// Get the role from a JSONL message line.

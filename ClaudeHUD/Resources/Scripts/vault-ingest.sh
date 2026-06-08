@@ -1,11 +1,32 @@
 #!/bin/bash
 # === Managed by ClaudeHUD ============================================
-# script-version: 1.5.0
+# script-version: 1.6.1
 # source: ClaudeHUD/Resources/Scripts/vault-ingest.sh
 # To edit, fork in the ClaudeHUD repo and rebuild. The installer
 # detects local edits to the installed copy and refuses to clobber
 # them — see Services/VaultScriptInstaller.swift.
 # =====================================================================
+# 1.6.1 (2026-06-08):
+#  * Digest `claude -p` now runs with --strict-mcp-config (and no
+#    --mcp-config), so it loads ZERO MCP servers. The digest only needs
+#    Read/Grep/Glob over a temp transcript copy; it never needs Google
+#    Drive / Obsidian / etc. Without this, every digest (per-SessionEnd +
+#    the 30-min --backfill batch of 10) booted the GLOBAL `google-drive`
+#    MCP server from ~/.claude.json, which re-ran the Google OAuth sign-in
+#    flow on each start (its persisted token had been moved out of the
+#    live path → no silent refresh). --allowedTools gates tool USE, not
+#    server SPAWN, so the OAuth fired regardless of the Read/Grep/Glob
+#    whitelist. Same spirit as 1.3.0's TCC-surface reduction.
+# 1.6.0 (2026-06-07):
+#  * HUD session-title sidecars. After a successful digest, the digest's
+#    "## <date> — <title>" heading is written to
+#    ~/.claude/hud/session-titles/<sid>.txt; the Swift HUD prefers it as
+#    the history-list label over Claude Code's ai-title, which freezes on
+#    the opening turn (every magic-launched session otherwise reads
+#    "context load" no matter what work followed). New --backfill-titles
+#    mode rebuilds every sidecar from the digests already in each project's
+#    Session Log.md / Misc/Session Inbox.md — pure text parsing, no model
+#    calls. Consumed by SessionHistoryService.loadSidecarTitles.
 # 1.5.0 (2026-06-04):
 #  * Digest `claude -p` now runs with cwd=$tmpd (the throwaway copy dir),
 #    so its OWN session transcript records a cwd that the ingest filter
@@ -214,6 +235,45 @@ EOF
   exit 0
 fi
 
+# ---------------- --backfill-titles ----------------
+# Rebuild every HUD session-title sidecar from the digests already written
+# to each project's Session Log.md / Misc/Session Inbox.md. Pure text
+# parsing — NO model calls. Pairs each "## <date> — <title>" heading with
+# the "- Session: <uuid>" line that follows and writes
+# ~/.claude/hud/session-titles/<uuid>.txt. Idempotent; safe to re-run.
+if [ "${1:-}" = "--backfill-titles" ]; then
+  dir="$HOME/.claude/hud/session-titles"
+  mkdir -p "$dir"
+  n="$(VAULT_DIR="$VAULT" OUTDIR="$dir" python3 <<'PY'
+import os, re
+vault = os.environ['VAULT_DIR']; outdir = os.environ['OUTDIR']
+title_re = re.compile(r'^##\s+\d{4}-\d{2}-\d{2}\s*[—–-]+\s*(.+?)\s*$')
+dash_re  = re.compile(r'^##\s+.*?\s[—–]\s+(.+?)\s*$')
+sess_re  = re.compile(r'^-\s*Session:\s*([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})')
+written = 0
+for root, dirs, files in os.walk(vault):
+    dirs[:] = [d for d in dirs if not d.startswith('.')]
+    for fn in files:
+        if fn not in ('Session Log.md', 'Session Inbox.md'):
+            continue
+        cur = None
+        for line in open(os.path.join(root, fn), encoding='utf-8', errors='replace'):
+            m = title_re.match(line) or dash_re.match(line)
+            if m:
+                cur = m.group(1).strip(); continue
+            s = sess_re.match(line)
+            if s and cur:
+                with open(os.path.join(outdir, s.group(1).lower() + '.txt'), 'w', encoding='utf-8') as f:
+                    f.write(cur + '\n')
+                written += 1
+                cur = None
+print(written)
+PY
+)"
+  echo "backfill-titles: wrote $n sidecars to $dir"
+  exit 0
+fi
+
 # ---------------- phase 1: SessionEnd hook ----------------
 if [ "${1:-}" != "--run" ]; then
   [ -n "${VAULT_INGEST:-}" ] && exit 0          # loop guard (our own claude -p)
@@ -288,6 +348,7 @@ out="$(cd "$tmpd" && "$CLAUDE" -p \
   --model "${VAULT_INGEST_MODEL:-claude-sonnet-4-6}" \
   --permission-mode default \
   --allowedTools "Read,Grep,Glob" \
+  --strict-mcp-config \
   --add-dir "$tmpd" \
   --max-turns 40 \
   "$prompt_text" 2>>"$LOG")"
@@ -307,6 +368,32 @@ append_atomic() {  # $1=file  $2=content-to-append
   local f="$1" tmp; tmp="$(mktemp "${f}.XXXXXX.tmp")"
   { [ -f "$f" ] && cat "$f"; printf '%s\n' "$2"; } > "$tmp"
   mv -f "$tmp" "$f"
+}
+
+# HUD session-title sidecar. Pull the digest's "## <date> — <title>" heading
+# (title only) and write it, keyed by session id, where the Swift HUD reads
+# it (SessionHistoryService.loadSidecarTitles). This "what the session
+# accomplished" label beats Claude Code's ai-title, which is generated from
+# the opening turn and freezes at "context load" for every magic-launched
+# vault session. Best-effort; an unparsable heading just leaves no sidecar
+# (the HUD falls back to ai-title / first prompt). Never fatal to the ingest.
+write_title_sidecar() {
+  local s="$1" d="$2" title dir tmp
+  [ -z "$s" ] && return 0
+  title="$(printf '%s' "$d" | python3 -c '
+import sys, re
+date = re.compile(r"^##\s+\d{4}-\d{2}-\d{2}\s*[—–-]+\s*(.+?)\s*$")
+dash = re.compile(r"^##\s+.*?\s[—–]\s+(.+?)\s*$")
+for line in sys.stdin:
+    m = date.match(line) or dash.match(line)
+    if m:
+        print(m.group(1).strip()); break
+' 2>/dev/null)"
+  [ -z "$title" ] && return 0
+  dir="$HOME/.claude/hud/session-titles"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  tmp="$(mktemp "$dir/.tmp.XXXXXX" 2>/dev/null)" || return 0
+  printf '%s\n' "$title" > "$tmp" && mv -f "$tmp" "$dir/$s.txt"
 }
 
 # Per-target lock: real sessions ending close together run concurrent
@@ -338,6 +425,7 @@ if [ -n "$digest" ]; then
   append_atomic "$logf" "
 $digest"
   echo "digest appended to: $logf"
+  write_title_sidecar "$sid" "$digest"
 else
   echo "no durable content${ledg:+ — ledger row only}"
 fi
