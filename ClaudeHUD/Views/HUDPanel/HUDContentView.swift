@@ -92,10 +92,8 @@ enum FixedTab: String, CaseIterable {
     //   library   → "Claude"    — background agents + Claude internals
     //   vault     → "Projects"  — vault-driven per-project browser
     //   today     → "Today"     — schedule, briefing, daily note
-    //   people    → "People"    — contacts
-    //   substack  → "Reader"    — Substack feed reader
     //
-    // Tab order is the enum declaration order. History first, Substack last.
+    // Tab order is the enum declaration order. History first.
     //
     // Killed tabs kept inert in services (push notif, permission watcher,
     // ProjectBriefingService, AgentsService standalone tab, obsidian
@@ -105,16 +103,12 @@ enum FixedTab: String, CaseIterable {
     case library
     case vault
     case today
-    case people
-    case substack
 
     var icon: String {
         switch self {
         case .history: return "clock.arrow.circlepath"
         case .vault: return "briefcase"
         case .today: return "calendar"
-        case .people: return "person.2"
-        case .substack: return "newspaper"
         case .library: return "books.vertical.fill"   // overridden by Library asset; see TabBar.
         }
     }
@@ -133,8 +127,6 @@ enum FixedTab: String, CaseIterable {
         case .history: return "Sessions"
         case .vault: return "Projects"
         case .today: return "Today"
-        case .people: return "People"
-        case .substack: return "Reader"
         case .library: return "Claude"
         }
     }
@@ -149,8 +141,6 @@ enum FixedTab: String, CaseIterable {
         case .history: return "Browse and resume past Claude Code sessions"
         case .vault: return "Per-project status, tasks, and notes from the Karpathy archive"
         case .today: return "Schedule, AI briefing, and today's daily note"
-        case .people: return "Contact directory from calendar, email, Contacts"
-        case .substack: return "Aggregated feed from your subscriptions"
         case .library: return "Background sessions pinned on top; Claude internals (skills, agents, hooks, rules, MCP, settings) below"
         }
     }
@@ -338,12 +328,6 @@ struct HUDContentView: View {
                         .environmentObject(vaultManager)
                         .environmentObject(appState.projectService)
                         .environmentObject(appState.remindersService)
-                case .people:
-                    PeopleView()
-                        .environmentObject(appState.contactService)
-                case .substack:
-                    SubstackView()
-                        .environmentObject(appState.substackService)
                 case .library:
                     LibraryView()
                         .environmentObject(appState.libraryService)
@@ -1800,11 +1784,6 @@ struct InfoPopover: View {
 
             Divider()
 
-            // Substack cookie
-            SubstackCookieSection()
-
-            Divider()
-
             // Features
             VStack(alignment: .leading, spacing: 8) {
                 Text("Features")
@@ -1942,7 +1921,7 @@ private struct TabToggleSection: View {
     }
 }
 
-// MARK: - Substack Cookie Settings
+// MARK: - Cookie Settings
 
 private struct ClaudeAICookieSection: View {
     @EnvironmentObject var usageService: UsageService
@@ -1983,55 +1962,6 @@ private struct ClaudeAICookieSection: View {
                         guard !cookieText.isEmpty else { return }
                         UsageService.saveCookie(cookieText)
                         usageService.cookieDidChange()
-                        cookieText = ""
-                    }
-                    .font(.custom("Fira Sans", size: 11))
-                    .buttonStyle(.borderless)
-                    .disabled(cookieText.isEmpty)
-                }
-            }
-        }
-    }
-}
-
-private struct SubstackCookieSection: View {
-    @State private var cookieText: String = ""
-    @State private var hasCookie: Bool = SubstackService.loadCookie() != nil
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Substack")
-                .font(.custom("Fira Sans", size: 12).weight(.semibold))
-                .foregroundColor(.secondary)
-
-            if hasCookie {
-                HStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundColor(.green)
-                    Text("Cookie configured")
-                        .font(.custom("Fira Sans", size: 12))
-                    Spacer()
-                    Button("Remove") {
-                        SubstackService.deleteCookie()
-                        hasCookie = false
-                    }
-                    .font(.custom("Fira Sans", size: 11))
-                    .buttonStyle(.borderless)
-                    .foregroundColor(.red)
-                }
-            } else {
-                Text("Paste your substack.sid cookie to enable the feed:")
-                    .font(.custom("Fira Sans", size: 11))
-                    .foregroundColor(.secondary)
-                HStack(spacing: 6) {
-                    TextField("substack.sid value", text: $cookieText)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.custom("Fira Code", size: 10))
-                    Button("Save") {
-                        guard !cookieText.isEmpty else { return }
-                        SubstackService.saveCookie(cookieText)
-                        hasCookie = true
                         cookieText = ""
                     }
                     .font(.custom("Fira Sans", size: 11))

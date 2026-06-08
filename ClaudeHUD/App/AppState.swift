@@ -20,7 +20,6 @@ class AppState: ObservableObject {
     let projectBriefingService = ProjectBriefingService()
     let contactService = ContactService()
     let remindersService = RemindersService()
-    let substackService = SubstackService()
     let usageService = UsageService()
     let skillsService = SkillsService()
     let agentsService = AgentsService()
@@ -83,7 +82,6 @@ class AppState: ObservableObject {
         // Services were initialized before secrets were available, so notify
         // them to re-read now.
         await SecretsVault.shared.unlock()
-        substackService.cookieDidChange()
         usageService.cookieDidChange()
 
         logger.info("AppState setup complete")

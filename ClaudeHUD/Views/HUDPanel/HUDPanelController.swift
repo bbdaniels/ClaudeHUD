@@ -70,8 +70,6 @@ class HUDPanelController {
             .environmentObject(appState.calendarService)
             .environmentObject(appState.briefingService)
             .environmentObject(appState.projectService)
-            .environmentObject(appState.contactService)
-            .environmentObject(appState.substackService)
             .environmentObject(appState.usageService)
             .environmentObject(appState.skillsService)
 
