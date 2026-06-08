@@ -154,7 +154,16 @@ final class VaultProjectService: ObservableObject {
             guard !line.isEmpty, !line.hasPrefix(" "), !line.hasPrefix("\t") else { continue }
             guard let colon = line.firstIndex(of: ":") else { continue }
             let key = String(line[..<colon]).trimmingCharacters(in: .whitespaces)
-            let val = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+            var val = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+            // Strip surrounding quotes — YAML commonly quotes dates
+            // (`updated: '2026-06-08'`), and an unquoted-only parse leaves the
+            // quotes in, so the date fails to parse (→ nil → mis-bucketed as
+            // "Older") and `status: 'active'` would miss its equality checks.
+            if val.count >= 2,
+               (val.hasPrefix("'") && val.hasSuffix("'")) ||
+               (val.hasPrefix("\"") && val.hasSuffix("\"")) {
+                val = String(val.dropFirst().dropLast())
+            }
             if !key.isEmpty { out[key] = val }
         }
         return out
