@@ -238,14 +238,16 @@ final class VaultIngestService: ObservableObject {
 
     /// Whether a transcript is a programmatic `claude -p` one-shot rather
     /// than a person's session. Mirrors `vault-ingest.sh::is_machine_transcript`
-    /// (canonical) and `SessionHistoryService.classifyHead`: the first user
-    /// record of an SDK run carries `entrypoint: "sdk-cli"` /
-    /// `promptSource: "sdk"`; prefix checks cover older transcripts that
-    /// predate those fields.
+    /// (canonical) and `SessionHistoryService.classifyHead`: an SDK run's
+    /// user record carries `entrypoint: "sdk-cli"`; prefix checks cover
+    /// older transcripts that predate the field. A `promptSource: "sdk"`
+    /// record alone is only condemning when nothing interactive follows —
+    /// real sessions can carry an injected selector prompt as their first
+    /// user record.
     nonisolated private static func isMachineTranscript(_ url: URL) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }
-        let data = handle.readData(ofLength: 16384)
+        let data = handle.readData(ofLength: 65536)
         guard let text = String(data: data, encoding: .utf8) else { return false }
 
         let machinePrefixes = [
@@ -255,22 +257,25 @@ final class VaultIngestService: ObservableObject {
             "Reply with exactly",
             "Return ONLY this JSON object",
         ]
-        for line in text.components(separatedBy: "\n").prefix(50) {
+        var sawSdk = false
+        var sawLive = false
+        for line in text.components(separatedBy: "\n").prefix(400) {
             guard !line.isEmpty,
                   let lineData = line.data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
                   json["type"] as? String == "user"
             else { continue }
-            if json["entrypoint"] as? String == "sdk-cli"
-                || json["promptSource"] as? String == "sdk" { return true }
-            if let msg = json["message"] as? [String: Any],
-               let content = msg["content"] as? String {
-                let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                if machinePrefixes.contains(where: { trimmed.hasPrefix($0) }) { return true }
-            }
-            return false  // first user record is a real prompt
+            if json["entrypoint"] as? String == "sdk-cli" { return true }
+            if json["promptSource"] as? String == "sdk" { sawSdk = true; continue }
+            guard let msg = json["message"] as? [String: Any],
+                  let content = msg["content"] as? String else { continue }
+            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if machinePrefixes.contains(where: { trimmed.hasPrefix($0) }) { return true }
+            if trimmed.isEmpty { continue }
+            if trimmed.hasPrefix("<") { sawLive = true; continue }  // command wrapper
+            return false  // real prompt -> real session
         }
-        return false
+        return sawSdk && !sawLive
     }
 
     /// Walk `<vault>/*/Sessions.md` and build `session_id → SessionStatus`.

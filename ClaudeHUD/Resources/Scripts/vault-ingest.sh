@@ -1,11 +1,22 @@
 #!/bin/bash
 # === Managed by ClaudeHUD ============================================
-# script-version: 1.8.0
+# script-version: 1.8.1
 # source: ClaudeHUD/Resources/Scripts/vault-ingest.sh
 # To edit, fork in the ClaudeHUD repo and rebuild. The installer
 # detects local edits to the installed copy and refuses to clobber
 # them — see Services/VaultScriptInstaller.swift.
 # =====================================================================
+# 1.8.1 (2026-06-09):
+#  * Machine detection refined: a promptSource:"sdk" record alone no
+#    longer condemns a session — real interactive sessions can carry an
+#    injected selector prompt as their FIRST user record yet contain a
+#    person's typed work after it (found: 1 of 7,617 transcripts; its
+#    "machine" verdict would have suppressed digests of real work).
+#    Now: entrypoint "sdk-cli" or a machine first-prompt is definitive;
+#    sdk-sourced records are SKIPPED; "<command>" wrappers count as
+#    interactive evidence; scan up to 2000 lines for a real prompt;
+#    at window end, machine only if sdk records were seen and no
+#    interactive evidence was.
 # 1.8.0 (2026-06-09):
 #  * Machine-session skip. Programmatic `claude -p` one-shots (skill-tip
 #    catalog selectors, remote-control liveness probes PONG/SMOKE_OK,
@@ -201,22 +212,36 @@ import sys, json
 MACH = ("You select the single most relevant skill", "# Session Ingest",
         "<!-- === Managed by ClaudeHUD", "Reply with exactly",
         "Return ONLY this JSON object")
+# A promptSource:"sdk" record alone does NOT condemn: real interactive
+# sessions can carry an injected selector prompt as their first user
+# record yet hold a person's typed work later. Skip sdk records, treat
+# "<command>" wrappers as interactive evidence, and keep scanning for a
+# real prompt. entrypoint "sdk-cli" (the process WAS an SDK one-shot)
+# and the known machine first-prompts stay definitive.
+saw_sdk = saw_live = False
 try:
     with open(sys.argv[1], errors="replace") as fh:
         for i, line in enumerate(fh):
-            if i > 50: break
+            if i > 2000: break
             try: j = json.loads(line)
             except Exception: continue
             if j.get("type") != "user": continue
-            if j.get("entrypoint") == "sdk-cli" or j.get("promptSource") == "sdk":
-                sys.exit(0)                      # machine
+            if j.get("entrypoint") == "sdk-cli":
+                sys.exit(0)                      # machine (definitive)
             c = (j.get("message") or {}).get("content")
-            if isinstance(c, str) and c.strip().startswith(MACH):
-                sys.exit(0)                      # machine (pre-field transcript)
-            sys.exit(1)                          # first user record is real work
+            if j.get("promptSource") == "sdk":
+                saw_sdk = True; continue         # injected selector — skip
+            if not isinstance(c, str): continue  # tool results etc.
+            t = c.strip()
+            if t.startswith(MACH):
+                sys.exit(0)                      # machine (pre-field one-shot)
+            if not t: continue
+            if t.startswith("<"):
+                saw_live = True; continue        # command wrapper — interactive
+            sys.exit(1)                          # real prompt -> real session
 except Exception:
     pass
-sys.exit(1)
+sys.exit(0 if (saw_sdk and not saw_live) else 1)
 PY
 }
 

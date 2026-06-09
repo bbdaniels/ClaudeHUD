@@ -154,9 +154,10 @@ class SessionHistoryService: ObservableObject {
                 // which let machine one-shots that slipped past the digest's
                 // NO_DURABLE_CONTENT rule surface in history under a plausible
                 // title (Haiku digested a skill-selector query as real work:
-                // "Skill-selection query re: patient risk scoring"). The 16 KB
-                // head read is cheap and off the main thread.
-                guard let head = classifyHead(from: filePath) else { continue }
+                // "Skill-selection query re: patient risk scoring"). The head
+                // read is cheap and off the main thread.
+                let head = classifyHead(from: filePath)
+                if case .machine = head { continue }
 
                 let preview: String
                 if let title = sidecarTitles[sessionId] {
@@ -164,10 +165,19 @@ class SessionHistoryService: ObservableObject {
                     // wins. Strip a leading "<project>: " — the list is already
                     // grouped under the project, and sidecars written before the
                     // ingest prompt's no-project-name title rule carry the
-                    // prefix forever otherwise.
+                    // prefix forever otherwise. A sidecar also rescues .unknown
+                    // heads (e.g. a giant first record that overflows the head
+                    // window): the digest itself proves the session had
+                    // substance.
                     preview = stripProjectPrefix(title, projectName: projectName)
                 } else {
                     switch head {
+                    case .machine:
+                        continue // unreachable; handled above
+                    case .unknown:
+                        // No real user turn found in the head and never
+                        // digested — abandoned shells and unparseable heads.
+                        continue
                     case .normal(let firstPrompt):
                         preview = firstPrompt
                     case .magicLaunch(let project):
@@ -396,38 +406,48 @@ class SessionHistoryService: ObservableObject {
     // MARK: - Head Classification
 
     /// What the head of a transcript says about a session. `.normal` carries
-    /// the first genuine user prompt (preview-ready); `.magicLaunch` carries
-    /// the project name parsed from the bootstrap boilerplate.
+    /// the first genuine user prompt (preview-ready); `.magicLaunch` the
+    /// project name parsed from the bootstrap boilerplate; `.machine` is a
+    /// programmatic one-shot (never listed); `.unknown` means the head held
+    /// no verdict (listed only if a digest sidecar vouches for it).
     private enum HeadClass {
+        case machine
+        case unknown
         case normal(String)
         case magicLaunch(String)
     }
 
-    /// Classify a session from the first 16 KB of its transcript, or return
-    /// nil for sessions that should never appear in history:
+    /// Classify a session from the first 64 KB of its transcript.
     ///
-    ///  * **Machine one-shots** — programmatic `claude -p` runs: skill-tip
-    ///    catalog selectors, remote-control liveness probes (PONG /
-    ///    SMOKE_OK), the vault-ingest digest pipeline. Detected
-    ///    STRUCTURALLY: their first user record carries
-    ///    `entrypoint: "sdk-cli"` / `promptSource: "sdk"`, while every kind
-    ///    of real session (terminal, VSCode, desktop, magic-launch,
-    ///    background job) records "cli"-family entrypoints and typed
-    ///    prompts. ~7,000 of these litter ~/.claude/projects vs ~250 real
-    ///    sessions. Prompt-prefix checks remain as a fallback for old
-    ///    transcripts that predate the two fields.
-    ///  * **Abandoned sessions** with no real user turn.
+    ///  * **.machine** — programmatic `claude -p` runs: skill-tip catalog
+    ///    selectors, remote-control liveness probes (PONG / SMOKE_OK), the
+    ///    vault-ingest digest pipeline. Detected STRUCTURALLY: an SDK
+    ///    one-shot's user record carries `entrypoint: "sdk-cli"`, while every
+    ///    kind of real session (terminal, VSCode, desktop, magic-launch,
+    ///    background job) records "cli"-family entrypoints. ~7,000 of these
+    ///    litter ~/.claude/projects vs ~250 real sessions. Prompt-prefix
+    ///    checks cover old transcripts that predate the field.
     ///
-    /// Mirrors `vault-ingest.sh::is_machine_transcript` (the ingest skips
-    /// the same sessions without spending a model call on them).
-    nonisolated private static func classifyHead(from path: String) -> HeadClass? {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+    ///    A `promptSource: "sdk"` record alone is NOT condemning: a real
+    ///    interactive session can carry an injected selector prompt as its
+    ///    FIRST user record yet hold the person's typed work after it
+    ///    (observed in the wild: 1 of 7,617 transcripts). Such records are
+    ///    skipped; `<command>` wrappers count as interactive evidence; only
+    ///    if sdk records were seen and nothing interactive followed does the
+    ///    window end as .machine.
+    ///
+    /// Mirrors `vault-ingest.sh::is_machine_transcript` (canonical; the
+    /// ingest skips the same sessions without spending a model call).
+    nonisolated private static func classifyHead(from path: String) -> HeadClass {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return .unknown }
         defer { handle.closeFile() }
 
-        let data = handle.readData(ofLength: 16384)
-        guard let text = String(data: data, encoding: .utf8) else { return nil }
+        let data = handle.readData(ofLength: 65536)
+        guard let text = String(data: data, encoding: .utf8) else { return .unknown }
 
-        for line in text.components(separatedBy: "\n").prefix(50) {
+        var sawSdk = false
+        var sawLive = false
+        for line in text.components(separatedBy: "\n").prefix(400) {
             guard !line.isEmpty,
                   let lineData = line.data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any]
@@ -436,22 +456,24 @@ class SessionHistoryService: ObservableObject {
             guard let content = extractMessageContent(from: json),
                   let role = messageRole(from: json), role == "user" else { continue }
 
-            if json["entrypoint"] as? String == "sdk-cli"
-                || json["promptSource"] as? String == "sdk" { return nil }
+            if json["entrypoint"] as? String == "sdk-cli" { return .machine }
+            if json["promptSource"] as? String == "sdk" { sawSdk = true; continue }
 
             let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty { continue }
             // Command/skill wrappers precede the real prompt in real
-            // sessions: skip the MESSAGE, keep scanning.
-            if trimmed.isEmpty || isPassThroughPrompt(trimmed) { continue }
+            // sessions: skip the MESSAGE, note the interactive evidence,
+            // keep scanning.
+            if isPassThroughPrompt(trimmed) { sawLive = true; continue }
             // Known machine first-prompts drop the SESSION.
-            if isMachineFirstPrompt(trimmed) { return nil }
+            if isMachineFirstPrompt(trimmed) { return .machine }
             if trimmed.hasPrefix(magicLaunchPrefix), let project = magicLaunchProject(trimmed) {
                 return .magicLaunch(project)
             }
             return .normal(String(trimmed.prefix(100)))
         }
 
-        return nil
+        return (sawSdk && !sawLive) ? .machine : .unknown
     }
 
     /// The user's first genuine prompt AFTER the magic-launch bootstrap
