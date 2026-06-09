@@ -116,7 +116,29 @@ class UsageService: ObservableObject {
     @MainActor private static func fetchUsage(cookie: String, orgUUID: String) async throws -> UsageResponse {
         let data = try await ClaudeWebFetcher.shared.json(
             path: "/api/organizations/\(orgUUID)/usage", sessionKey: cookie)
-        return try Self.decoder().decode(UsageResponse.self, from: data)
+        do {
+            let decoded = try Self.decoder().decode(UsageResponse.self, from: data)
+            // Every top-level window is optional, so a renamed/wrapped schema
+            // would decode "successfully" into all-nil — a silently empty
+            // panel. Treat that as drift and surface it with the payload.
+            if decoded.fiveHour == nil, decoded.sevenDay == nil,
+               decoded.sevenDaySonnet == nil, decoded.sevenDayOpus == nil,
+               decoded.sevenDayOauthApps == nil, decoded.sevenDayCowork == nil {
+                let head = String(data: data.prefix(700), encoding: .utf8) ?? "<non-utf8 \(data.count)B>"
+                logger.error("Usage decoded to all-nil windows (schema drift?) payload: \(head, privacy: .public)")
+                throw UsageError.schemaDrift
+            }
+            return decoded
+        } catch let err as DecodingError {
+            // The endpoint is a private API and its shape drifts. Without the
+            // payload in the log, a drift surfaces only as the opaque
+            // "The data couldn't be read because it is missing." — log the
+            // precise decode context and the head of the body (public: this
+            // is the user's own usage data on their own machine).
+            let head = String(data: data.prefix(700), encoding: .utf8) ?? "<non-utf8 \(data.count)B>"
+            logger.error("Usage decode failed: \(String(describing: err), privacy: .public) payload: \(head, privacy: .public)")
+            throw err
+        }
     }
 
     // MARK: - Date decoding
@@ -203,12 +225,14 @@ enum UsageError: Error, LocalizedError {
     case badURL
     case httpError(Int)
     case noOrganization
+    case schemaDrift
 
     var errorDescription: String? {
         switch self {
         case .badURL: return "Invalid URL"
         case .httpError(let code): return "HTTP \(code)"
         case .noOrganization: return "No organization found"
+        case .schemaDrift: return "claude.ai changed the usage response format"
         }
     }
 }

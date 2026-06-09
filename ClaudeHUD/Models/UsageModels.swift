@@ -3,11 +3,23 @@ import Foundation
 /// A single usage window returned by claude.ai/api/organizations/{uuid}/usage
 struct UsageWindow: Codable, Equatable {
     let utilization: Double
-    let resetsAt: Date
+    /// nil between windows: right after a window resets and before the next
+    /// claude.ai activity opens one, the API returns `"resets_at": null`.
+    /// A required Date here made the whole usage decode fail at exactly that
+    /// boundary ("The data couldn't be read because it is missing.").
+    let resetsAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case utilization
         case resetsAt = "resets_at"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // Tolerate explicit nulls AND missing keys on both fields — the
+        // endpoint is a private API and its shape drifts.
+        utilization = try c.decodeIfPresent(Double.self, forKey: .utilization) ?? 0
+        resetsAt = try c.decodeIfPresent(Date.self, forKey: .resetsAt)
     }
 }
 

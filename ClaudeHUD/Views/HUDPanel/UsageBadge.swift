@@ -65,7 +65,9 @@ struct UsageBadge: View {
         return parts.joined(separator: "\n")
     }
 
-    private func relativeReset(_ date: Date) -> String {
+    private func relativeReset(_ date: Date?) -> String {
+        guard let date else { return "window inactive" }
+        guard date > Date() else { return "window reset" }
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
@@ -191,9 +193,14 @@ private struct UsageRow: View {
     }
 
     private var resetString: String {
+        // nil = no active window yet (the API returns resets_at: null between
+        // windows); a past date = stale cache from before the reset. Either
+        // way "resets 23m ago" is nonsense — say what actually happened.
+        guard let resetsAt = window.resetsAt else { return "no active window" }
+        guard resetsAt > Date() else { return "window reset" }
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
-        return "resets " + formatter.localizedString(for: window.resetsAt, relativeTo: Date())
+        return "resets " + formatter.localizedString(for: resetsAt, relativeTo: Date())
     }
 
     var body: some View {
