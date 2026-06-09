@@ -24,6 +24,15 @@ toggle stops both the SessionEnd hook and this periodic drain.
 <dict>
     <key>Label</key>
     <string>com.bbdaniels.vault-backfill</string>
+    <!-- Backfill is bulk work; run it on Haiku to keep the weekly Sonnet
+         cap for interactive use (set 2026-06-09 after the Sonnet cap blew
+         and stalled all digests). The SessionEnd hook stays on Sonnet for
+         real close-outs. Override per-run with VAULT_INGEST_MODEL. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>VAULT_INGEST_MODEL</key>
+        <string>claude-haiku-4-5</string>
+    </dict>
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>

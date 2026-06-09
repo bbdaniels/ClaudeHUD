@@ -1,11 +1,23 @@
 #!/bin/bash
 # === Managed by ClaudeHUD ============================================
-# script-version: 1.6.1
+# script-version: 1.7.0
 # source: ClaudeHUD/Resources/Scripts/vault-ingest.sh
 # To edit, fork in the ClaudeHUD repo and rebuild. The installer
 # detects local edits to the installed copy and refuses to clobber
 # them — see Services/VaultScriptInstaller.swift.
 # =====================================================================
+# 1.7.0 (2026-06-09):
+#  * Oversized-transcript guard. Before the digest, a transcript whose
+#    temp copy exceeds ~480KB is reduced to head (100KB) + tail (260KB)
+#    with the middle elided, keeping it under the model's 200K-token
+#    context. Without this, long sessions (>~200K tokens) failed
+#    `claude -p` with "prompt is too long" -> rc=1 -> never marked .done
+#    -> requeued every --backfill cycle. Because --backfill takes the
+#    alphabetically-first 10 pending each run, these perma-failures
+#    squatted the slots and STARVED all healthy pending sessions (incl.
+#    research). A close-out digest's signal lives at the start (task) and
+#    end (outcome), so head+tail preserves it; the elided middle is noted
+#    inline so the model knows the transcript is partial.
 # 1.6.1 (2026-06-08):
 #  * Digest `claude -p` now runs with --strict-mcp-config (and no
 #    --mcp-config), so it loads ZERO MCP servers. The digest only needs
@@ -329,6 +341,23 @@ echo "resolved project: $proj"
 tmpd="$(mktemp -d "${TMPDIR:-/tmp}/vingest.XXXXXX")"
 trap 'rm -rf "$tmpd"' EXIT
 cp "$tpath" "$tmpd/transcript.jsonl" 2>/dev/null || { echo "copy fail"; exit 0; }
+
+# Oversized-transcript guard (1.7.0): a transcript over ~200K tokens makes
+# `claude -p` fail "prompt is too long" (rc=1), which never marks .done and
+# requeues every --backfill cycle, squatting the alphabetically-first slots
+# and starving every healthy pending session. Keep the head (task/goal) and
+# tail (decisions/outcome) — where a close-out digest's signal is — and elide
+# the middle so the prompt stays under the context limit.
+_tbytes="$(wc -c < "$tmpd/transcript.jsonl" 2>/dev/null | tr -d ' ')"
+if [ "${_tbytes:-0}" -gt 480000 ]; then
+  if { head -c 100000 "$tmpd/transcript.jsonl"
+       printf '\n\n...[%s bytes of mid-session transcript elided to fit the model context]...\n\n' "$((_tbytes-360000))"
+       tail -c 260000 "$tmpd/transcript.jsonl"
+     } > "$tmpd/transcript.trunc" 2>/dev/null; then
+    mv "$tmpd/transcript.trunc" "$tmpd/transcript.jsonl"
+    echo "truncated oversized transcript: ${_tbytes} -> ~360000 bytes (head+tail)"
+  fi
+fi
 
 prompt_text="$(cat "$PROMPT")
 
