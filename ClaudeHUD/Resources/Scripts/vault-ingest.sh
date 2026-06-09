@@ -1,11 +1,21 @@
 #!/bin/bash
 # === Managed by ClaudeHUD ============================================
-# script-version: 1.8.1
+# script-version: 1.8.2
 # source: ClaudeHUD/Resources/Scripts/vault-ingest.sh
 # To edit, fork in the ClaudeHUD repo and rebuild. The installer
 # detects local edits to the installed copy and refuses to clobber
 # them — see Services/VaultScriptInstaller.swift.
 # =====================================================================
+# 1.8.2 (2026-06-09):
+#  * --backfill settle window. Skip transcripts modified in the last
+#    2 hours: the idempotency key is name+bytes, so a LIVE session
+#    otherwise re-digests on every 30-min tick as it grows, stacking
+#    near-duplicate Session Log blocks (observed: two blocks for one
+#    session in a single afternoon) and burning a Haiku call each.
+#    Close-out digests are unaffected — they run via the SessionEnd
+#    hook (phase 1), which has no settle window — so a RESUMED old
+#    session still re-digests the moment it ends. Mirrors the Swift
+#    cockpit's pendingMinAge.
 # 1.8.1 (2026-06-09):
 #  * Machine detection refined: a promptSource:"sdk" record alone no
 #    longer condemns a session — real interactive sessions can carry an
@@ -294,6 +304,14 @@ if [ "${1:-}" = "--backfill" ]; then
     b=$(wc -c < "$f" 2>/dev/null | tr -d ' '); [ "${b:-0}" -lt "$FLOOR" ] && continue
     key="$(basename "$f").$b.done"
     [ -f "$STATE/$key" ] && continue
+    # Settle window: skip transcripts still being written (modified in the
+    # last 2h). A live session re-digests on every tick otherwise — the
+    # idempotency key is name+bytes — stacking near-duplicate log blocks.
+    # Close-outs digest via the SessionEnd hook regardless, so resumed
+    # sessions are not delayed; this only quiets mid-session snapshots.
+    if [ -n "$(find "$f" -mmin -120 2>/dev/null)" ]; then
+      skipped=$((skipped+1)); continue
+    fi
     # Machine one-shots: mark .done (no model call) and move on. The first
     # tick after deploy drains the historical pile this way, since this
     # loop walks the whole find list regardless of the processed limit.
