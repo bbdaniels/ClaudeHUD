@@ -1,11 +1,17 @@
 #!/bin/bash
 # === Managed by ClaudeHUD ============================================
-# script-version: 1.8.2
+# script-version: 1.9.0
 # source: ClaudeHUD/Resources/Scripts/vault-ingest.sh
 # To edit, fork in the ClaudeHUD repo and rebuild. The installer
 # detects local edits to the installed copy and refuses to clobber
 # them — see Services/VaultScriptInstaller.swift.
 # =====================================================================
+# 1.9.0 (2026-06-09):
+#  * --backfill-titles also scans `<Project>/Session Archive/<YYYY-MM>.md`
+#    files — the cloud cleaner's monthly session-log rollover (schema.md
+#    §Session-log rollover) relocates pre-current-month digest blocks
+#    there, and sidecar rebuilds must keep finding titles for any
+#    archived session whose transcript is still on disk.
 # 1.8.2 (2026-06-09):
 #  * --backfill settle window. Skip transcripts modified in the last
 #    2 hours: the idempotency key is name+bytes, so a LIVE session
@@ -370,7 +376,12 @@ for root, dirs, files in os.walk(vault):
     rel = os.path.relpath(root, vault)
     proj = '' if rel == '.' else rel.split(os.sep)[0]   # vault folder = project name
     for fn in files:
-        if fn not in ('Session Log.md', 'Session Inbox.md'):
+        # Hot logs + the cleaner monthly rollover archives, which hold the
+        # relocated pre-current-month blocks in the same digest format.
+        # NB: no apostrophes in this heredoc — it sits inside $( ) and the
+        # macOS bash 3.2 scanner tracks quotes naively there.
+        is_archive = os.path.basename(root) == 'Session Archive' and fn.endswith('.md')
+        if fn not in ('Session Log.md', 'Session Inbox.md') and not is_archive:
             continue
         cur = None
         for line in open(os.path.join(root, fn), encoding='utf-8', errors='replace'):
