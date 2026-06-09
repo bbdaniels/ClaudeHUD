@@ -1,11 +1,27 @@
 #!/bin/bash
 # === Managed by ClaudeHUD ============================================
-# script-version: 1.7.0
+# script-version: 1.8.0
 # source: ClaudeHUD/Resources/Scripts/vault-ingest.sh
 # To edit, fork in the ClaudeHUD repo and rebuild. The installer
 # detects local edits to the installed copy and refuses to clobber
 # them — see Services/VaultScriptInstaller.swift.
 # =====================================================================
+# 1.8.0 (2026-06-09):
+#  * Machine-session skip. Programmatic `claude -p` one-shots (skill-tip
+#    catalog selectors, remote-control liveness probes PONG/SMOKE_OK,
+#    managed-prompt pipelines) are detected structurally — their first
+#    user record carries entrypoint "sdk-cli" / promptSource "sdk" —
+#    and marked .done WITHOUT a model call, in both phase-1 and
+#    --backfill. Before this, Haiku backfills occasionally digested a
+#    skill-selector query as if it were real work ("Skill-selection
+#    query re: patient risk scoring"), polluting Session Log.md AND the
+#    HUD title sidecars (a sidecar used to bypass the HUD's drop
+#    filters). Saves the wasted model calls too. Mirrored by
+#    SessionHistoryService.classifyHead + VaultIngestService.
+#  * Title sidecars drop a leading "<project>: " prefix (the digest
+#    title rule forbids it, but pre-rule digests and occasional model
+#    slips carry it; the HUD list is already grouped by project).
+#    Applied in write_title_sidecar and --backfill-titles.
 # 1.7.0 (2026-06-09):
 #  * Oversized-transcript guard. Before the digest, a transcript whose
 #    temp copy exceeds ~480KB is reduced to head (100KB) + tail (260KB)
@@ -168,6 +184,42 @@ is_ingest_eligible_path() {
   return 0
 }
 
+# Predicate: is this transcript a programmatic `claude -p` one-shot rather
+# than a person's working session? Skill-tip catalog selectors, remote
+# control liveness probes (PONG / SMOKE_OK), and managed-prompt pipelines
+# all pass the cwd + size filters (a selector prompt alone is ~20KB) but
+# contain nothing durable — and a Haiku backfill sometimes digests one as
+# real work anyway, polluting Session Log.md and the HUD title sidecars.
+# Detect them structurally: the first user record of an SDK run carries
+# entrypoint "sdk-cli" / promptSource "sdk" (every real session — terminal,
+# VSCode, desktop, magic-launch, background job — records "cli"-family
+# entrypoints). Prompt-prefix checks cover transcripts that predate those
+# fields. Returns 0 = machine. Mirror: SessionHistoryService.classifyHead.
+is_machine_transcript() {
+  python3 - "$1" <<'PY'
+import sys, json
+MACH = ("You select the single most relevant skill", "# Session Ingest",
+        "<!-- === Managed by ClaudeHUD", "Reply with exactly",
+        "Return ONLY this JSON object")
+try:
+    with open(sys.argv[1], errors="replace") as fh:
+        for i, line in enumerate(fh):
+            if i > 50: break
+            try: j = json.loads(line)
+            except Exception: continue
+            if j.get("type") != "user": continue
+            if j.get("entrypoint") == "sdk-cli" or j.get("promptSource") == "sdk":
+                sys.exit(0)                      # machine
+            c = (j.get("message") or {}).get("content")
+            if isinstance(c, str) and c.strip().startswith(MACH):
+                sys.exit(0)                      # machine (pre-field transcript)
+            sys.exit(1)                          # first user record is real work
+except Exception:
+    pass
+sys.exit(1)
+PY
+}
+
 # ---------------- --audit ----------------
 if [ "${1:-}" = "--audit" ]; then
   echo "=== vault-ingest --audit $(date -u +%FT%TZ) ==="
@@ -181,6 +233,7 @@ if [ "${1:-}" = "--audit" ]; then
     b=$(wc -c < "$f" 2>/dev/null | tr -d ' '); [ "${b:-0}" -lt "$FLOOR" ] && continue
     key="$(basename "$f").$b.done"
     [ -f "$STATE/$key" ] && continue
+    is_machine_transcript "$f" && continue
     echo "  $f (${b}B)"; found=1
   done <<EOF
 $(find "$HOME/.claude/projects" -name '*.jsonl' -mtime -14 2>/dev/null)
@@ -216,6 +269,12 @@ if [ "${1:-}" = "--backfill" ]; then
     b=$(wc -c < "$f" 2>/dev/null | tr -d ' '); [ "${b:-0}" -lt "$FLOOR" ] && continue
     key="$(basename "$f").$b.done"
     [ -f "$STATE/$key" ] && continue
+    # Machine one-shots: mark .done (no model call) and move on. The first
+    # tick after deploy drains the historical pile this way, since this
+    # loop walks the whole find list regardless of the processed limit.
+    if is_machine_transcript "$f"; then
+      : > "$STATE/$key"; skipped=$((skipped+1)); continue
+    fi
     # cwd from transcript JSON metadata; fall back to naive decode.
     cwd="$(grep -m1 -oE '"cwd":"[^"]*"' "$f" 2>/dev/null | sed 's/"cwd":"//; s/"$//')"
     if [ -z "$cwd" ] || [ ! -d "$cwd" ]; then
@@ -265,6 +324,8 @@ sess_re  = re.compile(r'^-\s*Session:\s*([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-
 written = 0
 for root, dirs, files in os.walk(vault):
     dirs[:] = [d for d in dirs if not d.startswith('.')]
+    rel = os.path.relpath(root, vault)
+    proj = '' if rel == '.' else rel.split(os.sep)[0]   # vault folder = project name
     for fn in files:
         if fn not in ('Session Log.md', 'Session Inbox.md'):
             continue
@@ -272,7 +333,16 @@ for root, dirs, files in os.walk(vault):
         for line in open(os.path.join(root, fn), encoding='utf-8', errors='replace'):
             m = title_re.match(line) or dash_re.match(line)
             if m:
-                cur = m.group(1).strip(); continue
+                cur = m.group(1).strip()
+                # Same "<project>: " strip as write_title_sidecar — pre-rule
+                # digests keep the prefix in the vault forever; the sidecar
+                # (a pure HUD label) need not.
+                if proj:
+                    pm = re.match(re.escape(proj) + r'[\s:—–-]+(.{8,})$', cur, re.IGNORECASE)
+                    if pm:
+                        t = pm.group(1).strip()
+                        cur = t[:1].upper() + t[1:]
+                continue
             s = sess_re.match(line)
             if s and cur:
                 with open(os.path.join(outdir, s.group(1).lower() + '.txt'), 'w', encoding='utf-8') as f:
@@ -307,6 +377,11 @@ if [ "${1:-}" != "--run" ]; then
   bytes="$(wc -c < "$tpath" 2>/dev/null | tr -d ' ')"
   [ "${bytes:-0}" -lt "$FLOOR" ] && exit 0
   [ -f "$STATE/$(basename "$tpath").$bytes.done" ] && exit 0
+  # Machine one-shots: mark .done so they never requeue; no model call.
+  if is_machine_transcript "$tpath"; then
+    : > "$STATE/$(basename "$tpath").$bytes.done"
+    exit 0
+  fi
   # Bounded retry: a poison transcript must not re-run Sonnet every
   # session-end. If it failed <6h ago, wait; older → allow a retry.
   fm="$STATE/$(basename "$tpath").$bytes.failed"
@@ -407,17 +482,29 @@ append_atomic() {  # $1=file  $2=content-to-append
 # vault session. Best-effort; an unparsable heading just leaves no sidecar
 # (the HUD falls back to ai-title / first prompt). Never fatal to the ingest.
 write_title_sidecar() {
-  local s="$1" d="$2" title dir tmp
+  local s="$1" d="$2" p="${3:-}" title dir tmp
   [ -z "$s" ] && return 0
   title="$(printf '%s' "$d" | python3 -c '
 import sys, re
+proj = sys.argv[1] if len(sys.argv) > 1 else ""
 date = re.compile(r"^##\s+\d{4}-\d{2}-\d{2}\s*[—–-]+\s*(.+?)\s*$")
 dash = re.compile(r"^##\s+.*?\s[—–]\s+(.+?)\s*$")
+title = ""
 for line in sys.stdin:
     m = date.match(line) or dash.match(line)
     if m:
-        print(m.group(1).strip()); break
-' 2>/dev/null)"
+        title = m.group(1).strip(); break
+# The title rule forbids leading with the project name (the HUD list and
+# the Session Log are already grouped under it); strip the prefix when a
+# pre-rule digest or a model slip includes it anyway. Keep >=8 chars so a
+# degenerate title is never stripped to a stub.
+if title and proj:
+    m = re.match(re.escape(proj) + r"[\s:—–-]+(.{8,})$", title, re.IGNORECASE)
+    if m:
+        t = m.group(1).strip()
+        title = t[:1].upper() + t[1:]
+print(title)
+' "$p" 2>/dev/null)"
   [ -z "$title" ] && return 0
   dir="$HOME/.claude/hud/session-titles"
   mkdir -p "$dir" 2>/dev/null || return 0
@@ -454,7 +541,7 @@ if [ -n "$digest" ]; then
   append_atomic "$logf" "
 $digest"
   echo "digest appended to: $logf"
-  write_title_sidecar "$sid" "$digest"
+  write_title_sidecar "$sid" "$digest" "$proj"
 else
   echo "no durable content${ledg:+ — ledger row only}"
 fi

@@ -1,6 +1,6 @@
 <!--
 === Managed by ClaudeHUD ============================================
-script-version: 1.1.0
+script-version: 1.2.0
 source: ClaudeHUD/Resources/Scripts/vault-ingest-prompt.md
 To edit, fork in the ClaudeHUD repo and rebuild. The installer
 detects local edits to the installed copy and refuses to clobber
@@ -34,7 +34,13 @@ script does all file writes. You have read-only tools by design.
    read those regions + the final ~200 lines. Budget your turns.
 2. If the session produced nothing durable (no decision, status change,
    or actionable outcome), output exactly `NO_DURABLE_CONTENT` and stop.
-   Do not manufacture content.
+   Do not manufacture content. **Machine one-shots are NEVER durable**,
+   no matter how long the transcript: if the first user message is a
+   harness-internal prompt rather than a person working — a skill-catalog
+   selector ("You select the single most relevant skill…"), a liveness or
+   smoke probe ("Reply with exactly…", "Return ONLY this JSON object…"),
+   another automation's `claude -p` run — output `NO_DURABLE_CONTENT`.
+   These are not the user's sessions; digesting one pollutes the log.
 3. Otherwise emit ONLY this, between the markers, nothing before/after:
 
 ```
@@ -61,6 +67,9 @@ carry only what the project name doesn't:
 - It must **distinguish this session from its siblings** on the same thread.
   NEVER a bare category (`review`, `refinement`, `updates`, `session`,
   `context`, `planning`) without its specific object. Outcome over topic.
+- Self-check before emitting: if your draft title begins with PROJECT (or an
+  obvious alias of it), delete that prefix and re-spend the freed words on
+  the outcome.
 
 Keep it one tight dated block — you are summarizing, not transcribing.
 Actionable items go in "Open / next" only; never suggest editing

@@ -149,22 +149,37 @@ class SessionHistoryService: ObservableObject {
                 guard let attrs = try? fm.attributesOfItem(atPath: filePath),
                       let modDate = attrs[.modificationDate] as? Date else { continue }
 
+                // Classify every session from its transcript head FIRST — even
+                // when a digest sidecar exists. Sidecars used to win outright,
+                // which let machine one-shots that slipped past the digest's
+                // NO_DURABLE_CONTENT rule surface in history under a plausible
+                // title (Haiku digested a skill-selector query as real work:
+                // "Skill-selection query re: patient risk scoring"). The 16 KB
+                // head read is cheap and off the main thread.
+                guard let head = classifyHead(from: filePath) else { continue }
+
                 let preview: String
                 if let title = sidecarTitles[sessionId] {
                     // Ingested, substantive session: the close-out digest title
-                    // wins outright. Skill-selector / probe one-shots produce
-                    // NO_DURABLE_CONTENT, so they get no sidecar and still hit the
-                    // drop filters below. Also skips the readPreview head read.
-                    preview = title
+                    // wins. Strip a leading "<project>: " — the list is already
+                    // grouped under the project, and sidecars written before the
+                    // ingest prompt's no-project-name title rule carry the
+                    // prefix forever otherwise.
+                    preview = stripProjectPrefix(title, projectName: projectName)
                 } else {
-                    let p = readPreview(from: filePath)
-                    // Skip automated skill-selector invocations — Claude Code's
-                    // internal haiku skill-catalog queries logged as a user prompt.
-                    if isSkillSelectorPreview(p) { continue }
-                    // Skip abandoned / probe sessions with no real user turn
-                    // (readPreview returns the "Session" sentinel).
-                    if p == "Session" { continue }
-                    preview = p
+                    switch head {
+                    case .normal(let firstPrompt):
+                        preview = firstPrompt
+                    case .magicLaunch(let project):
+                        // Claude Code's ai-title is generated from the opening
+                        // turn and FROZEN, and every magic-launched session
+                        // opens with the same bootstrap boilerplate — so its
+                        // ai-title is always junk ("context load", "obsidian
+                        // estonia-ecm project") no matter the work that
+                        // followed. Label with the user's first real prompt
+                        // instead; until one exists, a short project tag.
+                        preview = firstRealPrompt(in: filePath) ?? "Vault session: \(project)"
+                    }
                 }
 
                 found.append(SessionInfo(
@@ -189,8 +204,9 @@ class SessionHistoryService: ObservableObject {
     /// generated from the opening turn and freezes at "context load" for every
     /// magic-launched vault session. Loaded once per scan; absent for
     /// un-ingested sessions, which fall back to readPreview (ai-title / first
-    /// prompt). Only substantive sessions get a digest, so a sidecar's mere
-    /// presence also means the session is worth listing.
+    /// prompt). A sidecar is a LABEL, not a listing decision — machine
+    /// one-shots are dropped by classifyHead even when a stray digest gave
+    /// them a sidecar.
     nonisolated private static func loadSidecarTitles() -> [String: String] {
         let dir = "\(NSHomeDirectory())/.claude/hud/session-titles"
         let fm = FileManager.default
@@ -206,10 +222,20 @@ class SessionHistoryService: ObservableObject {
         return map
     }
 
-    /// Detect Claude Code's internal skill-selector prompts that are logged as user
-    /// messages but are not real user input.
-    nonisolated private static func isSkillSelectorPreview(_ preview: String) -> Bool {
-        preview.hasPrefix("You select the single most relevant skill")
+    /// Strip a leading "<project>: " / "<project> — " from a digest title.
+    /// The ingest prompt's title rule forbids the project name (the history
+    /// list is already grouped under it), but sidecars written before the
+    /// rule landed — and the occasional model slip since — still carry it.
+    /// A display-level strip fixes the whole backlog without rewriting any
+    /// vault history.
+    nonisolated private static func stripProjectPrefix(_ title: String, projectName: String) -> String {
+        guard !projectName.isEmpty, title.count > projectName.count,
+              title.lowercased().hasPrefix(projectName.lowercased()) else { return title }
+        let rest = title.dropFirst(projectName.count)
+        guard let sep = rest.first, ":—–- ".contains(sep) else { return title }
+        let stripped = rest.drop { ":—–- ".contains($0) }
+        guard stripped.count >= 8 else { return title }  // never strip to a stub
+        return stripped.prefix(1).uppercased() + String(stripped.dropFirst())
     }
 
     // MARK: - Snippet Extraction (for search results)
@@ -367,15 +393,39 @@ class SessionHistoryService: ObservableObject {
         return results
     }
 
-    // MARK: - Preview Extraction
+    // MARK: - Head Classification
 
-    /// Read the first user message from a session JSONL file.
-    nonisolated private static func readPreview(from path: String) -> String {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return "Session" }
+    /// What the head of a transcript says about a session. `.normal` carries
+    /// the first genuine user prompt (preview-ready); `.magicLaunch` carries
+    /// the project name parsed from the bootstrap boilerplate.
+    private enum HeadClass {
+        case normal(String)
+        case magicLaunch(String)
+    }
+
+    /// Classify a session from the first 16 KB of its transcript, or return
+    /// nil for sessions that should never appear in history:
+    ///
+    ///  * **Machine one-shots** — programmatic `claude -p` runs: skill-tip
+    ///    catalog selectors, remote-control liveness probes (PONG /
+    ///    SMOKE_OK), the vault-ingest digest pipeline. Detected
+    ///    STRUCTURALLY: their first user record carries
+    ///    `entrypoint: "sdk-cli"` / `promptSource: "sdk"`, while every kind
+    ///    of real session (terminal, VSCode, desktop, magic-launch,
+    ///    background job) records "cli"-family entrypoints and typed
+    ///    prompts. ~7,000 of these litter ~/.claude/projects vs ~250 real
+    ///    sessions. Prompt-prefix checks remain as a fallback for old
+    ///    transcripts that predate the two fields.
+    ///  * **Abandoned sessions** with no real user turn.
+    ///
+    /// Mirrors `vault-ingest.sh::is_machine_transcript` (the ingest skips
+    /// the same sessions without spending a model call on them).
+    nonisolated private static func classifyHead(from path: String) -> HeadClass? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
         defer { handle.closeFile() }
 
         let data = handle.readData(ofLength: 16384)
-        guard let text = String(data: data, encoding: .utf8) else { return "Session" }
+        guard let text = String(data: data, encoding: .utf8) else { return nil }
 
         for line in text.components(separatedBy: "\n").prefix(50) {
             guard !line.isEmpty,
@@ -383,69 +433,89 @@ class SessionHistoryService: ObservableObject {
                   let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any]
             else { continue }
 
-            if let content = extractMessageContent(from: json), let role = messageRole(from: json),
-               role == "user" {
-                let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                // Commands piped through to Claude (skill selector, <…> command
-                // wrappers, the session-ingest digest pipeline) are logged as
-                // the first user message but are NOT the session's topic. Skip
-                // them and keep scanning for the first genuine user prompt; if
-                // there is none the loop falls through to the "Session"
-                // sentinel, which the caller drops from history.
-                if trimmed.isEmpty || isPassThroughPrompt(trimmed) { continue }
-                // External remote-control connectivity probes — Claude Code's
-                // mobile/web app pinging the `--remote-control <project>` named
-                // sessions that magic-launch registers — spawn throwaway
-                // one-shot sessions in the project dir whose only user message
-                // is a fixed liveness/echo string. Drop the whole session; it
-                // is not the user's work. ("Session" → caller skips it.)
-                if isProbePrompt(trimmed) { return "Session" }
-                // Magic-launched vault sessions all open with the same long
-                // bootstrap boilerplate, so in history every one reads as an
-                // identical truncated "Fresh session on the Obsidian vault
-                // project: …". Prefer Claude Code's own evolving `ai-title`
-                // (written near the END of the transcript, past this 16 KB head
-                // window — hence the separate tail read); until the first one
-                // exists, fall back to a short label that names the project.
-                if trimmed.hasPrefix(magicLaunchPrefix) {
-                    if let title = readLastAITitle(from: path) { return String(title.prefix(100)) }
-                    if let project = magicLaunchProject(trimmed) { return "Vault session: \(project)" }
-                }
-                return String(trimmed.prefix(100))
+            guard let content = extractMessageContent(from: json),
+                  let role = messageRole(from: json), role == "user" else { continue }
+
+            if json["entrypoint"] as? String == "sdk-cli"
+                || json["promptSource"] as? String == "sdk" { return nil }
+
+            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Command/skill wrappers precede the real prompt in real
+            // sessions: skip the MESSAGE, keep scanning.
+            if trimmed.isEmpty || isPassThroughPrompt(trimmed) { continue }
+            // Known machine first-prompts drop the SESSION.
+            if isMachineFirstPrompt(trimmed) { return nil }
+            if trimmed.hasPrefix(magicLaunchPrefix), let project = magicLaunchProject(trimmed) {
+                return .magicLaunch(project)
             }
+            return .normal(String(trimmed.prefix(100)))
         }
 
-        return "Session"
+        return nil
+    }
+
+    /// The user's first genuine prompt AFTER the magic-launch bootstrap
+    /// message — the session's actual topic. Bootstrap context loading (wiki
+    /// reads, tool results) sits between the boilerplate and that prompt, so
+    /// this scans a 1 MB window rather than the 16 KB head, but only parses
+    /// lines carrying promptSource "typed" — present in every transcript new
+    /// enough to be magic-launched. Called only for magic-launch sessions
+    /// with no digest sidecar yet (the handful of live ones), so the bigger
+    /// read stays off the hot path.
+    nonisolated private static func firstRealPrompt(in path: String) -> String? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { handle.closeFile() }
+
+        let data = handle.readData(ofLength: 1_048_576)
+        // Lenient decode: garbled bytes can only land in a truncated last
+        // line, which fails to parse and is skipped.
+        let text = String(decoding: data, as: UTF8.self)
+
+        for line in text.components(separatedBy: "\n") {
+            guard line.contains("\"promptSource\":\"typed\""),
+                  let lineData = line.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  let role = messageRole(from: json), role == "user",
+                  let content = extractMessageContent(from: json)
+            else { continue }
+
+            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty || trimmed.hasPrefix(magicLaunchPrefix) { continue }
+            if isPassThroughPrompt(trimmed) { continue }
+            if trimmed.hasPrefix("Caveat: The messages below") { continue }  // local-command caveat
+            if trimmed.hasPrefix("[Request interrupted") { continue }        // interrupt sentinel
+            return String(trimmed.prefix(100))
+        }
+        return nil
     }
 
     /// Synthetic user messages that are commands passed through to Claude,
-    /// not the user's actual topic. Mirrors the skip the agent-name resolver
-    /// applies. Explicit list (not a broad heuristic) so real prompts that
-    /// merely start with punctuation are never hidden; extend as new
-    /// ClaudeHUD/harness pipelines appear.
+    /// not the user's actual topic — they precede the real prompt in a real
+    /// session, so the scan skips past them. Explicit prefix (not a broad
+    /// heuristic) so real prompts are never hidden.
     nonisolated private static func isPassThroughPrompt(_ s: String) -> Bool {
-        if s.hasPrefix("<") { return true }                                   // <command>/<skill-selector> wrappers
-        if s.hasPrefix("You select the single most relevant skill") { return true }
-        if s.hasPrefix("# Session Ingest") { return true }                    // session digest pipeline
-        return false
+        s.hasPrefix("<")  // <command>/<skill>/<local-command-caveat> wrappers
     }
 
-    /// Fixed liveness/echo prompts sent by an external Claude Code remote-control
-    /// client (mobile/web app) to the `--remote-control <project>` sessions that
-    /// magic-launch registers. Each lands as its own throwaway one-shot session
-    /// in the project dir; matching the opening of its sole user message lets us
-    /// drop it from history. Explicit prefixes, not a heuristic — same
-    /// philosophy as `isPassThroughPrompt`; extend as new probe forms appear.
-    nonisolated private static func isProbePrompt(_ s: String) -> Bool {
-        if s.hasPrefix("Reply with exactly the word: PONG") { return true }
-        if s.hasPrefix("Return ONLY this JSON object") { return true }
+    /// First prompts that mark the whole SESSION as machine-generated — a
+    /// programmatic one-shot, not the user's work. The structural sdk-cli
+    /// check in classifyHead catches the modern ones; these prefixes cover
+    /// transcripts that predate the entrypoint/promptSource fields. Extend
+    /// as new probe forms appear.
+    nonisolated private static func isMachineFirstPrompt(_ s: String) -> Bool {
+        if s.hasPrefix("You select the single most relevant skill") { return true }  // skill-tip catalog selector
+        if s.hasPrefix("# Session Ingest") { return true }                           // vault-ingest digest pipeline
+        if s.hasPrefix("<!-- === Managed by ClaudeHUD") { return true }              // managed-prompt pipelines
+        if s.hasPrefix("Reply with exactly") { return true }                         // liveness probes ("…the word: PONG", "…: SMOKE_OK")
+        if s.hasPrefix("Return ONLY this JSON object") { return true }               // remote-control JSON echo probe
         return false
     }
 
     /// Exact opening of the magic-launch vault bootstrap prompt, generated
     /// verbatim by `magicLaunchInGhostty()` in HUDContentView. Recognising it
-    /// lets history relabel these sessions with their ai-title instead of the
-    /// identical boilerplate. Keep in sync with the template there.
+    /// lets history relabel these sessions with the user's first real prompt
+    /// instead of the identical boilerplate. Keep in sync with the template
+    /// there.
     nonisolated private static let magicLaunchPrefix = "Fresh session on the Obsidian vault project: "
 
     /// Project name carried by a magic-launch bootstrap prompt — the text
@@ -456,38 +526,6 @@ class SessionHistoryService: ObservableObject {
         guard let dot = rest.firstIndex(of: ".") else { return nil }
         let name = rest[..<dot].trimmingCharacters(in: .whitespaces)
         return name.isEmpty ? nil : name
-    }
-
-    /// Claude Code's most recent `ai-title` for a session — a short,
-    /// human-readable title it refines as the session runs. These entries live
-    /// near the END of the transcript (after the big attachment/tool lines that
-    /// overflow the 16 KB head budget), so read a tail window and take the last
-    /// one. Returns nil for sessions that predate ai-titles or have none yet.
-    nonisolated private static func readLastAITitle(from path: String) -> String? {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
-        defer { handle.closeFile() }
-
-        let size = handle.seekToEndOfFile()
-        let window: UInt64 = 65536
-        handle.seek(toFileOffset: size > window ? size - window : 0)
-        let data = handle.readDataToEndOfFile()
-        // Lenient decode: the window may begin mid-character, which would make a
-        // strict UTF-8 conversion fail outright. Any garbled bytes land only in
-        // the partial first line, which fails to parse and is skipped anyway.
-        let text = String(decoding: data, as: UTF8.self)
-
-        var title: String?
-        for line in text.components(separatedBy: "\n") {
-            guard line.contains("\"ai-title\""),
-                  let lineData = line.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
-                  json["type"] as? String == "ai-title",
-                  let t = (json["aiTitle"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !t.isEmpty
-            else { continue }
-            title = t  // keep scanning; last ai-title in the file is the freshest
-        }
-        return title
     }
 
     /// Get the role from a JSONL message line.

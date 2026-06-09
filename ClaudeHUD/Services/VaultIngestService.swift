@@ -224,10 +224,53 @@ final class VaultIngestService: ObservableObject {
                 guard age < pendingMaxAge, age > pendingMinAge else { continue }
                 let key = "\(url.lastPathComponent).\(size)"
                 if doneKeys.contains(key) { continue }
+                // Machine one-shots (skill-tip selectors, liveness probes,
+                // digest runs) are skipped by the worker without a model
+                // call — keep them out of the cockpit count too. Checked
+                // last: the 16 KB head read only happens for files that
+                // would otherwise be counted pending.
+                if Self.isMachineTranscript(url) { continue }
                 out.append(PendingTranscript(path: url, bytes: size, mtime: mtime))
             }
         }
         return out.sorted { $0.mtime > $1.mtime }
+    }
+
+    /// Whether a transcript is a programmatic `claude -p` one-shot rather
+    /// than a person's session. Mirrors `vault-ingest.sh::is_machine_transcript`
+    /// (canonical) and `SessionHistoryService.classifyHead`: the first user
+    /// record of an SDK run carries `entrypoint: "sdk-cli"` /
+    /// `promptSource: "sdk"`; prefix checks cover older transcripts that
+    /// predate those fields.
+    nonisolated private static func isMachineTranscript(_ url: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+        let data = handle.readData(ofLength: 16384)
+        guard let text = String(data: data, encoding: .utf8) else { return false }
+
+        let machinePrefixes = [
+            "You select the single most relevant skill",
+            "# Session Ingest",
+            "<!-- === Managed by ClaudeHUD",
+            "Reply with exactly",
+            "Return ONLY this JSON object",
+        ]
+        for line in text.components(separatedBy: "\n").prefix(50) {
+            guard !line.isEmpty,
+                  let lineData = line.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  json["type"] as? String == "user"
+            else { continue }
+            if json["entrypoint"] as? String == "sdk-cli"
+                || json["promptSource"] as? String == "sdk" { return true }
+            if let msg = json["message"] as? [String: Any],
+               let content = msg["content"] as? String {
+                let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                if machinePrefixes.contains(where: { trimmed.hasPrefix($0) }) { return true }
+            }
+            return false  // first user record is a real prompt
+        }
+        return false
     }
 
     /// Walk `<vault>/*/Sessions.md` and build `session_id → SessionStatus`.
