@@ -79,6 +79,35 @@ enum KeychainService {
         return String(data: data, encoding: .utf8)
     }
 
+    /// Read an arbitrary generic-password item from the login Keychain by
+    /// service + account. Returns nil if absent. Used for credentials stored
+    /// outside the app's own vault (e.g. the Slack bot/app tokens under
+    /// service "com.claudehud.slack"). Never logs the value.
+    static func loadGeneric(service: String, account: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status == errSecSuccess, let data = result as? Data else {
+            // Log the exact OSStatus (never the value) to BOTH os_log and the
+            // Slack file log, so a partition/ACL failure (errSecInteractionNotAllowed
+            // -25308 / errSecAuthFailed -25293) is distinguishable from a genuine
+            // missing item (errSecItemNotFound -25300).
+            logger.warning("Keychain loadGeneric(\(service)/\(account)) returned OSStatus \(status)")
+            SlackFileLog.log("KeychainService.loadGeneric(\(service)/\(account)) OSStatus=\(status)")
+            return nil
+        }
+
+        return String(data: data, encoding: .utf8)
+    }
+
     /// Delete the API key from the Keychain.
     static func delete() throws {
         let query: [String: Any] = [

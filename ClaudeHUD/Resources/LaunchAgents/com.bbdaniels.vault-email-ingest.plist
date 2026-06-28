@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+=== Managed by ClaudeHUD ============================================
+script-version: 1.0.0
+source: ClaudeHUD/Resources/LaunchAgents/com.bbdaniels.vault-email-ingest.plist
+To edit, fork in the ClaudeHUD repo and rebuild. The installer
+detects local edits to the installed copy and refuses to clobber
+them — see Services/VaultScriptInstaller.swift.
+=====================================================================
+
+Daily email→vault ingestion. Scans Spark's local SQLite (read-only)
+for action items, durable notes, and completion signals, then
+captures them into the vault (notes → Session Log, todos →
+Tasks.md ## Triage, completions → ## Completed). The LLM classifies;
+the shell applies all writes atomically under a lock.
+
+Runs at 05:30 local: must finish and be pushed by obsidian-sync
+(every 15 min) before the cloud refresh at 11:30 UTC. 05:30 local
+clears that window year-round (EDT/EST).
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.bbdaniels.vault-email-ingest</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/bbdaniels/.claude/scripts/vault-email-ingest.sh</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>5</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/bbdaniels/Library/Logs/vault-email-ingest.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/bbdaniels/Library/Logs/vault-email-ingest.log</string>
+</dict>
+</plist>

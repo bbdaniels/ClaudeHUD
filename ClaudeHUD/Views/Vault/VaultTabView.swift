@@ -256,6 +256,8 @@ private struct ProjectRowView: View {
     let effectiveDate: Date
     let onToggle: () -> Void
     @Environment(\.fontScale) private var scale
+    @EnvironmentObject private var slack: SlackService
+    @State private var slackHovering = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -295,37 +297,54 @@ private struct ProjectRowView: View {
     }
 
     private var rowHeader: some View {
-        Button(action: onToggle) {
-            HStack(spacing: 6) {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 10 * scale, weight: .semibold))
-                    .foregroundColor(.secondary)
-                    .frame(width: 14)
-                Text(project.name)
-                    .font(.smallMedium(scale))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                if ingestedCount > 0 {
-                    Text("\(ingestedCount)")
-                        .font(.custom("Fira Code", size: 10 * scale))
-                        .foregroundColor(.secondary.opacity(0.6))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
-                }
-                Spacer()
-                if effectiveDate > .distantPast {
-                    Text(relativeAge(effectiveDate))
-                        .font(.custom("Fira Code", size: 10 * scale))
-                        .foregroundColor(.secondary.opacity(0.5))
-                }
+        // Not a Button: the row toggles via onTapGesture so the trailing
+        // "Open in Slack" Button wins the hit-test on its own bounds (a Button
+        // nested inside the row's Button would otherwise be ambiguous).
+        HStack(spacing: 6) {
+            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                .font(.system(size: 10 * scale, weight: .semibold))
+                .foregroundColor(.secondary)
+                .frame(width: 14)
+            Text(project.name)
+                .font(.smallMedium(scale))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+            if ingestedCount > 0 {
+                Text("\(ingestedCount)")
+                    .font(.custom("Fira Code", size: 10 * scale))
+                    .foregroundColor(.secondary.opacity(0.6))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
             }
-            // Match Session History's project-row rhythm: 8pt vertical
-            // padding on the compact line, flush rows (VStack spacing 0).
-            .padding(.vertical, 8)
-            .contentShape(Rectangle())
+            Spacer()
+            if effectiveDate > .distantPast {
+                Text(relativeAge(effectiveDate))
+                    .font(.custom("Fira Code", size: 10 * scale))
+                    .foregroundColor(.secondary.opacity(0.5))
+            }
+            slackButton
+        }
+        // Match Session History's project-row rhythm: 8pt vertical
+        // padding on the compact line, flush rows (VStack spacing 0).
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .onTapGesture { onToggle() }
+    }
+
+    /// Visible launcher icon at the trailing edge — opens (creating if needed)
+    /// this project's Slack channel and jumps to it, without toggling the row.
+    private var slackButton: some View {
+        Button {
+            slack.openInSlack(project: project)
+        } label: {
+            Image(systemName: "bubble.left.and.bubble.right")
+                .font(.system(size: 11 * scale, weight: .medium))
+                .foregroundColor(.secondary.opacity(slackHovering ? 0.95 : 0.45))
         }
         .buttonStyle(.plain)
+        .help("Open in Slack")
+        .onHover { slackHovering = $0 }
     }
 
     private var ingestedCount: Int {

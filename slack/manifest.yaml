@@ -1,0 +1,57 @@
+# Slack app manifest for the ClaudeHUD Slack teammate.
+# Create at https://api.slack.com/apps?new_app=1 -> "From a manifest" -> bbdaniels workspace.
+# Socket Mode: no public URLs required; the app dials out from the Mac.
+# After creation, mint an app-level token (xapp-, scope connections:write) under
+# Basic Information -> App-Level Tokens; that token opens the socket and is NOT in this manifest.
+display_information:
+  name: Claude
+  description: ClaudeHUD teammate. Per-channel sessions backed by your vault.
+features:
+  bot_user:
+    display_name: claude
+    always_online: true
+  # Names are prefixed claude- because bare /search, etc. collide with Slack's
+  # reserved built-in commands ("invalid name" at manifest validation).
+  slash_commands:
+    - command: /claude-search
+      description: Search session history
+      should_escape: false
+    - command: /claude-skills
+      description: List or find skills
+      should_escape: false
+    - command: /claude-new
+      description: Start a fresh session in this channel
+      should_escape: false
+    - command: /claude-mode
+      description: Set permission mode for this channel (plan|default|skip)
+      should_escape: false
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - channels:read
+      - channels:history
+      - channels:manage
+      - channels:join
+      - groups:read
+      - groups:history
+      - im:read
+      - im:history
+      - im:write
+      - chat:write
+      - commands
+      - reactions:read
+      - users:read
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_mention
+      - message.channels
+      - message.groups
+      - message.im
+      - channel_created
+  interactivity:
+    is_enabled: true
+  socket_mode_enabled: true
+  org_deploy_enabled: false
+  token_rotation_enabled: false

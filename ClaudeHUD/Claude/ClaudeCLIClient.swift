@@ -91,6 +91,7 @@ class ClaudeCLIClient: ObservableObject {
         permissionMode: String = "dangerously-skip",
         systemPrompt: String? = nil,
         sessionId: String? = nil,
+        workingDirectory: String? = nil,
         onEvent: @escaping (CLIStreamEvent) -> Void
     ) async throws -> CLIResultEvent {
         isProcessing = true
@@ -135,6 +136,10 @@ class ClaudeCLIClient: ObservableObject {
             args += ["--resume", resumeId]
         }
 
+        // Terminate option parsing before the prompt: the variadic
+        // --disallowed-tools otherwise swallows the message as a tool name
+        // on fresh turns (no --resume in between), failing with exit 1.
+        args.append("--")
         args.append(message)
 
         // Use script(1) to force line-buffered output via a PTY,
@@ -142,7 +147,7 @@ class ClaudeCLIClient: ObservableObject {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
         process.arguments = ["-q", "/dev/null", claudePath] + args
-        process.currentDirectoryURL = URL(fileURLWithPath: NSHomeDirectory())
+        process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory ?? NSHomeDirectory())
 
         // Must unset CLAUDECODE to avoid nested session detection
         var env = ProcessInfo.processInfo.environment

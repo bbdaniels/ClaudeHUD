@@ -27,6 +27,7 @@ class AppState: ObservableObject {
     let vaultIngestService = VaultIngestService()
     let vaultProjectService = VaultProjectService()
     lazy var libraryService = LibraryService(skillsService: skillsService)
+    lazy var slackService = SlackService(projectService: projectService, vaultProjects: vaultProjectService)
 
     /// Lazy-initialized Ghostty application. Only created the first time the
     /// workspace window is opened, so users who never touch the workspace pay
@@ -63,6 +64,13 @@ class AppState: ObservableObject {
         let vaultURL = vaultManager.currentVault.map { URL(fileURLWithPath: $0.path) }
         vaultIngestService.start(vaultPath: vaultURL)
         vaultProjectService.start(vaultPath: vaultURL)
+
+        // Slack Socket Mode (Phase 1): if the Slack bot/app tokens are present
+        // in the Keychain, connect and echo a channel→project→cwd resolution
+        // back into any channel named like a ClaudeHUD project. No-op when the
+        // tokens are absent. Started after vault projects are listed so channel
+        // names resolve against the full project set.
+        slackService.start()
 
         // Today tab pre-warm + state-change refresh. Hard rule: no LLM
         // call on tab open (Documents/Obsidian/ClaudeHUD/Tasks.md

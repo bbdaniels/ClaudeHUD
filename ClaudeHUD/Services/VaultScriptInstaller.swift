@@ -45,7 +45,7 @@ final class VaultScriptInstaller: ObservableObject {
 
     @Published private(set) var lastAudit: [ManagedScript: Status] = [:]
 
-    static let bundledVersion = "1.3.0"
+    static let bundledVersion = "1.4.0"
 
     static let managed: [ManagedScript] = {
         let home = FileManager.default.homeDirectoryForCurrentUser
@@ -56,6 +56,19 @@ final class VaultScriptInstaller: ObservableObject {
                   kind: .sh),
             .init(bundleResource: "vault-ingest-prompt.md",
                   installPath: home.appending(path: ".claude/scripts/vault-ingest-prompt.md"),
+                  executable: false,
+                  kind: .md),
+            // Daily email→vault ingestion. New in 1.4.0 — pairs with
+            // the vault-email-ingest launchd job (05:30 local). The
+            // shell scans Spark's local SQLite read-only; the prompt
+            // drives the read-only classifier worker. See
+            // com.bbdaniels.vault-email-ingest.plist header.
+            .init(bundleResource: "vault-email-ingest.sh",
+                  installPath: home.appending(path: ".claude/scripts/vault-email-ingest.sh"),
+                  executable: true,
+                  kind: .sh),
+            .init(bundleResource: "vault-email-ingest-prompt.md",
+                  installPath: home.appending(path: ".claude/scripts/vault-email-ingest-prompt.md"),
                   executable: false,
                   kind: .md),
             .init(bundleResource: "vault-reset.sh",
@@ -76,6 +89,14 @@ final class VaultScriptInstaller: ObservableObject {
             // header for cadence + pause-flag semantics.
             .init(bundleResource: "com.bbdaniels.vault-backfill.plist",
                   installPath: home.appending(path: "Library/LaunchAgents/com.bbdaniels.vault-backfill.plist"),
+                  executable: false,
+                  kind: .plist),
+            // Daily email→vault ingestion launchd job. New in 1.4.0 —
+            // runs vault-email-ingest.sh at 05:30 local (StartCalendarInterval,
+            // not StartInterval). See its plist header for the schedule
+            // rationale (must beat the 11:30 UTC cloud refresh).
+            .init(bundleResource: "com.bbdaniels.vault-email-ingest.plist",
+                  installPath: home.appending(path: "Library/LaunchAgents/com.bbdaniels.vault-email-ingest.plist"),
                   executable: false,
                   kind: .plist),
         ]

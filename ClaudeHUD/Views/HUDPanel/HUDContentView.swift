@@ -333,6 +333,8 @@ struct HUDContentView: View {
                         // activity reads pre-computed Session Log digests — no
                         // ProjectBriefingService / LLM call at view time.)
                         .environmentObject(appState.agentsService)
+                        // For the per-row "Open in Slack" action.
+                        .environmentObject(appState.slackService)
                 case .today:
                     TodayView()
                         .environmentObject(calendarService)

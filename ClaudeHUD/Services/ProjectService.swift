@@ -170,6 +170,16 @@ class ProjectService: ObservableObject {
 
     // MARK: - Project Discovery
 
+    /// Vault folders that are never projects (shared infrastructure folders).
+    /// Exposed so other services (e.g. SlackService channel sync) apply the
+    /// same exclusion as project discovery.
+    nonisolated static let excludedFolderNames: Set<String> = [
+        "Templates", "Daily Notes", "Attachments", "Assets", "Archive",
+        // `Claude/` is the claimless tooling-reference folder (schema.md):
+        // never a project / session-mapping target, so never a Slack channel.
+        "Claude"
+    ]
+
     nonisolated private static func buildProjects(
         vaultPath: String,
         sessions: [SessionInfo],
@@ -185,7 +195,7 @@ class ProjectService: ObservableObject {
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: folderPath, isDirectory: &isDir), isDir.boolValue else { continue }
             guard !folder.hasPrefix(".") else { continue }
-            guard !["Templates", "Daily Notes", "Attachments", "Assets", "Archive"].contains(folder) else { continue }
+            guard !excludedFolderNames.contains(folder) else { continue }
 
             let normalized = normalize(folder)
 
@@ -234,7 +244,7 @@ class ProjectService: ObservableObject {
 
     // MARK: - Fuzzy Matching
 
-    nonisolated private static func normalize(_ name: String) -> String {
+    nonisolated static func normalize(_ name: String) -> String {
         name.lowercased()
             .replacingOccurrences(of: "-", with: "")
             .replacingOccurrences(of: "_", with: "")
@@ -242,7 +252,7 @@ class ProjectService: ObservableObject {
             .replacingOccurrences(of: ".", with: "")
     }
 
-    nonisolated private static func fuzzyMatch(_ a: String, _ b: String) -> Bool {
+    nonisolated static func fuzzyMatch(_ a: String, _ b: String) -> Bool {
         if a == b { return true }
         if a.count >= 4 && b.contains(a) { return true }
         if b.count >= 4 && a.contains(b) { return true }
