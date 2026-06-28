@@ -1,5 +1,37 @@
 import Foundation
 
+/// High-level grouping of Library categories, used to section the category
+/// dropdown so related surfaces sit together (Skills/Agents/Commands under
+/// "Invoke", etc.). Ordering of the groups and of categories within each group
+/// is fixed by each group's `categories` list.
+enum CategoryGroup: Int, CaseIterable, Identifiable {
+    case invoke
+    case extend
+    case instruct
+    case system
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .invoke:   return "Invoke"
+        case .extend:   return "Extend"
+        case .instruct: return "Instruct"
+        case .system:   return "System"
+        }
+    }
+
+    /// Categories belonging to this group, in display order.
+    var categories: [LibraryCategory] {
+        switch self {
+        case .invoke:   return [.skills, .agents, .commands]
+        case .extend:   return [.plugins, .mcp, .tools]
+        case .instruct: return [.guides, .rules, .style, .memories]
+        case .system:   return [.hooks, .scripts, .plans, .settings]
+        }
+    }
+}
+
 /// One of the twelve top-level categories of Claude internals browsable from the Library tab.
 /// Each case bundles its display label, SF Symbol, on-disk root location, and a per-category
 /// "open with Claude" prompt template.
@@ -15,10 +47,21 @@ enum LibraryCategory: String, CaseIterable, Identifiable {
     case tools
     case mcp
     case guides
+    case memories
     case settings
     case plugins
 
     var id: String { rawValue }
+
+    /// The dropdown section this category belongs to.
+    var group: CategoryGroup {
+        switch self {
+        case .skills, .agents, .commands:        return .invoke
+        case .plugins, .mcp, .tools:             return .extend
+        case .guides, .rules, .style, .memories: return .instruct
+        case .hooks, .scripts, .plans, .settings: return .system
+        }
+    }
 
     var displayName: String {
         switch self {
@@ -33,6 +76,7 @@ enum LibraryCategory: String, CaseIterable, Identifiable {
         case .tools:    return "CLI Tools"
         case .mcp:      return "MCP Servers"
         case .guides:   return "Guides"
+        case .memories: return "Memories"
         case .settings: return "Settings"
         case .plugins:  return "Plugins"
         }
@@ -51,6 +95,7 @@ enum LibraryCategory: String, CaseIterable, Identifiable {
         case .tools:    return "wrench.and.screwdriver"
         case .mcp:      return "antenna.radiowaves.left.and.right"
         case .guides:   return "book"
+        case .memories: return "brain"
         case .settings: return "gearshape"
         case .plugins:  return "puzzlepiece.extension"
         }
@@ -71,6 +116,13 @@ enum LibraryCategory: String, CaseIterable, Identifiable {
         case .tools:    return home.appendingPathComponent(".claude/settings.json", isDirectory: false)
         case .mcp:      return home.appendingPathComponent(".claude/.mcp.json", isDirectory: false)
         case .guides:   return home.appendingPathComponent(".claude", isDirectory: true)
+        case .memories:
+            // Memories live under ~/.claude/projects/<ENCODED-HOME>/memory/ where
+            // ENCODED-HOME is the home path with every '/' replaced by '-'
+            // (e.g. /Users/bbdaniels → -Users-bbdaniels). Derive it from
+            // NSHomeDirectory() so the username is never hardcoded.
+            let encoded = NSHomeDirectory().replacingOccurrences(of: "/", with: "-")
+            return home.appendingPathComponent(".claude/projects/\(encoded)/memory", isDirectory: true)
         case .settings: return home.appendingPathComponent(".claude/settings.json", isDirectory: false)
         case .plugins:  return home.appendingPathComponent(".claude/plugins/installed_plugins.json", isDirectory: false)
         }
@@ -90,6 +142,7 @@ enum LibraryCategory: String, CaseIterable, Identifiable {
         case .tools:    return "Authorize CLI tools in ~/.claude/settings.json via Bash(<binary>:*) entries."
         case .mcp:      return "Configure MCP servers in ~/.claude/.mcp.json."
         case .guides:   return "Add CLAUDE.md (and @-imported guides) at ~/.claude/CLAUDE.md."
+        case .memories: return "Memories live in ~/.claude/projects/<encoded-home>/memory/ as .md files with name/description/metadata frontmatter."
         case .settings: return "~/.claude/settings.json holds permissions, env, hooks, and MCP."
         case .plugins:  return "Install plugins via /plugin to populate this list."
         }
@@ -121,6 +174,8 @@ enum LibraryCategory: String, CaseIterable, Identifiable {
             return "Look at the MCP server \(name) in ~/.claude/.mcp.json. Report what it exposes, whether the binary is reachable, and any obvious misconfig. Then stop."
         case .guides:
             return "Read the guide at \(item.path.path) and produce a 5-bullet TOC of the topics it covers. Then stop."
+        case .memories:
+            return "Read the memory at \(item.path.path) and summarize in 2 lines: what fact it records and when it should be recalled. Then stop."
         case .settings:
             return "Open \(item.path.path) and report the top-level keys with one-line descriptions of what each one controls. Then stop."
         case .plugins:

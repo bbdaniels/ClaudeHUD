@@ -346,8 +346,6 @@ struct HUDContentView: View {
                     LibraryView()
                         .environmentObject(appState.libraryService)
                         .environmentObject(terminalService)
-                        .environmentObject(appState.agentsService)
-                        .environmentObject(sessionHistory)
                 }
             } else if tabManager.currentTab?.kind == .terminal {
                 TerminalTabView(sessionId: tabManager.selectedTabId)
