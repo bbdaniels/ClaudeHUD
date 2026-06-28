@@ -252,8 +252,13 @@ class ClaudeCLIClient: ObservableObject {
 
         if supervised, let cfg = supervisedMcpConfig {
             // The supervisory seam: gate via the MCP tool instead of skipping.
+            // --strict-mcp-config prevents global MCPs (google-drive, obsidian,
+            // etc.) from being loaded — only the bundled hud server runs. Without
+            // it, all 13+ global servers spawn, hang on OAuth/connections, and
+            // produce a cascade of partial system events during init.
             args += [
                 "--mcp-config", cfg,
+                "--strict-mcp-config",
                 "--permission-prompt-tool", "mcp__hud__approve",
                 // Let the model call the question tool without it being gated.
                 "--allowed-tools", "mcp__hud__ask_human",

@@ -77,6 +77,13 @@ final class SlackService: ObservableObject {
         /// ceiling handed to the engine. Optional + defaulted (`maxTurns`) for
         /// backward-compat with state persisted before the guardrail existed.
         var maxTurns: Int? = nil
+        /// Sticky per-channel active thread (4.x): the ts of the conversation's
+        /// root message. A top-level channel message or a post-restart resume
+        /// (both with `thread_ts == nil`) continues in THIS thread instead of
+        /// spawning a new channel root, so the channel reads as one thread. Set
+        /// when a brand-new root is posted; cleared by `/claude-new`. Optional +
+        /// persisted, so it survives an app restart (the resume continuity fix).
+        var activeThreadTs: String? = nil
     }
 
     /// Default reasoning effort when the channel hasn't set one (2.3).
@@ -640,8 +647,10 @@ final class SlackService: ObservableObject {
             SlackFileLog.log("dedupe: dropped duplicate message \(msgKey)")
             return
         }
+        let threadTs = event["thread_ts"] as? String
+        SlackFileLog.log("rx: channel=\(channel) ts=\(ts) thread_ts=\(threadTs ?? "nil") text=\(text.prefix(40))")
 
-        Task { await self.handleMessage(channel: channel, text: text, user: user, imageFiles: imageFiles) }
+        Task { await self.handleMessage(channel: channel, text: text, user: user, imageFiles: imageFiles, inboundThreadTs: threadTs) }
     }
 
     /// On `channel_created`: join the new channel and bind it to a project if
@@ -738,7 +747,8 @@ final class SlackService: ObservableObject {
     }
 
     private func handleMessage(channel: String, text rawText: String, user: String,
-                               imageFiles: [[String: Any]] = []) async {
+                               imageFiles: [[String: Any]] = [],
+                               inboundThreadTs: String? = nil) async {
         // Inbound images: download any image attachments to a local scratch dir
         // and splice their paths into the turn so Claude can Read them.
         var text = rawText
@@ -771,7 +781,8 @@ final class SlackService: ObservableObject {
                 return
             }
             await runTurn(channelId: channel, projectName: resolved.name, cwd: resolved.cwd,
-                          obsidianPath: resolved.obsidianPath, text: text)
+                          obsidianPath: resolved.obsidianPath, text: text,
+                          inboundThreadTs: inboundThreadTs)
         } else {
             SlackFileLog.log("no match for #\(name)")
             await postMessage(
@@ -790,7 +801,8 @@ final class SlackService: ObservableObject {
     /// session id, and posts the final text back. Single-writer per channel.
     private func runTurn(channelId: String, projectName: String, cwd: String,
                          obsidianPath: String, text: String,
-                         bypassUsageGate: Bool = false) async {
+                         bypassUsageGate: Bool = false,
+                         inboundThreadTs: String? = nil) async {
         guard !inFlight.contains(channelId) else {
             await postMessage(channel: channelId,
                               text: "Busy with the current turn in this channel — resend once it finishes.")
@@ -891,18 +903,38 @@ final class SlackService: ObservableObject {
             SlackFileLog.log("fresh session: primed with obsidian context for \(projectName) (\(obsidianPath))")
         }
 
+        // STICKY THREAD (4.x): a channel is one continuous conversation. Reply IN
+        // a thread → that thread. Otherwise → the channel's persisted active
+        // thread (so a top-level message AND a post-restart resume, both with
+        // thread_ts==nil, continue in the same thread rather than fragmenting
+        // into a new channel root).
+        let responseThreadTs = inboundThreadTs ?? state.activeThreadTs
+
         // The ROOT message is the turn's permanent anchor (its ts) and the clean
         // ledger line: status + quoted request + control bar, no work noise. Stop
         // is present from second one (its absence would itself be the bug). Reads
         // can take ~45s; the root carries the liveness from the start.
+        SlackFileLog.log("runTurn: inboundThreadTs=\(inboundThreadTs ?? "nil") activeThreadTs=\(state.activeThreadTs ?? "nil") responseThreadTs=\(responseThreadTs ?? "nil") posting root")
         let rootTs = await postMessage(
             channel: channelId,
             text: "\(TurnState.working.icon) Working…",
+            threadTs: responseThreadTs,
             blocks: workingBlocks(turn: turn, now: startedAt, warning: false, stopping: false)
         )
+        SlackFileLog.log("runTurn: rootTs=\(rootTs ?? "nil")")
         turn.rootTs = rootTs
         persistInFlight()
         SlackFileLog.log("root message ts=\(rootTs ?? "nil") gen=\(turn.generation)")
+
+        // A BRAND-NEW root (no thread chosen) opens the channel's sticky thread:
+        // every later message — top-level or threaded, this run or after a
+        // restart — continues under it. Persisted so it survives an app restart.
+        if responseThreadTs == nil, let rootTs {
+            state.activeThreadTs = rootTs
+            channelSessions[channelId] = state
+            saveChannelSessions()
+            SlackFileLog.log("sticky thread: #\(channelId) opened active thread \(rootTs)")
+        }
 
         // Mirror the running state onto the root as a reaction (1.9) — reads
         // instantly in the channel sidebar without opening the message.
@@ -939,7 +971,10 @@ final class SlackService: ObservableObject {
             // EMPTY-RESUME AUTO-RETRY: a resumed turn that comes back empty
             // (chars==0) usually means the session was missing/stranded in this
             // cwd's store. Retry ONCE as a fresh session (primed, no --resume).
-            if !isFresh, run.text.isEmpty {
+            // Guard on stopRequested: a user-stopped resume also returns empty
+            // (the killed process exits with no output), and must NOT spawn a
+            // fresh session — the operator chose to stop, not to restart.
+            if !isFresh, run.text.isEmpty, !stopRequested.contains(channelId) {
                 SlackFileLog.log("empty resume result; retried fresh")
                 state.sessionId = nil
                 run = try await runEngine(
@@ -4328,10 +4363,13 @@ final class SlackService: ObservableObject {
     private func newSession(channelId: String, responseUrl: String?) async {
         var state = channelSessions[channelId] ?? ChannelSession(sessionId: nil, permissionMode: "default", cwd: nil)
         state.sessionId = nil
+        // Clear the sticky thread too: the next message starts a fresh root +
+        // a new conversation thread.
+        state.activeThreadTs = nil
         channelSessions[channelId] = state
         clients[channelId]?.newSession()
         saveChannelSessions()
-        SlackFileLog.log("claude-new: cleared session for \(channelId)")
+        SlackFileLog.log("claude-new: cleared session + active thread for \(channelId)")
         let name = await channelName(for: channelId) ?? channelId
         await respond(channel: channelId, responseUrl: responseUrl,
                       text: "Started a fresh session in #\(name).")
