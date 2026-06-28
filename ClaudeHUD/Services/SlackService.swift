@@ -3813,9 +3813,329 @@ final class SlackService: ObservableObject {
             await stopTurn(channelId: channelId)
             await respond(channel: channelId, responseUrl: responseUrl,
                           text: wasLive ? "Stopping the live turn…" : "No live turn to stop.")
+        case "/claude-status":
+            await statusCard(channelId: channelId, responseUrl: responseUrl)
+        case "/claude-help":
+            await helpCard(channelId: channelId, responseUrl: responseUrl)
+        case "/claude-log":
+            await sessionLog(channelId: channelId, responseUrl: responseUrl)
+        case "/claude-resume":
+            await resumeSession(arg: text, channelId: channelId, responseUrl: responseUrl)
         default:
             SlackFileLog.log("slash unknown command \(command)")
         }
+    }
+
+    // MARK: - Slash commands: status / help / log / resume (D2/D3, G24, E8)
+
+    /// `/claude-status` (D3) — one ephemeral settings card: the channel's current
+    /// `mode`, `effort`, `followup` default, turn budget, bound session id and
+    /// cwd, plus any live turn and the 5-hour usage-window headroom (the
+    /// subscription engine bills tokens not dollars, so "spend" is the usage
+    /// window, never a money figure). Ephemeral so it never clutters the ledger.
+    private func statusCard(channelId: String, responseUrl: String?) async {
+        let mode = channelSessions[channelId]?.permissionMode ?? "default"
+        let effort = effortLevel(channelId)
+        let followup = followupPolicy(channelId)
+        let turns = maxTurns(channelId)
+        let resolved = await resolvedContext(channelId: channelId)
+        let sid = channelSessions[channelId]?.sessionId
+        let cwd = channelSessions[channelId]?.cwd ?? resolved?.cwd
+
+        var lines: [String] = []
+        lines.append("*Config*")
+        lines.append("• Mode: *\(mode)* — \(Self.modeLabel(mode))")
+        lines.append("• Effort: *\(effort)* — \(Self.effortLabel(effort))")
+        lines.append("• Follow-up: *\(followup)*")
+        lines.append("• Turn budget: *\(turns)* turns / run")
+        if let resolved {
+            lines.append("• Project: *\(resolved.name)*")
+        }
+        lines.append("• Working dir: \(cwd.map { "`\($0)`" } ?? "_not bound — run `/claude-project`_")")
+        lines.append("• Session: \(sid.map { "`\($0)`" } ?? "_fresh (next message starts a new one)_")")
+
+        // Live turn
+        lines.append("")
+        if let t = inFlightTurns[channelId], inFlight.contains(channelId) {
+            let age = Int(Date().timeIntervalSince(t.startedAt))
+            let stateWord = t.parked ? "Needs you (parked)" : (t.stopping ? "Stopping…" : "Working")
+            lines.append("*Live turn:* \(stateWord) · \(Self.ago(age)) · \(t.toolCount) tools")
+            lines.append("> \(SlackBlocks.truncate(Self.singleLine(t.request), 180))")
+        } else if inFlight.contains(channelId) {
+            lines.append("*Live turn:* running")
+        } else {
+            lines.append("*Live turn:* none")
+        }
+
+        // Usage-window headroom (no dollars: subscription bills tokens).
+        lines.append("")
+        if let w = usageService.usage?.fiveHour {
+            let headroom = max(0, 100 - Int(w.utilization.rounded()))
+            let reset = Self.resetsHint(w.resetsAt)
+            let resetTxt = reset.isEmpty ? "" : " · resets \(reset)"
+            lines.append("*Usage window (5h):* \(headroom)% headroom (at \(Int(w.utilization.rounded()))%)\(resetTxt)")
+        } else {
+            lines.append("*Usage window (5h):* unavailable")
+        }
+
+        let blocks: [[String: Any]] = [
+            SlackBlocks.section(":gear: *Channel status*"),
+            SlackBlocks.section(lines.joined(separator: "\n"))
+        ]
+        SlackFileLog.log("claude-status: \(channelId) mode=\(mode) effort=\(effort) live=\(inFlight.contains(channelId))")
+        await respond(channel: channelId, responseUrl: responseUrl,
+                      text: "Channel status", ephemeral: true, blocks: blocks)
+    }
+
+    /// `/claude-help` (D2) — reprint the interaction grammar + the full slash
+    /// command list. Ephemeral so it is a private reference, not channel noise.
+    private func helpCard(channelId: String, responseUrl: String?) async {
+        let grammar = """
+        *How this channel works*
+        One channel = one project = one resumable session. Post a message to launch an autonomous turn against the project's working tree.
+        • *Channel root* = the task + its status line (Working → Done/Failed/Stopped/Needs-you).
+        • *Thread under it* = the live work: activity trail, thinking, plan, questions, approvals.
+        • *Buttons* = control (Stop, Approve/Deny, Answer, Resume, Show diff, Undo). Never typed from memory.
+
+        *Thread-reply precedence*
+        1. A question is pending → your next reply is its answer.
+        2. Reply starts with `?` → read-only status recap, never perturbs the run.
+        3. Otherwise → a follow-up, handled by the channel's follow-up default.
+        """
+        let commands = """
+        *Slash commands*
+        • `/claude-new` — start a fresh session (clear the session id)
+        • `/claude-mode <plan|default|skip>` — permission tier
+        • `/claude-effort <low|medium|high|xhigh|max>` — reasoning dial
+        • `/claude-followup <queue|steer|ask>` — mid-turn message default
+        • `/claude-budget <turns>` — per-turn turn cap (no dollars; tokens bill the subscription)
+        • `/claude-stop` — kill the live turn (same as the Stop button)
+        • `/claude-status` — config + live turn + usage-window headroom
+        • `/claude-resume [sid]` — re-attach the most recent (or given) session
+        • `/claude-log` — recent session activity from the transcript
+        • `/claude-help` — this message
+        • `/claude-skills` · `/claude-agents` — what this session loaded
+        • `/claude-project <dir> [name]` — bind a project · `/claude-sync` — reconcile channels
+        """
+        let blocks: [[String: Any]] = [
+            SlackBlocks.section(grammar),
+            SlackBlocks.divider(),
+            SlackBlocks.section(commands)
+        ]
+        SlackFileLog.log("claude-help: \(channelId)")
+        await respond(channel: channelId, responseUrl: responseUrl,
+                      text: "ClaudeHUD help", ephemeral: true, blocks: blocks)
+    }
+
+    /// `/claude-log` (G24) — summarize this channel's recent session activity from
+    /// the `~/.claude/projects` JSONL transcript. Reads the channel's bound
+    /// session id (else the most recent session under the cwd's store) and renders
+    /// the last several user/assistant turns. Ephemeral.
+    private func sessionLog(channelId: String, responseUrl: String?) async {
+        guard let resolved = await resolvedContext(channelId: channelId) else {
+            await respond(channel: channelId, responseUrl: responseUrl,
+                          text: "This channel isn't bound to a project yet. Run `/claude-project <absolute-dir> [name]`.",
+                          ephemeral: true)
+            return
+        }
+        let storeDir = Self.projectStoreDir(forCwd: resolved.cwd)
+        let sid = channelSessions[channelId]?.sessionId
+        let filePath: String?
+        if let sid {
+            let p = "\(storeDir)/\(sid).jsonl"
+            filePath = FileManager.default.fileExists(atPath: p) ? p : Self.mostRecentSessionFile(in: storeDir)
+        } else {
+            filePath = Self.mostRecentSessionFile(in: storeDir)
+        }
+        guard let filePath else {
+            await respond(channel: channelId, responseUrl: responseUrl,
+                          text: "No session transcript yet for *\(resolved.name)*. Post a message to start one.",
+                          ephemeral: true)
+            return
+        }
+        let entries = Self.recentTranscript(filePath: filePath, limit: 10)
+        guard !entries.isEmpty else {
+            await respond(channel: channelId, responseUrl: responseUrl,
+                          text: "The transcript for this session has no readable turns yet.",
+                          ephemeral: true)
+            return
+        }
+        let body = entries.map { entry -> String in
+            let icon = entry.role == "user" ? ":bust_in_silhouette:" : ":robot_face:"
+            return "\(icon) \(SlackBlocks.truncate(Self.singleLine(entry.text), 240))"
+        }.joined(separator: "\n")
+        let fileName = (filePath as NSString).lastPathComponent
+        let sidShort = (fileName as NSString).deletingPathExtension
+        let blocks: [[String: Any]] = [
+            SlackBlocks.section(":scroll: *Recent session activity* — *\(resolved.name)*"),
+            SlackBlocks.section(body),
+            SlackBlocks.context("session `\(sidShort)` · last \(entries.count) turns")
+        ]
+        SlackFileLog.log("claude-log: \(channelId) session=\(sidShort) turns=\(entries.count)")
+        await respond(channel: channelId, responseUrl: responseUrl,
+                      text: "Recent session activity", ephemeral: true, blocks: blocks)
+    }
+
+    /// `/claude-resume [sid]` — re-attach the channel to the most recent session
+    /// (or the given session id), so the next message continues it via `--resume`
+    /// rather than starting fresh. With a sid argument the id is validated against
+    /// the cwd's `~/.claude/projects` store before binding (E8: resume only works
+    /// inside the cwd that created the session).
+    private func resumeSession(arg: String, channelId: String, responseUrl: String?) async {
+        guard !inFlight.contains(channelId) else {
+            await respond(channel: channelId, responseUrl: responseUrl,
+                          text: "A turn is already running — `/claude-stop` it first, then resume.",
+                          ephemeral: true)
+            return
+        }
+        guard let resolved = await resolvedContext(channelId: channelId) else {
+            await respond(channel: channelId, responseUrl: responseUrl,
+                          text: "This channel isn't bound to a project yet. Run `/claude-project <absolute-dir> [name]`.",
+                          ephemeral: true)
+            return
+        }
+        let storeDir = Self.projectStoreDir(forCwd: resolved.cwd)
+        let wanted = arg.trimmingCharacters(in: .whitespaces)
+
+        let targetSid: String?
+        if !wanted.isEmpty {
+            let p = "\(storeDir)/\(wanted).jsonl"
+            guard FileManager.default.fileExists(atPath: p) else {
+                await respond(channel: channelId, responseUrl: responseUrl,
+                              text: "No session `\(wanted)` found under `\(resolved.cwd)`. A session id only resumes in the cwd that created it.",
+                              ephemeral: true)
+                return
+            }
+            targetSid = wanted
+        } else if let recent = Self.mostRecentSessionFile(in: storeDir) {
+            targetSid = ((recent as NSString).lastPathComponent as NSString).deletingPathExtension
+        } else {
+            targetSid = nil
+        }
+
+        guard let sid = targetSid else {
+            await respond(channel: channelId, responseUrl: responseUrl,
+                          text: "No prior session to resume for *\(resolved.name)*. Post a message to start a fresh one.",
+                          ephemeral: true)
+            return
+        }
+
+        var state = channelSessions[channelId] ?? ChannelSession(sessionId: nil, permissionMode: "default", cwd: nil)
+        state.sessionId = sid
+        state.cwd = resolved.cwd
+        channelSessions[channelId] = state
+        saveChannelSessions()
+        SlackFileLog.log("claude-resume: \(channelId) -> \(sid) (cwd=\(resolved.cwd))")
+        await respond(channel: channelId, responseUrl: responseUrl,
+                      text: "Re-attached to session `\(sid)` in *\(resolved.name)*. Your next message continues it.",
+                      ephemeral: false)
+    }
+
+    // MARK: - Slash command helpers (status/log/resume support)
+
+    /// Best-effort resolve of a channel's project context: prefer the live/last
+    /// turn, then the persisted session cwd, then a fresh project lookup by
+    /// channel name. Returns nil only when the channel maps to no project.
+    private func resolvedContext(channelId: String) async -> (name: String, cwd: String, obsidianPath: String)? {
+        if let lt = lastTurns[channelId] {
+            return (lt.projectName, lt.cwd, lt.obsidianPath)
+        }
+        if let name = await channelName(for: channelId),
+           let r = resolveProject(forChannelName: name) {
+            return r
+        }
+        return nil
+    }
+
+    /// The `~/.claude/projects` store directory for a cwd. Claude Code encodes a
+    /// project path by replacing `/`, `_`, and `.` with `-` (see
+    /// SessionHistoryService.decodeProjectDir for the inverse).
+    private static func projectStoreDir(forCwd cwd: String) -> String {
+        let encoded = cwd
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: "_", with: "-")
+            .replacingOccurrences(of: ".", with: "-")
+        return "\(NSHomeDirectory())/.claude/projects/\(encoded)"
+    }
+
+    /// Most recently modified `.jsonl` session file under a store dir, or nil.
+    private static func mostRecentSessionFile(in storeDir: String) -> String? {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(atPath: storeDir) else { return nil }
+        let jsonls = files.filter { $0.hasSuffix(".jsonl") }
+        var best: (path: String, date: Date)?
+        for f in jsonls {
+            let p = "\(storeDir)/\(f)"
+            guard let attrs = try? fm.attributesOfItem(atPath: p),
+                  let mod = attrs[.modificationDate] as? Date else { continue }
+            if best == nil || mod > best!.date { best = (p, mod) }
+        }
+        return best?.path
+    }
+
+    /// A transcript turn surfaced by `/claude-log`.
+    private struct TranscriptEntry { let role: String; let text: String }
+
+    /// Parse the tail of a session JSONL into the last `limit` user/assistant
+    /// turns (most-recent last). Lightweight, secret-agnostic display of the
+    /// operator's own session — never the raw tool I/O.
+    private static func recentTranscript(filePath: String, limit: Int) -> [TranscriptEntry] {
+        guard let raw = try? String(contentsOfFile: filePath, encoding: .utf8) else { return [] }
+        var entries: [TranscriptEntry] = []
+        for line in raw.split(separator: "\n") {
+            guard let data = line.data(using: .utf8),
+                  let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { continue }
+            guard let (role, text) = transcriptLine(from: json), !text.isEmpty else { continue }
+            entries.append(TranscriptEntry(role: role, text: text))
+        }
+        return Array(entries.suffix(limit))
+    }
+
+    /// Pull a (role, text) pair out of one JSONL record across the schema
+    /// variants Claude Code has emitted. Returns nil for non-message records.
+    private static func transcriptLine(from json: [String: Any]) -> (String, String)? {
+        // {"type":"user"/"assistant","message":{"role":...,"content":...}}
+        if let msg = json["message"] as? [String: Any],
+           let role = msg["role"] as? String, role == "user" || role == "assistant" {
+            return (role, flattenContent(msg["content"]))
+        }
+        // {"role":"user"/"assistant","content":...}
+        if let role = json["role"] as? String, role == "user" || role == "assistant" {
+            return (role, flattenContent(json["content"]))
+        }
+        return nil
+    }
+
+    /// Flatten a message `content` (string or array of blocks) into display text,
+    /// skipping tool_use / tool_result blocks (those are the thread trail's job).
+    private static func flattenContent(_ content: Any?) -> String {
+        if let s = content as? String { return s }
+        guard let blocks = content as? [[String: Any]] else { return "" }
+        var parts: [String] = []
+        for b in blocks {
+            let type = b["type"] as? String ?? ""
+            if type == "text", let t = b["text"] as? String { parts.append(t) }
+            else if type == "thinking" { parts.append("(thinking)") }
+            else if type == "tool_use", let name = b["name"] as? String { parts.append("→ \(name)") }
+        }
+        return parts.joined(separator: " ")
+    }
+
+    /// Outcome-labelled name for a permission mode (mirrors `effortLabel`).
+    private static func modeLabel(_ mode: String) -> String {
+        switch mode {
+        case "plan":             return "read-only (no Edit/Write/Bash)"
+        case "default":          return "Edit/Write allowed, Bash gated"
+        case "dangerously-skip": return "everything allowed (incl. Bash)"
+        default:                 return mode
+        }
+    }
+
+    /// Compact "Ns/Nm ago"-style age string for a seconds count.
+    private static func ago(_ secs: Int) -> String {
+        if secs < 60 { return "\(secs)s" }
+        let m = secs / 60, s = secs % 60
+        return s == 0 ? "\(m)m" : "\(m)m\(s)s"
     }
 
     /// `/claude-effort <low|medium|high|xhigh|max>` — set + persist the channel's
@@ -4042,23 +4362,26 @@ final class SlackService: ObservableObject {
 
     /// Reply to a slash command — prefer the `response_url` (works without
     /// channel membership), else `chat.postMessage` to the channel.
-    private func respond(channel: String, responseUrl: String?, text: String) async {
+    private func respond(channel: String, responseUrl: String?, text: String,
+                         ephemeral: Bool = false, blocks: [[String: Any]]? = nil) async {
         if let responseUrl, let url = URL(string: responseUrl) {
             var req = URLRequest(url: url)
             req.httpMethod = "POST"
             req.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try? JSONSerialization.data(withJSONObject: [
-                "response_type": "in_channel", "text": text
-            ])
+            var body: [String: Any] = [
+                "response_type": ephemeral ? "ephemeral" : "in_channel", "text": text
+            ]
+            if let blocks { body["blocks"] = blocks }
+            req.httpBody = try? JSONSerialization.data(withJSONObject: body)
             do {
                 _ = try await session.data(for: req)
                 SlackFileLog.log("slash response posted via response_url")
             } catch {
                 SlackFileLog.log("slash response_url failed: \(error.localizedDescription)")
-                if !channel.isEmpty { await postMessage(channel: channel, text: text) }
+                if !channel.isEmpty { await postMessage(channel: channel, text: text, blocks: blocks) }
             }
         } else if !channel.isEmpty {
-            await postMessage(channel: channel, text: text)
+            await postMessage(channel: channel, text: text, blocks: blocks)
         }
     }
 

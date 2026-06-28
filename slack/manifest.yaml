@@ -28,6 +28,36 @@ features:
     - command: /claude-mode
       description: Set permission mode for this channel (plan|default|skip)
       should_escape: false
+    - command: /claude-status
+      description: Show this channel's config, live turn, and usage headroom
+      should_escape: false
+    - command: /claude-help
+      description: Reprint the interaction grammar and command list
+      should_escape: false
+    - command: /claude-log
+      description: Summarize this channel's recent session activity
+      should_escape: false
+    - command: /claude-resume
+      description: Re-attach the most recent (or given) session
+      should_escape: false
+    - command: /claude-stop
+      description: Kill the live turn (same as the Stop button)
+      should_escape: false
+    - command: /claude-effort
+      description: Set reasoning effort (low|medium|high|xhigh|max)
+      should_escape: false
+    - command: /claude-followup
+      description: Default for a mid-turn message (queue|steer|ask)
+      should_escape: false
+    - command: /claude-budget
+      description: Per-turn turn cap (no dollars; tokens bill the subscription)
+      should_escape: false
+    - command: /claude-project
+      description: Bind a project directory and create its channel
+      should_escape: false
+    - command: /claude-sync
+      description: Reconcile vault projects with Slack channels
+      should_escape: false
 oauth_config:
   scopes:
     bot:
