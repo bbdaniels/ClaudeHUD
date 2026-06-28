@@ -605,7 +605,15 @@ final class SlackService: ObservableObject {
     /// bot posts (`bot_id`), and the bot's own `user` id — all of which would
     /// otherwise create reply loops.
     private func handleMessageEvent(_ event: [String: Any]) {
-        guard event["subtype"] == nil else { return }
+        // Inbound image support: a message bearing image attachments may arrive
+        // with subtype "file_share" (or files alongside text). Such a message
+        // must NOT be dropped by the edit/delete subtype filter — allow it
+        // through when it carries image files, otherwise skip any subtype.
+        let files = event["files"] as? [[String: Any]] ?? []
+        let imageFiles = files.filter {
+            ($0["mimetype"] as? String)?.hasPrefix("image/") == true
+        }
+        if event["subtype"] != nil, imageFiles.isEmpty { return }
         guard event["bot_id"] == nil else { return }
         let user = event["user"] as? String ?? ""
         if !user.isEmpty, user == botUserId { return }
@@ -623,7 +631,7 @@ final class SlackService: ObservableObject {
             return
         }
 
-        Task { await self.handleMessage(channel: channel, text: text, user: user) }
+        Task { await self.handleMessage(channel: channel, text: text, user: user, imageFiles: imageFiles) }
     }
 
     /// On `channel_created`: join the new channel and bind it to a project if
@@ -652,7 +660,84 @@ final class SlackService: ObservableObject {
         }
     }
 
-    private func handleMessage(channel: String, text: String, user: String) async {
+    /// Scratch dir for inbound Slack image attachments.
+    private static var slackFilesDir: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/ClaudeHUD/slack-files",
+                                    isDirectory: true)
+    }
+
+    /// Download inbound image attachments via authenticated GET on `url_private`
+    /// (Bearer bot token) into the scratch dir and return their local paths.
+    /// Best-effort: a failed download is logged and skipped. Opportunistically
+    /// prunes scratch files older than 24h on each call.
+    private func downloadInboundImages(_ files: [[String: Any]]) async -> [String] {
+        let images = files.filter {
+            ($0["mimetype"] as? String)?.hasPrefix("image/") == true
+        }
+        guard !images.isEmpty, let token = botToken else { return [] }
+        let dir = Self.slackFilesDir
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        Self.cleanupOldSlackFiles(in: dir)
+
+        var paths: [String] = []
+        for file in images {
+            guard let urlStr = file["url_private"] as? String,
+                  let url = URL(string: urlStr) else { continue }
+            var req = URLRequest(url: url)
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            do {
+                let (data, response) = try await session.data(for: req)
+                if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                    SlackFileLog.log("image download http \(http.statusCode) for \(urlStr)")
+                    continue
+                }
+                // Preserve the original extension so the Read tool recognizes the
+                // image type; make the on-disk name unique with a UUID prefix.
+                let original = (file["name"] as? String) ?? (file["id"] as? String) ?? "image"
+                let ext = (original as NSString).pathExtension
+                let base = ext.isEmpty
+                    ? "\(file["filetype"] as? String ?? "img")"
+                    : ext
+                let unique = "\(UUID().uuidString).\(base)"
+                let dest = dir.appendingPathComponent(unique)
+                try data.write(to: dest)
+                paths.append(dest.path)
+            } catch {
+                SlackFileLog.log("image download failed: \(error.localizedDescription)")
+            }
+        }
+        if !paths.isEmpty {
+            SlackFileLog.log("rx \(paths.count) image(s) -> \(dir.path)")
+        }
+        return paths
+    }
+
+    /// Remove scratch image files older than 24h. Silent best-effort.
+    private static func cleanupOldSlackFiles(in dir: URL) {
+        let cutoff = Date().addingTimeInterval(-24 * 3600)
+        guard let items = try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+        for item in items {
+            let mod = (try? item.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate
+            if let mod, mod < cutoff {
+                try? FileManager.default.removeItem(at: item)
+            }
+        }
+    }
+
+    private func handleMessage(channel: String, text rawText: String, user: String,
+                               imageFiles: [[String: Any]] = []) async {
+        // Inbound images: download any image attachments to a local scratch dir
+        // and splice their paths into the turn so Claude can Read them.
+        var text = rawText
+        let imagePaths = await downloadInboundImages(imageFiles)
+        if !imagePaths.isEmpty {
+            let suffix = "The user attached image(s) at: \(imagePaths.joined(separator: ", "))"
+                + " — use the Read tool to view them."
+            text = text.isEmpty ? suffix : "\(text)\n\n\(suffix)"
+        }
         guard let name = await channelName(for: channel) else {
             logger.debug("Could not resolve channel name for \(channel)")
             SlackFileLog.log("rx message in \(channel); channel name unresolved")
