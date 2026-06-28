@@ -15,6 +15,7 @@ enum LibraryCategory: String, CaseIterable, Identifiable {
     case tools
     case mcp
     case guides
+    case memories
     case settings
     case plugins
 
@@ -33,6 +34,7 @@ enum LibraryCategory: String, CaseIterable, Identifiable {
         case .tools:    return "CLI Tools"
         case .mcp:      return "MCP Servers"
         case .guides:   return "Guides"
+        case .memories: return "Memories"
         case .settings: return "Settings"
         case .plugins:  return "Plugins"
         }
@@ -51,6 +53,7 @@ enum LibraryCategory: String, CaseIterable, Identifiable {
         case .tools:    return "wrench.and.screwdriver"
         case .mcp:      return "antenna.radiowaves.left.and.right"
         case .guides:   return "book"
+        case .memories: return "brain"
         case .settings: return "gearshape"
         case .plugins:  return "puzzlepiece.extension"
         }
@@ -71,6 +74,13 @@ enum LibraryCategory: String, CaseIterable, Identifiable {
         case .tools:    return home.appendingPathComponent(".claude/settings.json", isDirectory: false)
         case .mcp:      return home.appendingPathComponent(".claude/.mcp.json", isDirectory: false)
         case .guides:   return home.appendingPathComponent(".claude", isDirectory: true)
+        case .memories:
+            // Memories live under ~/.claude/projects/<ENCODED-HOME>/memory/ where
+            // ENCODED-HOME is the home path with every '/' replaced by '-'
+            // (e.g. /Users/bbdaniels → -Users-bbdaniels). Derive it from
+            // NSHomeDirectory() so the username is never hardcoded.
+            let encoded = NSHomeDirectory().replacingOccurrences(of: "/", with: "-")
+            return home.appendingPathComponent(".claude/projects/\(encoded)/memory", isDirectory: true)
         case .settings: return home.appendingPathComponent(".claude/settings.json", isDirectory: false)
         case .plugins:  return home.appendingPathComponent(".claude/plugins/installed_plugins.json", isDirectory: false)
         }
@@ -90,6 +100,7 @@ enum LibraryCategory: String, CaseIterable, Identifiable {
         case .tools:    return "Authorize CLI tools in ~/.claude/settings.json via Bash(<binary>:*) entries."
         case .mcp:      return "Configure MCP servers in ~/.claude/.mcp.json."
         case .guides:   return "Add CLAUDE.md (and @-imported guides) at ~/.claude/CLAUDE.md."
+        case .memories: return "Memories live in ~/.claude/projects/<encoded-home>/memory/ as .md files with name/description/metadata frontmatter."
         case .settings: return "~/.claude/settings.json holds permissions, env, hooks, and MCP."
         case .plugins:  return "Install plugins via /plugin to populate this list."
         }
@@ -121,6 +132,8 @@ enum LibraryCategory: String, CaseIterable, Identifiable {
             return "Look at the MCP server \(name) in ~/.claude/.mcp.json. Report what it exposes, whether the binary is reachable, and any obvious misconfig. Then stop."
         case .guides:
             return "Read the guide at \(item.path.path) and produce a 5-bullet TOC of the topics it covers. Then stop."
+        case .memories:
+            return "Read the memory at \(item.path.path) and summarize in 2 lines: what fact it records and when it should be recalled. Then stop."
         case .settings:
             return "Open \(item.path.path) and report the top-level keys with one-line descriptions of what each one controls. Then stop."
         case .plugins:

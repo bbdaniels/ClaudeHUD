@@ -44,6 +44,7 @@ final class LibraryService: ObservableObject {
             case .tools:     itemsByCategory[.tools]    = loadTools()
             case .mcp:       itemsByCategory[.mcp]      = loadMCP()
             case .guides:    itemsByCategory[.guides]   = loadGuides()
+            case .memories:  itemsByCategory[.memories] = loadMemories()
             case .settings:  itemsByCategory[.settings] = loadSettings()
             case .plugins:   itemsByCategory[.plugins]  = loadPlugins()
             }
@@ -443,6 +444,61 @@ final class LibraryService: ObservableObject {
             )
         }
         .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
+
+    // MARK: - Memories (~/.claude/projects/<encoded-home>/memory/*.md)
+
+    /// One row per memory file. Each memory is a single .md with name/description/
+    /// metadata frontmatter. MEMORY.md is the index, not a memory — skip it.
+    /// Items are grouped by their `metadata.type` (Feedback / Project / Reference /
+    /// User / Note) so the shared grouped-list renderer shows type section headers.
+    private func loadMemories() -> [LibraryItem] {
+        let root = LibraryCategory.memories.rootURL
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(at: root,
+                                                         includingPropertiesForKeys: [.isRegularFileKey],
+                                                         options: [.skipsHiddenFiles]) else {
+            return []
+        }
+        let mdFiles = contents.filter {
+            $0.pathExtension.lowercased() == "md" && $0.lastPathComponent != "MEMORY.md"
+        }
+        let items: [LibraryItem] = mdFiles.compactMap { url in
+            guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+            let (front, body) = SkillFrontmatter.split(raw)
+            // The flat frontmatter parser captures the indented `type:` under
+            // `metadata:` as a top-level key, so front["type"] is metadata.type.
+            let name = front["name"] ?? url.deletingPathExtension().lastPathComponent
+            let summary = front["description"] ?? Self.firstNonEmptyLine(of: body)
+            let group = Self.memoryTypeLabel(front["type"])
+            return LibraryItem(
+                id: url.path,
+                category: .memories,
+                displayName: name,
+                summary: summary,
+                path: url,
+                isDirectory: false,
+                frontmatter: front,
+                body: body,
+                group: group,
+                subgroup: nil
+            )
+        }
+        return items.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
+
+    /// Capitalize the raw metadata.type into a section label. Unknown/missing
+    /// types fall back to "Note".
+    private static func memoryTypeLabel(_ raw: String?) -> String {
+        let value = (raw ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+        switch value {
+        case "feedback":  return "Feedback"
+        case "project":   return "Project"
+        case "reference": return "Reference"
+        case "user":      return "User"
+        case "note":      return "Note"
+        default:          return value.isEmpty ? "Note" : value.capitalized
+        }
     }
 
     // MARK: - Settings (the two JSON files themselves as rows)
