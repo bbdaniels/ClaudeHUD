@@ -27,7 +27,7 @@ class AppState: ObservableObject {
     let vaultIngestService = VaultIngestService()
     let vaultProjectService = VaultProjectService()
     lazy var libraryService = LibraryService(skillsService: skillsService)
-    lazy var slackService = SlackService(projectService: projectService, vaultProjects: vaultProjectService)
+    lazy var slackService = SlackService(projectService: projectService, vaultProjects: vaultProjectService, usageService: usageService)
 
     /// Lazy-initialized Ghostty application. Only created the first time the
     /// workspace window is opened, so users who never touch the workspace pay

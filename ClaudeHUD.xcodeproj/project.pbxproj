@@ -23,7 +23,9 @@
 		0D0369B1284F0428139DD123 /* ContactService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4DFFB6D6970128A8DD29E98 /* ContactService.swift */; };
 		0E0F0D65C5A51959D63E6AB8 /* NSView+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 762A5D34E8673E4172E0C54A /* NSView+Extension.swift */; };
 		100D1AE5FEA20720849E25EE /* HUDContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A8692269C30DC7C435CE107 /* HUDContentView.swift */; };
+		102985329169DD56B4DB3908 /* GitCheckpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8E9E31744579BBB9B8385A9 /* GitCheckpoint.swift */; };
 		10839D1BC618E406833B95CC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C53EC70F3DA9CDD0CC4EA24F /* Assets.xcassets */; };
+		10A7B47A455CF31127BD8159 /* SlackTrail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52B42D4CFA935F58BB02DB79 /* SlackTrail.swift */; };
 		11D068D60F1FBC84E1D988EA /* ClaudeHUDApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E611364C25404DC27D5D60B /* ClaudeHUDApp.swift */; };
 		12523B638F22D6464E2BFCFC /* NSColor+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4147B98C388E49B41A477E73 /* NSColor+Extension.swift */; };
 		13F1E344763031DF5103395E /* SurfaceView+Transferable.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6190261570E5783E8BC05CD /* SurfaceView+Transferable.swift */; };
@@ -84,6 +86,7 @@
 		6A148D7769F6B682AA1B8983 /* Ghostty.Action.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2D5D690DAB6FDFE2D23AAE9 /* Ghostty.Action.swift */; };
 		6C61B2CE643B8F374B2808E7 /* ExpiringUndoManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB6EA00FF03F3C11DDAA52A6 /* ExpiringUndoManager.swift */; };
 		6E76C3600929761BFCF83639 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E85FBA53BC2B877A3E34EF6 /* LibraryView.swift */; };
+		6ECB5B217B8ADB4A2A00114D /* SlackSubagentTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C781E04EC33B448A8D8999B /* SlackSubagentTree.swift */; };
 		716AF768A9028A0E83E447BD /* SSEMCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B9601851634E06856B4D47D /* SSEMCPClient.swift */; };
 		73EADD2BE245DD1BB284422A /* ClaudeAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CE87221F1993D02C27C5E1B /* ClaudeAPIClient.swift */; };
 		749DC764D831EF175567E9FC /* VaultTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B280310DE38541F7B2CD6849 /* VaultTabView.swift */; };
@@ -110,6 +113,7 @@
 		8C46A3A5A8F635DA6316E52D /* HUDPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39C7242E2783A2815CB305E2 /* HUDPanelController.swift */; };
 		8E4BEDBA99C6C86C2199CCB7 /* SurfaceScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F1CCAC3654CFE6A96560A4D /* SurfaceScrollView.swift */; };
 		8E8F39F1B2F4A9126B193434 /* vault-email-ingest-prompt.md in Resources */ = {isa = PBXBuildFile; fileRef = 7DC0E016BB2EFA248FF50C5D /* vault-email-ingest-prompt.md */; };
+		8FA5F9C2B51FAC76BF7CBBB7 /* hud-slack-mcp.py in Resources */ = {isa = PBXBuildFile; fileRef = 1D731581C9FAF0D35F075729 /* hud-slack-mcp.py */; };
 		952C077516A9880889016AA8 /* TabGroupCloseCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3122D5EA083D0825A7A6E8B /* TabGroupCloseCoordinator.swift */; };
 		96C997E65F697D968F12E091 /* Dock.swift in Sources */ = {isa = PBXBuildFile; fileRef = C351829385CF609EED3E826E /* Dock.swift */; };
 		98CDCDB7078ED15735D8BB1F /* libsentry.a in Resources */ = {isa = PBXBuildFile; fileRef = A72C6D575DC0E64C605D2287 /* libsentry.a */; };
@@ -158,7 +162,9 @@
 		DDA2946F96AD207B375C29BA /* UserDefaults+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED28053B6C8DF41BBA408158 /* UserDefaults+Extension.swift */; };
 		DE922D07FC082ECD825981AF /* Ghostty.Error.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2FEBBA9082ACBA24CFC6EF7 /* Ghostty.Error.swift */; };
 		DECD190055B1050264EE10F8 /* FullscreenMode+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 044F5F3A60EFFE583BAA83D7 /* FullscreenMode+Extension.swift */; };
+		DF1DFC2F7AEF897D5BBB6511 /* SlackSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5323499B63BC10AC67FC7545 /* SlackSupervisor.swift */; };
 		E12162B754D4DEA06DE18252 /* libsimdutf.a in Resources */ = {isa = PBXBuildFile; fileRef = CA6A70DCA2B1AA8BDA8B3D12 /* libsimdutf.a */; };
+		E4AFFD48C1907EF72AEC9569 /* SlackBlockKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FCE081E0F6BEA9495AAB3E4 /* SlackBlockKit.swift */; };
 		E544C1AC11413E5F3E07E88D /* libdcimgui.a in Resources */ = {isa = PBXBuildFile; fileRef = 9746A6576D360BAF0E62317B /* libdcimgui.a */; };
 		E5C2D0E6169E0122DA942141 /* VaultScriptInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0B4EA7B99AB3BC5EE53619 /* VaultScriptInstaller.swift */; };
 		E7298415B9F7EFB367CAFB9B /* HostingWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68C16ED4C6BC5E8AE994EEC8 /* HostingWindow.swift */; };
@@ -189,6 +195,7 @@
 		0CA82C9A8F7C14A76A10A6AB /* SlackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlackService.swift; sourceTree = "<group>"; };
 		0E31186A3C56760A5BDC4FE9 /* NSScreen+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSScreen+Extension.swift"; sourceTree = "<group>"; };
 		0F039EB68F8D2416F59AF489 /* GhosttyDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyDelegate.swift; sourceTree = "<group>"; };
+		0FCE081E0F6BEA9495AAB3E4 /* SlackBlockKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlackBlockKit.swift; sourceTree = "<group>"; };
 		116D192F995BA6063E058A7F /* Stubs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Stubs.swift; sourceTree = "<group>"; };
 		11FF9297DE2CD760A7CBB416 /* vault-ingest-prompt.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "vault-ingest-prompt.md"; sourceTree = "<group>"; };
 		14436D6E425311899CF64373 /* ProjectBriefingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectBriefingService.swift; sourceTree = "<group>"; };
@@ -199,6 +206,7 @@
 		19A889B1D9FE0780BB3042FA /* StdioMCPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StdioMCPClient.swift; sourceTree = "<group>"; };
 		1C704E240AFCDBD31AC48951 /* SkillsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillsService.swift; sourceTree = "<group>"; };
 		1CB4B7FC630A7C1961E15A49 /* libhighway.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libhighway.a; sourceTree = "<group>"; };
+		1D731581C9FAF0D35F075729 /* hud-slack-mcp.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = "hud-slack-mcp.py"; sourceTree = "<group>"; };
 		1E2B6EB27428FDED67DA72B9 /* GameController.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = GameController.framework; path = System/Library/Frameworks/GameController.framework; sourceTree = SDKROOT; };
 		207CDABC03F0B223AFE35A88 /* VaultIngestService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultIngestService.swift; sourceTree = "<group>"; };
 		20C8F30012EA810713672AFE /* SurfaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceView.swift; sourceTree = "<group>"; };
@@ -209,6 +217,7 @@
 		29B305DC96DA6EAD0CD6B335 /* Ghostty.Shell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Shell.swift; sourceTree = "<group>"; };
 		2A867396AF8AC61AC9257B54 /* CodableBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodableBridge.swift; sourceTree = "<group>"; };
 		2B1929B5FE9420A892A67665 /* com.bbdaniels.vault-email-ingest.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "com.bbdaniels.vault-email-ingest.plist"; sourceTree = "<group>"; };
+		2C781E04EC33B448A8D8999B /* SlackSubagentTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlackSubagentTree.swift; sourceTree = "<group>"; };
 		2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalService.swift; sourceTree = "<group>"; };
 		2EEBFE2793D1BE2364B60C89 /* ObsidianMarkdownView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianMarkdownView.swift; sourceTree = "<group>"; };
 		2EEF39238129551C8264F8B4 /* com.bbdaniels.obsidian-sync.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "com.bbdaniels.obsidian-sync.plist"; sourceTree = "<group>"; };
@@ -240,6 +249,8 @@
 		4FE78438CDBB1B82E2CD3203 /* ClaudeWebFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeWebFetcher.swift; sourceTree = "<group>"; };
 		502D6FDFD2A08657B013ED9B /* ToolCallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCallView.swift; sourceTree = "<group>"; };
 		50E5626B4C84084B8B14BB91 /* Tooltip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tooltip.swift; sourceTree = "<group>"; };
+		52B42D4CFA935F58BB02DB79 /* SlackTrail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlackTrail.swift; sourceTree = "<group>"; };
+		5323499B63BC10AC67FC7545 /* SlackSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlackSupervisor.swift; sourceTree = "<group>"; };
 		53F0B873471D8150D4E80657 /* ProjectService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectService.swift; sourceTree = "<group>"; };
 		58276C1EA3EC3682B1C6FE36 /* ClaudeHUD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeHUD.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		59E8596B647276D0A1586779 /* SecretsVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecretsVault.swift; sourceTree = "<group>"; };
@@ -322,6 +333,7 @@
 		D5DCFDD4BA76F95120750CF9 /* GhosttyPackage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPackage.swift; sourceTree = "<group>"; };
 		D777D5BC767658779B4DE8C7 /* EventModifiers+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EventModifiers+Extension.swift"; sourceTree = "<group>"; };
 		D83C760E0CDD4EA15F2B62C8 /* vault-reset.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "vault-reset.sh"; sourceTree = "<group>"; };
+		D8E9E31744579BBB9B8385A9 /* GitCheckpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitCheckpoint.swift; sourceTree = "<group>"; };
 		D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyService.swift; sourceTree = "<group>"; };
 		DB043CB409497C537E66D2B6 /* LibraryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryService.swift; sourceTree = "<group>"; };
 		DB0EE7069BDD589857D6CD15 /* OSColor+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OSColor+Extension.swift"; sourceTree = "<group>"; };
@@ -378,6 +390,7 @@
 				4FE78438CDBB1B82E2CD3203 /* ClaudeWebFetcher.swift */,
 				B4DFFB6D6970128A8DD29E98 /* ContactService.swift */,
 				48D9389B80C07D234779F5AF /* GhosttyWindowService.swift */,
+				D8E9E31744579BBB9B8385A9 /* GitCheckpoint.swift */,
 				D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */,
 				CE31FD7228157DC53CDE8B9E /* KeychainService.swift */,
 				DB043CB409497C537E66D2B6 /* LibraryService.swift */,
@@ -389,8 +402,12 @@
 				59E8596B647276D0A1586779 /* SecretsVault.swift */,
 				C97BB9EE58B0DBF8AA04FDE7 /* SessionHistoryService.swift */,
 				1C704E240AFCDBD31AC48951 /* SkillsService.swift */,
+				0FCE081E0F6BEA9495AAB3E4 /* SlackBlockKit.swift */,
 				AFBE827B2A3EA0BF75B317EF /* SlackFileLog.swift */,
 				0CA82C9A8F7C14A76A10A6AB /* SlackService.swift */,
+				2C781E04EC33B448A8D8999B /* SlackSubagentTree.swift */,
+				5323499B63BC10AC67FC7545 /* SlackSupervisor.swift */,
+				52B42D4CFA935F58BB02DB79 /* SlackTrail.swift */,
 				488D9CECA1CC4818D8F00253 /* SocketModeClient.swift */,
 				826E910DE6159C463592C533 /* SparkService.swift */,
 				2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */,
@@ -608,6 +625,7 @@
 			isa = PBXGroup;
 			children = (
 				C53EC70F3DA9CDD0CC4EA24F /* Assets.xcassets */,
+				1D731581C9FAF0D35F075729 /* hud-slack-mcp.py */,
 				68D028D91836CDCCAD3E5DFF /* Info.plist */,
 				C6D82DD1759F543B48C98E52 /* ntfy-notify.sh */,
 				AB272797EF5863C22BEFFDE7 /* permission-watcher.sh */,
@@ -817,6 +835,7 @@
 				B8D06D4427A9E6FF2119DCC7 /* com.bbdaniels.obsidian-sync.plist in Resources */,
 				5F5595CBFA7B3C7816BDBD64 /* com.bbdaniels.vault-backfill.plist in Resources */,
 				FBEAE15A2C927762D3B358D4 /* com.bbdaniels.vault-email-ingest.plist in Resources */,
+				8FA5F9C2B51FAC76BF7CBBB7 /* hud-slack-mcp.py in Resources */,
 				F2237345BD07B5AF00CC973B /* libbreakpad.a in Resources */,
 				E544C1AC11413E5F3E07E88D /* libdcimgui.a in Resources */,
 				4167B772A7F89D1779F98239 /* libfreetype.a in Resources */,
@@ -894,6 +913,7 @@
 				FEA59D751ADDDE44989FCDAE /* GhosttyPackage.swift in Sources */,
 				62BA2D9F0205706B941FC1A1 /* GhosttyPackageMeta.swift in Sources */,
 				09F41069A4BB4FC3ECCC9C57 /* GhosttyWindowService.swift in Sources */,
+				102985329169DD56B4DB3908 /* GitCheckpoint.swift in Sources */,
 				100D1AE5FEA20720849E25EE /* HUDContentView.swift in Sources */,
 				8C46A3A5A8F635DA6316E52D /* HUDPanelController.swift in Sources */,
 				E7298415B9F7EFB367CAFB9B /* HostingWindow.swift in Sources */,
@@ -944,8 +964,12 @@
 				85FAE3D9A1FB9C99E73D9A64 /* SessionHistoryService.swift in Sources */,
 				09E0DD3C80E9042CE3E4BC59 /* SkillFile.swift in Sources */,
 				E7EFBDDB60EC4968B77D04B5 /* SkillsService.swift in Sources */,
+				E4AFFD48C1907EF72AEC9569 /* SlackBlockKit.swift in Sources */,
 				1A5B1E57FB663CDDA42D3A34 /* SlackFileLog.swift in Sources */,
 				20434BB8B9E42BF7A517DA2C /* SlackService.swift in Sources */,
+				6ECB5B217B8ADB4A2A00114D /* SlackSubagentTree.swift in Sources */,
+				DF1DFC2F7AEF897D5BBB6511 /* SlackSupervisor.swift in Sources */,
+				10A7B47A455CF31127BD8159 /* SlackTrail.swift in Sources */,
 				AEB96FF45C76D44A50C4C2AC /* SocketModeClient.swift in Sources */,
 				DBBB0A53164615486398A791 /* SparkService.swift in Sources */,
 				AF44EBFA0AB87F2490D412F9 /* StdioMCPClient.swift in Sources */,

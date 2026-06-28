@@ -41,10 +41,32 @@ actor SocketModeClient {
 
     private var onEvent: (@Sendable (Data) -> Void)?
     private var onSlashCommand: (@Sendable (Data) -> Void)?
+    private var onInteractive: (@Sendable (Data) -> Void)?
     private var socket: URLSessionWebSocketTask?
     private var running = false
     private var activityToken: (any NSObjectProtocol)?
     private var backoff: TimeInterval = 1
+
+    /// Phase 1.8 — envelope de-duplication. Socket Mode redelivers an envelope on
+    /// a slow/lost ack or on a reconnect; without this the same `events_api`,
+    /// `slash_commands`, or `interactive` payload double-fires, racing two
+    /// `claude -p --resume <same sid>` spawns against one JSONL + one working
+    /// tree. We ack EVERY delivery (Slack requires it) but dispatch each
+    /// `envelope_id` exactly once. Short-TTL so the set never grows unbounded.
+    private var seenEnvelopes: [String: Date] = [:]
+    private static let envelopeTTL: TimeInterval = 600  // 10 min
+
+    /// Record `envelopeId` and report whether it was already seen (a redelivery).
+    /// Prunes expired ids on each call so the set stays bounded.
+    private func isDuplicateEnvelope(_ envelopeId: String) -> Bool {
+        let now = Date()
+        if !seenEnvelopes.isEmpty {
+            seenEnvelopes = seenEnvelopes.filter { now.timeIntervalSince($0.value) < Self.envelopeTTL }
+        }
+        if seenEnvelopes[envelopeId] != nil { return true }
+        seenEnvelopes[envelopeId] = now
+        return false
+    }
 
     init(appToken: String) {
         self.appToken = appToken
@@ -66,6 +88,16 @@ actor SocketModeClient {
     /// Must be set before `start()`.
     func setSlashCommandHandler(_ handler: @escaping @Sendable (Data) -> Void) {
         self.onSlashCommand = handler
+    }
+
+    /// Set the handler invoked for each inbound `interactive` payload —
+    /// `block_actions` (button taps) and `view_submission` (modal submits),
+    /// passed as the payload's JSON `Data`. The envelope is acked BEFORE this
+    /// fires (Slack's 3s ack covers BOTH interaction types), so the work the
+    /// handler does — which may park on a human for minutes — never races the
+    /// ack. Must be set before `start()`.
+    func setInteractiveHandler(_ handler: @escaping @Sendable (Data) -> Void) {
+        self.onInteractive = handler
     }
 
     // MARK: - Lifecycle
@@ -174,9 +206,16 @@ actor SocketModeClient {
             return true
 
         case "events_api", "slash_commands", "interactive":
-            // Ack first — Slack requires this within 3s or it retries.
+            // Ack first — Slack requires this within 3s or it retries. Then drop
+            // a redelivery of an envelope we have already dispatched (1.8): the
+            // ack still goes out (so Slack stops retrying), but the handler — and
+            // any turn/action spawn it would trigger — fires exactly once.
             if let envelopeId = envelope["envelope_id"] as? String {
                 await ack(envelopeId)
+                if isDuplicateEnvelope(envelopeId) {
+                    SlackFileLog.log("dedupe: dropped duplicate \(type) envelope \(envelopeId)")
+                    return false
+                }
             }
             if type == "events_api",
                let payload = envelope["payload"] as? [String: Any],
@@ -187,9 +226,14 @@ actor SocketModeClient {
                       let payload = envelope["payload"] as? [String: Any],
                       let payloadData = try? JSONSerialization.data(withJSONObject: payload) {
                 onSlashCommand?(payloadData)
+            } else if type == "interactive",
+                      let payload = envelope["payload"] as? [String: Any],
+                      let payloadData = try? JSONSerialization.data(withJSONObject: payload) {
+                // Acked above (covers block_actions AND view_submission within
+                // 3s); the decision resolves async so it can park on a human.
+                onInteractive?(payloadData)
             } else {
-                // Interactive payloads are acked but not acted on yet.
-                logger.debug("Acked \(type) envelope (not processed)")
+                logger.debug("Acked \(type) envelope (no handler / undecodable payload)")
             }
 
         default:
