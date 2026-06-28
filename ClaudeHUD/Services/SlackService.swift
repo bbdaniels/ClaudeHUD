@@ -3274,7 +3274,10 @@ final class SlackService: ObservableObject {
         folder: \(obsidianPath)/Tasks.md (the authoritative active-task list), plus \
         \(obsidianPath)/Technical Notes.md and \(obsidianPath)/Dashboard.md if they \
         exist. Stay within \(obsidianPath)/ and the working directory; do not wander \
-        the rest of the vault. Read what's relevant, then address the user's message.]
+        the rest of the vault. Read what's relevant, then address the user's message. \
+        When you write Markdown into Obsidian vault notes, always put a BLANK LINE \
+        before any table and keep each table row on a SINGLE line (never hard-wrap a \
+        row) so the table renders correctly in Obsidian.]
 
         User message: \(userText)
         """
@@ -3342,25 +3345,100 @@ final class SlackService: ObservableObject {
         return out
     }
 
-    /// Apply the inline + line conversions to a non-code segment.
+    /// Apply the inline + line conversions to a non-code segment. GFM tables
+    /// (a row of `|` cells whose SECOND line is a `-`/`:`/`|`/space separator)
+    /// are reformatted as an aligned fixed-width monospace table wrapped in a
+    /// ``` fence; all other lines get the usual link/bold/header/bullet rules.
     private static func convertNonCode(_ s: String) -> String {
-        var t = s
+        let rawLines = s.components(separatedBy: "\n")
+        var out: [String] = []
+        var idx = 0
+        while idx < rawLines.count {
+            // GFM table: this line has cells, the next is a separator row,
+            // and the header parses to >= 2 columns.
+            if idx + 1 < rawLines.count,
+               rawLines[idx].contains("|"),
+               isTableSeparator(rawLines[idx + 1]),
+               parseTableRow(rawLines[idx]).count >= 2 {
+                var blockEnd = idx + 2
+                while blockEnd < rawLines.count, rawLines[blockEnd].contains("|") {
+                    blockEnd += 1
+                }
+                let body = Array(rawLines[(idx + 2)..<blockEnd])
+                out.append(formatTableBlock(header: rawLines[idx], body: body))
+                idx = blockEnd
+                continue
+            }
+            out.append(convertLine(rawLines[idx]))
+            idx += 1
+        }
+        return out.joined(separator: "\n")
+    }
+
+    /// Inline + line conversions for a single (non-table) line.
+    private static func convertLine(_ line: String) -> String {
+        var l = line
         // Links [text](url) -> <url|text> (before bold, so bold inside link
         // text still converts afterward).
-        t = regexReplace(t, #"\[([^\]]+)\]\(([^)\s]+)\)"#, "<$2|$1>")
-        // Bold **x** / __x__ -> *x* (single-line; `.` doesn't span newlines).
-        t = regexReplace(t, #"\*\*(.+?)\*\*"#, "*$1*")
-        t = regexReplace(t, #"__(.+?)__"#, "*$1*")
-        // Line-anchored: headers and bullets.
-        let lines = t.components(separatedBy: "\n").map { line -> String in
-            var l = line
-            // # … ###### header -> bold the line text, drop hashes.
-            l = regexReplace(l, #"^\s*#{1,6}[ \t]+(.*\S)[ \t]*$"#, "*$1*")
-            // "- " / "* " bullet -> "• " (preserve leading indent).
-            l = regexReplace(l, #"^([ \t]*)[-*] (.*)$"#, "$1• $2")
-            return l
+        l = regexReplace(l, #"\[([^\]]+)\]\(([^)\s]+)\)"#, "<$2|$1>")
+        // Bold **x** / __x__ -> *x*.
+        l = regexReplace(l, #"\*\*(.+?)\*\*"#, "*$1*")
+        l = regexReplace(l, #"__(.+?)__"#, "*$1*")
+        // # … ###### header -> bold the line text, drop hashes.
+        l = regexReplace(l, #"^\s*#{1,6}[ \t]+(.*\S)[ \t]*$"#, "*$1*")
+        // "- " / "* " bullet -> "• " (preserve leading indent).
+        l = regexReplace(l, #"^([ \t]*)[-*] (.*)$"#, "$1• $2")
+        return l
+    }
+
+    /// True for a GFM separator row: non-empty after trimming, contains a `-`,
+    /// and is made up only of `-`, `:`, `|`, and whitespace.
+    private static func isTableSeparator(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, trimmed.contains("-") else { return false }
+        return trimmed.allSatisfy { "-:| \t".contains($0) }
+    }
+
+    /// Split a table row on `|`, trim each cell, and drop the leading/trailing
+    /// empty cells produced by surrounding pipes.
+    private static func parseTableRow(_ line: String) -> [String] {
+        var cells = line.components(separatedBy: "|")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        if cells.first == "" { cells.removeFirst() }
+        if cells.last == "" { cells.removeLast() }
+        return cells
+    }
+
+    /// Render a header row + body rows as an aligned fixed-width monospace
+    /// table inside a single ``` fence. Columns are padded to their max width
+    /// and joined with " | "; a dashed underline separates header from body.
+    private static func formatTableBlock(header: String, body: [String]) -> String {
+        let headerCells = parseTableRow(header)
+        let bodyRows = body.map { parseTableRow($0) }
+        let colCount = max(headerCells.count, bodyRows.map { $0.count }.max() ?? 0)
+        func pad(_ row: [String]) -> [String] {
+            var r = row
+            while r.count < colCount { r.append("") }
+            return r
         }
-        return lines.joined(separator: "\n")
+        let h = pad(headerCells)
+        let rows = bodyRows.map(pad)
+        var widths = [Int](repeating: 0, count: colCount)
+        for c in 0..<colCount {
+            widths[c] = h[c].count
+            for r in rows { widths[c] = max(widths[c], r[c].count) }
+        }
+        func render(_ row: [String]) -> String {
+            (0..<colCount)
+                .map { c in row[c].padding(toLength: widths[c], withPad: " ", startingAt: 0) }
+                .joined(separator: " | ")
+        }
+        var lines: [String] = [render(h)]
+        lines.append((0..<colCount)
+            .map { String(repeating: "-", count: widths[$0]) }
+            .joined(separator: " | "))
+        lines.append(contentsOf: rows.map(render))
+        return "```\n" + lines.joined(separator: "\n") + "\n```"
     }
 
     private static func regexReplace(_ s: String, _ pattern: String, _ template: String) -> String {
@@ -3389,6 +3467,46 @@ final class SlackService: ObservableObject {
     private static func splitChunks(_ text: String, limit: Int = 3800) -> [String] {
         if text.isEmpty { return [] }
         if text.count <= limit { return [text] }
+        // Group lines into blocks where each ``` … ``` fenced block (e.g. a
+        // converted table) is one atomic unit, then greedily pack blocks into
+        // chunks. A fenced block is only split if it alone exceeds `limit`.
+        let lines = text.components(separatedBy: "\n")
+        var blocks: [String] = []
+        var i = 0
+        while i < lines.count {
+            if lines[i].hasPrefix("```") {
+                var j = i + 1
+                while j < lines.count, !lines[j].hasPrefix("```") { j += 1 }
+                let end = min(j, lines.count - 1)
+                blocks.append(lines[i...end].joined(separator: "\n"))
+                i = end + 1
+            } else {
+                blocks.append(lines[i])
+                i += 1
+            }
+        }
+        var chunks: [String] = []
+        var current = ""
+        for b in blocks {
+            let addition = current.isEmpty ? b : "\n" + b
+            if current.count + addition.count <= limit {
+                current += addition
+            } else {
+                if !current.isEmpty { chunks.append(current); current = "" }
+                if b.count <= limit {
+                    current = b
+                } else {
+                    chunks.append(contentsOf: hardSplitChunks(b, limit: limit))
+                }
+            }
+        }
+        if !current.isEmpty { chunks.append(current) }
+        return chunks
+    }
+
+    /// Char-based fallback split (breaks at the last newline before `limit`,
+    /// else mid-line) for a single block that alone exceeds `limit`.
+    private static func hardSplitChunks(_ text: String, limit: Int) -> [String] {
         var chunks: [String] = []
         var remaining = Substring(text)
         while !remaining.isEmpty {
