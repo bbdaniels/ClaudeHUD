@@ -41,11 +41,15 @@ struct LibraryView: View {
             // Category dropdown comes first so the user picks the surface,
             // then scopes the search to it.
             Menu {
-                ForEach(LibraryCategory.allCases) { cat in
-                    Button {
-                        library.selectedCategory = cat
-                    } label: {
-                        Label(cat.displayName, systemImage: cat.sfSymbol)
+                ForEach(CategoryGroup.allCases) { group in
+                    Section(group.title) {
+                        ForEach(group.categories) { cat in
+                            Button {
+                                library.selectedCategory = cat
+                            } label: {
+                                Label(cat.displayName, systemImage: cat.sfSymbol)
+                            }
+                        }
                     }
                 }
             } label: {

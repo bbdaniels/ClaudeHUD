@@ -1,5 +1,37 @@
 import Foundation
 
+/// High-level grouping of Library categories, used to section the category
+/// dropdown so related surfaces sit together (Skills/Agents/Commands under
+/// "Invoke", etc.). Ordering of the groups and of categories within each group
+/// is fixed by each group's `categories` list.
+enum CategoryGroup: Int, CaseIterable, Identifiable {
+    case invoke
+    case extend
+    case instruct
+    case system
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .invoke:   return "Invoke"
+        case .extend:   return "Extend"
+        case .instruct: return "Instruct"
+        case .system:   return "System"
+        }
+    }
+
+    /// Categories belonging to this group, in display order.
+    var categories: [LibraryCategory] {
+        switch self {
+        case .invoke:   return [.skills, .agents, .commands]
+        case .extend:   return [.plugins, .mcp, .tools]
+        case .instruct: return [.guides, .rules, .style, .memories]
+        case .system:   return [.hooks, .scripts, .plans, .settings]
+        }
+    }
+}
+
 /// One of the twelve top-level categories of Claude internals browsable from the Library tab.
 /// Each case bundles its display label, SF Symbol, on-disk root location, and a per-category
 /// "open with Claude" prompt template.
@@ -20,6 +52,16 @@ enum LibraryCategory: String, CaseIterable, Identifiable {
     case plugins
 
     var id: String { rawValue }
+
+    /// The dropdown section this category belongs to.
+    var group: CategoryGroup {
+        switch self {
+        case .skills, .agents, .commands:        return .invoke
+        case .plugins, .mcp, .tools:             return .extend
+        case .guides, .rules, .style, .memories: return .instruct
+        case .hooks, .scripts, .plans, .settings: return .system
+        }
+    }
 
     var displayName: String {
         switch self {
