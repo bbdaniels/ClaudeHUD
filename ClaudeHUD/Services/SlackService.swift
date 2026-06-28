@@ -3162,12 +3162,15 @@ final class SlackService: ObservableObject {
     private static func contextPreamble(projectName: String, cwd: String,
                                         obsidianPath: String, userText: String) -> String {
         return """
-        [ClaudeHUD Slack session. Project: \(projectName). You're running in this \
-        project's working directory (\(cwd)). Before answering, read this project's \
-        Obsidian notes for current context: \(obsidianPath)/Tasks.md (the authoritative \
-        active-task list), plus \(obsidianPath)/Technical Notes.md and \
-        \(obsidianPath)/Dashboard.md if they exist. Read what's relevant, then address \
-        the user's message.]
+        [ClaudeHUD Slack session. Project: \(projectName). This is a FOCUSED \
+        single-project session — you already know the project, so do NOT run the \
+        vault-wide bootstrap: do NOT read Obsidian HOME.md, index.md, schema.md, \
+        Daily Notes, or any other project's folder. You're running in this project's \
+        working directory (\(cwd)). For context, read ONLY this project's own Obsidian \
+        folder: \(obsidianPath)/Tasks.md (the authoritative active-task list), plus \
+        \(obsidianPath)/Technical Notes.md and \(obsidianPath)/Dashboard.md if they \
+        exist. Stay within \(obsidianPath)/ and the working directory; do not wander \
+        the rest of the vault. Read what's relevant, then address the user's message.]
 
         User message: \(userText)
         """
