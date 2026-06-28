@@ -21,6 +21,25 @@ struct CLISystemEvent {
     let tools: [String]
     let mcpServers: [CLIMCPServerStatus]
     let model: String
+    /// Skills the engine reports for this session in the init event — the
+    /// authoritative per-session list (loaded skill names), not a static
+    /// catalog. Empty when the event carries none. Surfaced by `/claude-skills`.
+    let skills: [String]
+    /// Agents/subagents the engine reports for this session in the init event.
+    /// Authoritative per-session list. Surfaced by `/claude-agents`.
+    let agents: [String]
+
+    init(sessionId: String, subtype: String, tools: [String],
+         mcpServers: [CLIMCPServerStatus], model: String,
+         skills: [String] = [], agents: [String] = []) {
+        self.sessionId = sessionId
+        self.subtype = subtype
+        self.tools = tools
+        self.mcpServers = mcpServers
+        self.model = model
+        self.skills = skills
+        self.agents = agents
+    }
 }
 
 struct CLIMCPServerStatus {
@@ -586,8 +605,25 @@ class ClaudeCLIClient: ObservableObject {
             subtype: json["subtype"] as? String ?? "",
             tools: tools,
             mcpServers: servers,
-            model: json["model"] as? String ?? ""
+            model: json["model"] as? String ?? "",
+            skills: parseNameList(json["skills"]),
+            agents: parseNameList(json["agents"])
         )
+    }
+
+    /// Coerce an init-event list field (`skills` / `agents`) into a flat list of
+    /// names. The engine may emit either a bare `[String]` of names or an array
+    /// of objects carrying a `name` (and possibly `description`); accept both.
+    nonisolated private static func parseNameList(_ raw: Any?) -> [String] {
+        if let strings = raw as? [String] {
+            return strings.filter { !$0.isEmpty }
+        }
+        if let objs = raw as? [[String: Any]] {
+            return objs.compactMap { obj in
+                (obj["name"] as? String) ?? (obj["id"] as? String)
+            }.filter { !$0.isEmpty }
+        }
+        return []
     }
 
     /// Fan an `assistant` message into one event per content block, in order.

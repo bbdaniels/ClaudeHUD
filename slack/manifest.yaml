@@ -17,7 +17,10 @@ features:
       description: Search session history
       should_escape: false
     - command: /claude-skills
-      description: List or find skills
+      description: List this session's skills
+      should_escape: false
+    - command: /claude-agents
+      description: List this session's agents/subagents
       should_escape: false
     - command: /claude-new
       description: Start a fresh session in this channel

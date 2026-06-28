@@ -129,6 +129,16 @@ final class SlackService: ObservableObject {
     }
     private var channelSessions: [String: ChannelSession] = [:]
 
+    /// Latest init-event skills/agents the engine reported for each channel's
+    /// session (Phase 0 system/init), cached when a turn runs. The authoritative
+    /// per-session lists Claude reports, not a static catalog. Dictionary
+    /// presence is the marker that *some* session has run in the channel: a
+    /// missing key means "no turn yet" (so the slash commands ask the operator to
+    /// post a message first), whereas a present-but-empty list means the session
+    /// genuinely reports none. Surfaced by `/claude-skills` and `/claude-agents`.
+    private var channelSkills: [String: [String]] = [:]
+    private var channelAgents: [String: [String]] = [:]
+
     /// One dedicated `ClaudeCLIClient` per channel — deliberately NOT the
     /// shared `AppState.cliClient` the chat tab owns. Per-channel instances
     /// give each channel its own `currentProcess` (so different channels can
@@ -2415,6 +2425,15 @@ final class SlackService: ObservableObject {
                     turn.sessionId = sys.sessionId
                     self?.persistInFlight()
                 }
+                // Cache the authoritative per-session skills/agents the init event
+                // reports so `/claude-skills` and `/claude-agents` can answer from
+                // this channel's live session (Phase 0 extension). Set on every
+                // init (even when empty) so dictionary presence marks "a turn has
+                // run" distinct from "ran, reports none".
+                if sys.subtype == "init" {
+                    self?.channelSkills[channelId] = sys.skills
+                    self?.channelAgents[channelId] = sys.agents
+                }
             case .assistant(let msg):
                 if let t = msg.text { assistantText = t }
                 // Thinking summary → collapsed reasoning line in the thread (§2.2),
@@ -3777,6 +3796,10 @@ final class SlackService: ObservableObject {
             await createProject(text: text, channelId: channelId, responseUrl: responseUrl)
         case "/claude-new":
             await newSession(channelId: channelId, responseUrl: responseUrl)
+        case "/claude-skills":
+            await reportSkills(channelId: channelId, responseUrl: responseUrl)
+        case "/claude-agents":
+            await reportAgents(channelId: channelId, responseUrl: responseUrl)
         case "/claude-mode":
             await setMode(arg: text, channelId: channelId, responseUrl: responseUrl)
         case "/claude-effort":
@@ -3874,6 +3897,47 @@ final class SlackService: ObservableObject {
         let name = await channelName(for: channelId) ?? channelId
         await respond(channel: channelId, responseUrl: responseUrl,
                       text: "Started a fresh session in #\(name).")
+    }
+
+    /// `/claude-skills` — reply with the skills the engine reported for this
+    /// channel's current session (Phase 0 init event). This is the authoritative
+    /// per-session list Claude loads, not a static catalog. If no turn has run in
+    /// the channel yet there is nothing to read, so ask the operator to post first.
+    private func reportSkills(channelId: String, responseUrl: String?) async {
+        guard let skills = channelSkills[channelId] else {
+            await respond(channel: channelId, responseUrl: responseUrl,
+                          text: "Post a message first so I can read this session's skills.")
+            return
+        }
+        if skills.isEmpty {
+            await respond(channel: channelId, responseUrl: responseUrl,
+                          text: "This session reports no skills.")
+            return
+        }
+        let list = skills.sorted().map { "• `\($0)`" }.joined(separator: "\n")
+        SlackFileLog.log("claude-skills: \(channelId) -> \(skills.count) skills")
+        await respond(channel: channelId, responseUrl: responseUrl,
+                      text: "*Skills this session can use* (\(skills.count)):\n\(list)")
+    }
+
+    /// `/claude-agents` — reply with the agents/subagents the engine reported for
+    /// this channel's current session (Phase 0 init event). Authoritative
+    /// per-session list. Same empty/no-session handling as `/claude-skills`.
+    private func reportAgents(channelId: String, responseUrl: String?) async {
+        guard let agents = channelAgents[channelId] else {
+            await respond(channel: channelId, responseUrl: responseUrl,
+                          text: "Post a message first so I can read this session's agents.")
+            return
+        }
+        if agents.isEmpty {
+            await respond(channel: channelId, responseUrl: responseUrl,
+                          text: "This session reports no agents (subagents are spawned on demand via the Task tool).")
+            return
+        }
+        let list = agents.sorted().map { "• `\($0)`" }.joined(separator: "\n")
+        SlackFileLog.log("claude-agents: \(channelId) -> \(agents.count) agents")
+        await respond(channel: channelId, responseUrl: responseUrl,
+                      text: "*Agents available to this session* (\(agents.count)):\n\(list)")
     }
 
     /// `/claude-mode <plan|default|skip>` — set + persist the channel's
