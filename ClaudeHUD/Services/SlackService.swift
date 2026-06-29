@@ -1867,7 +1867,17 @@ final class SlackService: ObservableObject {
         let actionValue = (action["value"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? messageTs ?? ""
         SlackFileLog.log("block_action id=\(actionId) conv=\(conv.key)")
 
-        switch actionId {
+        // Single-select answer buttons carry a per-option suffix on their action_id
+        // (`hud:answer:option:<qi>:<oi>`) because Slack requires unique action_ids
+        // within an actions block. Collapse that family back to the base id so the
+        // switch routes every option tap to `onAnswerOption` (the choice rides in the
+        // button `value`). The multi-select checkbox element keeps the bare id and
+        // matches the `==` arm. No other action_id begins with this prefix.
+        let routedId = (actionId == SlackAction.answerOption
+                        || actionId.hasPrefix(SlackAction.answerOption + ":"))
+            ? SlackAction.answerOption : actionId
+
+        switch routedId {
         case SlackAction.stop:
             await stopTurn(conv: conv)
         case SlackAction.retry, SlackAction.resume:
@@ -2629,9 +2639,21 @@ final class SlackService: ObservableObject {
             blocks = SupervisorCards.planCard(promptId: req.id, plan: req.planText)  // reserved
         }
 
-        let cardTs = await postMessage(channel: channelId,
+        var cardTs = await postMessage(channel: channelId,
                                        text: needsYouFallback(req.kind),
                                        threadTs: rootTs, blocks: blocks)
+        if cardTs == nil {
+            // The Block Kit card was rejected (e.g. invalid_blocks) — postMessage
+            // logged the Slack error to os_log only, so surface it in the readable
+            // file log here. Never strand the operator on an invisible prompt:
+            // re-post the request as blocks-free plain text. For an ask the in-thread
+            // reply path still resolves it; for approve/plan it makes the pending
+            // decision readable and points to the app's buttons.
+            SlackFileLog.log("card post FAILED (err=\(lastError ?? "unknown")); plain-text fallback for \(req.id.prefix(8))")
+            cardTs = await postMessage(channel: channelId,
+                                       text: plainTextRequest(req),
+                                       threadTs: rootTs)
+        }
         prompt.cardTs = cardTs
         parkedPrompts[req.id] = prompt
         turn.parked = true
@@ -2647,6 +2669,39 @@ final class SlackService: ObservableObject {
         case .approve: return ":lock: Approval needed to continue."
         case .plan:   return ":clipboard: A plan is ready for your approval."
         case .budget: return ":coin: Budget decision needed."
+        }
+    }
+
+    /// A blocks-free rendering of a relay request, posted into the thread as the
+    /// fallback when the Block Kit card is rejected — so a card failure can never
+    /// leave the operator answering an invisible prompt. Asks stay fully resolvable
+    /// here via the in-thread reply path; approve/plan are made readable and direct
+    /// the operator to the buttons in the ClaudeHUD app (text can't resolve those).
+    private func plainTextRequest(_ req: SupervisorRequest) -> String {
+        switch req.kind {
+        case .ask:
+            var lines = [":raising_hand:  *I need a decision before continuing.*  Reply in-thread to answer."]
+            for (qi, q) in req.questions.enumerated() {
+                lines.append("")
+                lines.append("*\(qi + 1). \(q.header)* — \(q.question)")
+                for opt in q.options {
+                    let gloss = opt.description.isEmpty ? "" : " — \(opt.description)"
+                    lines.append("   •  *\(opt.label)*\(gloss)")
+                }
+            }
+            if req.questions.count > 1 {
+                lines.append("")
+                lines.append("_Reply once per question, in order._")
+            }
+            return SlackBlocks.truncate(lines.joined(separator: "\n"), 3500)
+        case .approve:
+            let label = req.toolName == "Bash" ? "Run in terminal" : req.toolName
+            let preview = SlackBlocks.truncate(req.actionPreview, 1500)
+            return ":lock:  *Approval needed* — \(label):\n```\n\(preview)\n```\nApprove or deny from the ClaudeHUD app (the buttons couldn't be rendered here)."
+        case .plan:
+            return ":clipboard:  *Plan ready for approval:*\n\(SlackBlocks.truncate(req.planText, 2500))\n\nApprove or deny from the ClaudeHUD app (the buttons couldn't be rendered here)."
+        case .budget:
+            return ":coin:  A budget decision is needed — continue or stop from the ClaudeHUD app."
         }
     }
 

@@ -169,8 +169,15 @@ enum SupervisorCards {
             } else {
                 // One button per option — the operator taps and it resolves.
                 var buttons = q.options.enumerated().map { (oi, opt) -> [String: Any] in
+                    // Slack requires a UNIQUE action_id for every element within an
+                    // actions block. A question with ≥2 options otherwise posts N
+                    // buttons all carrying `answerOption` → `invalid_blocks`, and the
+                    // whole card is silently dropped (chat.postMessage returns nil).
+                    // Suffix the id per option; the tap still routes to onAnswerOption
+                    // via the prefix match in the dispatch, and the button `value`
+                    // (promptId|qi|oi) still carries the chosen option.
                     SlackBlocks.button(text: SlackBlocks.truncate(opt.label, buttonCap),
-                                       actionId: SlackAction.answerOption,
+                                       actionId: "\(SlackAction.answerOption):\(qi):\(oi)",
                                        value: "\(promptId)|\(qi)|\(oi)")
                 }
                 buttons.append(SlackBlocks.button(text: ":pencil2: Let me type it",
