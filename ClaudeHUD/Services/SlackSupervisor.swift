@@ -42,6 +42,10 @@ struct SupervisorRequest {
     let id: String
     let kind: HudPromptKind
     let channel: String
+    /// The conversation thread root (session key component) this request belongs
+    /// to. Stamped by the MCP server from `HUD_SLACK_THREAD`; falls back to the
+    /// channel id for legacy requests written before per-thread routing.
+    let thread: String
     let generation: Int
     let cwd: String
     let reason: String?
@@ -54,6 +58,8 @@ struct SupervisorRequest {
         self.id = id
         self.kind = kind
         self.channel = json["channel"] as? String ?? ""
+        let t = json["thread"] as? String ?? ""
+        self.thread = t.isEmpty ? (json["channel"] as? String ?? "") : t
         // Generation is stamped as a string in the mcp-config env.
         if let g = json["generation"] as? Int { self.generation = g }
         else if let s = json["generation"] as? String, let g = Int(s) { self.generation = g }

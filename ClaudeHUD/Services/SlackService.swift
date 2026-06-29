@@ -77,13 +77,32 @@ final class SlackService: ObservableObject {
         /// ceiling handed to the engine. Optional + defaulted (`maxTurns`) for
         /// backward-compat with state persisted before the guardrail existed.
         var maxTurns: Int? = nil
-        /// Sticky per-channel active thread (4.x): the ts of the conversation's
-        /// root message. A top-level channel message or a post-restart resume
-        /// (both with `thread_ts == nil`) continues in THIS thread instead of
-        /// spawning a new channel root, so the channel reads as one thread. Set
-        /// when a brand-new root is posted; cleared by `/claude-new`. Optional +
-        /// persisted, so it survives an app restart (the resume continuity fix).
-        var activeThreadTs: String? = nil
+    }
+
+    /// A Slack conversation = one thread = one session. The thread's ROOT message
+    /// ts identifies the session; the channel scopes it. Different threads run in
+    /// PARALLEL (separate sessions/engines/locks/queues) — this is the unit every
+    /// per-turn map is now keyed by, replacing the old per-channel model. A
+    /// top-level message starts a NEW conversation in its own thread; a reply
+    /// continues the conversation of the thread it lands in.
+    struct Conversation: Hashable {
+        let channelId: String
+        let threadRootTs: String
+        /// Stable dictionary key. The U+0001 separator can't occur in a Slack
+        /// channel id or ts, so `(channel, ts)` round-trips unambiguously.
+        var key: String { "\(channelId)\u{0001}\(threadRootTs)" }
+    }
+
+    /// Build a conversation dictionary key from a channel + thread-root ts.
+    nonisolated private static func convKey(_ channel: String, _ threadRoot: String) -> String {
+        "\(channel)\u{0001}\(threadRoot)"
+    }
+
+    /// Reconstruct a `Conversation` from a key produced by `convKey`.
+    private static func conversation(fromKey key: String) -> Conversation? {
+        let parts = key.split(separator: "\u{0001}", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return nil }
+        return Conversation(channelId: String(parts[0]), threadRootTs: String(parts[1]))
     }
 
     /// Default reasoning effort when the channel hasn't set one (2.3).
@@ -105,21 +124,21 @@ final class SlackService: ObservableObject {
     /// resolved to a clear Failed (timed out) with Retry — never a hung spinner.
     private static let wallClockTimeout: TimeInterval = 1500  // 25 min
 
-    /// The channel's current effort level, falling back to the default.
-    private func effortLevel(_ channelId: String) -> String {
-        let e = channelSessions[channelId]?.effort ?? Self.defaultEffort
+    /// The conversation's current effort level, falling back to the default.
+    private func effortLevel(_ key: String) -> String {
+        let e = channelSessions[key]?.effort ?? Self.defaultEffort
         return ClaudeCLIClient.effortLevels.contains(e) ? e : Self.defaultEffort
     }
-    /// The channel's current follow-up policy, falling back to the default.
-    private func followupPolicy(_ channelId: String) -> String {
-        channelSessions[channelId]?.followup ?? Self.defaultFollowup
+    /// The conversation's current follow-up policy, falling back to the default.
+    private func followupPolicy(_ key: String) -> String {
+        channelSessions[key]?.followup ?? Self.defaultFollowup
     }
-    /// The channel's current per-turn turn cap (3.5), falling back to the default.
-    /// A one-shot override (set by Continue +N from the turn-cap card) wins for the
-    /// very next turn, then is consumed.
-    private func maxTurns(_ channelId: String) -> Int {
-        if let override = turnCapOverride[channelId] { return override }
-        return channelSessions[channelId]?.maxTurns ?? Self.defaultMaxTurns
+    /// The conversation's current per-turn turn cap (3.5), falling back to the
+    /// default. A one-shot override (set by Continue +N from the turn-cap card)
+    /// wins for the very next turn, then is consumed.
+    private func maxTurns(_ key: String) -> Int {
+        if let override = turnCapOverride[key] { return override }
+        return channelSessions[key]?.maxTurns ?? Self.defaultMaxTurns
     }
 
     /// Outcome-labelled name for an effort level (Plan 2.3: label by outcome,
@@ -134,7 +153,22 @@ final class SlackService: ObservableObject {
         default:      return level
         }
     }
+    /// Per-CONVERSATION session state, keyed by `Conversation.key` (channel +
+    /// thread root). Each thread has its own session id / mode / effort / cwd, so
+    /// threads run in parallel without sharing resume state.
     private var channelSessions: [String: ChannelSession] = [:]
+
+    /// Per-CHANNEL config defaults (mode / effort / followup / maxTurns only),
+    /// keyed by channel id. A brand-new conversation seeds its session config from
+    /// here, and the channel-scoped slash commands (which carry no thread context)
+    /// write here so the next conversation inherits the operator's choices. The
+    /// sessionId / cwd fields are never used in this map.
+    private var channelDefaults: [String: ChannelSession] = [:]
+
+    /// The most-recent conversation's thread root per channel id. Slash commands
+    /// arrive without thread context, so they act on this "current" conversation
+    /// (and the channel defaults). Updated whenever a turn runs.
+    private var lastConversation: [String: String] = [:]
 
     /// Latest init-event skills/agents the engine reported for each channel's
     /// session (Phase 0 system/init), cached when a turn runs. The authoritative
@@ -179,6 +213,7 @@ final class SlackService: ObservableObject {
     /// A launch gated by the usage-window pre-flight check (3.5), keyed by channel
     /// id. Run-anyway re-enters `runTurn` with the gate bypassed; Wait abandons it.
     private struct UsageHold {
+        let conv: Conversation
         let projectName: String
         let cwd: String
         let obsidianPath: String
@@ -190,6 +225,7 @@ final class SlackService: ObservableObject {
     /// A turn parked on the turn-cap decision (3.5: hit `error_max_turns`), keyed
     /// by channel id. Continue re-runs with a raised cap; Stop resolves it cleanly.
     private struct BudgetHold {
+        let conv: Conversation
         let projectName: String
         let cwd: String
         let obsidianPath: String
@@ -207,19 +243,22 @@ final class SlackService: ObservableObject {
         let obsidianPath: String
         let text: String
     }
+    /// Keyed by `Conversation.key`. The conversation is reconstructable from the
+    /// key components, but Retry/Resume need the project context stored here.
     private var lastTurns: [String: LastTurn] = [:]
 
-    // MARK: - Phase 2.4: Queue vs Steer (follow-up policy)
+    // MARK: - Per-thread auto-queue (follow-up handling)
 
-    /// One buffered follow-up: a message the operator posted while a turn was in
-    /// flight, deferred per the channel's follow-up policy (2.4).
-    private enum FollowupKind: String { case queue, steer }
+    /// One buffered follow-up: a message the operator posted in a thread while
+    /// that thread's turn was in flight. Auto-queued (no Queue/Steer/Cancel
+    /// prompt) and run automatically after the current turn finishes — exactly
+    /// like the terminal CLI queues a message typed mid-turn.
     private struct QueuedFollowup {
         let id: String
         let channelId: String
-        let kind: FollowupKind
-        /// The text to run. For a steer item this is already the
-        /// `<original goal> + <new instruction>` combination.
+        /// The conversation (thread root) this follow-up belongs to, so the drain
+        /// re-runs it in the right thread/session.
+        let threadRootTs: String
         let text: String
         let projectName: String
         let cwd: String
@@ -227,29 +266,12 @@ final class SlackService: ObservableObject {
         /// The thread message ts carrying this item's `[ Dequeue ]` button, so
         /// the affordance can be cleared once the item runs or is dequeued.
         var dequeueTs: String?
+        var conv: Conversation { Conversation(channelId: channelId, threadRootTs: threadRootTs) }
     }
-    /// Per-channel FIFO of queued follow-ups. A `queue` item auto-fires only
-    /// across a clean Done (gap C16); a `steer` item auto-fires across the Stop
-    /// it itself triggered. Drained one at a time at each turn's resolution.
+    /// Per-CONVERSATION FIFO of queued follow-ups, keyed by `Conversation.key`.
+    /// Drained one at a time at each turn's resolution (any terminal state), so a
+    /// mid-turn message in a thread runs next, like the CLI's typed-ahead queue.
     private var followupQueue: [String: [QueuedFollowup]] = [:]
-
-    /// Candidate follow-ups awaiting the operator's Queue / Steer / Cancel choice
-    /// under the `ask` policy, keyed by a short id carried in the ephemeral
-    /// prompt's buttons (the message text is too large/sensitive for a value).
-    private struct PendingFollowup {
-        let channelId: String
-        let user: String
-        let text: String
-        let projectName: String
-        let cwd: String
-        let obsidianPath: String
-    }
-    private var pendingFollowups: [String: PendingFollowup] = [:]
-
-    /// Queued items that fell through a non-Done resolution and are now parked on
-    /// an explicit Run-now / Discard choice (gap C16: hold and ask, never silently
-    /// auto-run across a Failed/Stopped/Needs-you), keyed by the item id.
-    private var heldFollowups: [String: QueuedFollowup] = [:]
 
     // MARK: - Phase 1.5/1.6: live in-flight turns (heartbeat + durable registry)
 
@@ -259,6 +281,15 @@ final class SlackService: ObservableObject {
     /// reconciled to Interrupted on relaunch rather than orphaning the spinner.
     private final class InFlightTurn {
         let channelId: String
+        /// The CONVERSATION thread root ts (the session key component). For the
+        /// first turn of a new conversation this equals `rootTs`; for a later turn
+        /// (a reply) it is the original thread root and `rootTs` is a reply ts.
+        /// Mutable: a brand-new conversation's thread root is its posted root ts,
+        /// known only after the root is posted.
+        var threadRootTs: String
+        /// The conversation key this turn is registered under.
+        var convKey: String { SlackService.convKey(channelId, threadRootTs) }
+        var conv: Conversation { Conversation(channelId: channelId, threadRootTs: threadRootTs) }
         var rootTs: String?
         let request: String
         let projectName: String
@@ -297,10 +328,11 @@ final class SlackService: ObservableObject {
         /// the resolved glyph.
         var reaction: String?
 
-        init(channelId: String, rootTs: String?, request: String, projectName: String,
-             cwd: String, obsidianPath: String, generation: Int, startedAt: Date,
-             effort: String, permissionMode: String) {
+        init(channelId: String, threadRootTs: String, rootTs: String?, request: String,
+             projectName: String, cwd: String, obsidianPath: String, generation: Int,
+             startedAt: Date, effort: String, permissionMode: String) {
             self.channelId = channelId
+            self.threadRootTs = threadRootTs
             self.rootTs = rootTs
             self.request = request
             self.projectName = projectName
@@ -370,6 +402,9 @@ final class SlackService: ObservableObject {
     /// the live heartbeat fields (lastEventAt/toolCount) are in-memory only.
     private struct PersistedTurn: Codable {
         var channelId: String
+        /// The conversation thread root (session key). Optional for backward-compat
+        /// with registries written before per-thread routing (→ fall back to rootTs).
+        var threadRootTs: String?
         var rootTs: String?
         var sessionId: String?
         var pid: Int32?
@@ -399,6 +434,10 @@ final class SlackService: ObservableObject {
     private final class ParkedPrompt {
         let id: String
         let channelId: String
+        /// The conversation thread root the parking turn belongs to (routes the
+        /// prompt back to the right per-thread turn when channels run in parallel).
+        let threadRootTs: String
+        var convKey: String { SlackService.convKey(channelId, threadRootTs) }
         let generation: Int
         let kind: HudPromptKind
         let request: SupervisorRequest
@@ -416,6 +455,7 @@ final class SlackService: ObservableObject {
         init(request: SupervisorRequest) {
             self.id = request.id
             self.channelId = request.channel
+            self.threadRootTs = request.thread
             self.generation = request.generation
             self.kind = request.kind
             self.request = request
@@ -766,23 +806,61 @@ final class SlackService: ObservableObject {
         SlackFileLog.log("rx message in #\(name) (\(channel))")
         if !user.isEmpty { operatorUserId[channel] = user }
 
-        // Thread-reply precedence (3.1): if a clarifying question is parked for
-        // this channel, the next reply is captured as its freeform answer (the
-        // disambiguation rule). Buttons remain valid; either resolves it.
-        if captureThreadReplyAnswer(channelId: channel, text: text) { return }
+        // PER-THREAD ROUTING. A reply in a thread continues THAT thread's session;
+        // a top-level message starts a NEW conversation in its own thread. Only a
+        // reply can land in an existing conversation (and thus hit a parked prompt
+        // or a busy turn) — a top-level message is always a fresh thread.
+        if let threadRoot = inboundThreadTs {
+            let conv = Conversation(channelId: channel, threadRootTs: threadRoot)
 
-        if let resolved = resolveProject(forChannelName: name) {
-            SlackFileLog.log("resolved -> \(resolved.name)/\(resolved.cwd)")
-            // A message that lands while a turn is already running is a FOLLOW-UP,
-            // not a fresh turn (2.4): route it through the channel's follow-up
-            // policy (Queue / Steer / Ask) instead of the old "Busy… resend".
-            if inFlight.contains(channel) {
-                await handleFollowup(channelId: channel, user: user, text: text, resolved: resolved)
+            // Thread-reply precedence (3.1): if a clarifying question is parked for
+            // THIS conversation, the next reply is captured as its freeform answer.
+            if captureThreadReplyAnswer(conv: conv, text: text) { return }
+
+            guard let resolved = resolveProject(forChannelName: name) else {
+                SlackFileLog.log("no match for #\(name)")
+                await postMessage(
+                    channel: channel,
+                    text: "No ClaudeHUD project matches #\(name). Rename the channel to a project name (later this becomes the ~ catch-all).",
+                    threadTs: threadRoot)
                 return
             }
-            await runTurn(channelId: channel, projectName: resolved.name, cwd: resolved.cwd,
-                          obsidianPath: resolved.obsidianPath, text: text,
-                          inboundThreadTs: inboundThreadTs)
+            SlackFileLog.log("resolved -> \(resolved.name)/\(resolved.cwd) thread=\(threadRoot)")
+            // A message that lands while THIS thread's turn is running AUTO-QUEUES
+            // (no Queue/Steer/Cancel prompt) — exactly like the terminal CLI queues
+            // a message typed mid-turn. It runs automatically after the current
+            // turn finishes. A turn in another thread does not block this one.
+            //
+            // BUSY = this thread's turn is in flight OR items are already queued for
+            // it. Testing the queue too (not just `inFlight`) closes the FIFO hole:
+            // during the brief window where a turn has resolved (inFlight cleared)
+            // but its drain hasn't re-acquired the lock yet, a fresh reply must still
+            // queue BEHIND the already-buffered items instead of racing ahead. The
+            // busy test and the synchronous enqueue/lock below straddle NO await, so
+            // the decision is atomic.
+            let busy = inFlight.contains(conv.key)
+                || !(followupQueue[conv.key]?.isEmpty ?? true)
+            if busy {
+                await autoQueueFollowup(conv: conv, text: text, resolved: resolved)
+                return
+            }
+            // Not busy: reserve the in-flight slot SYNCHRONOUSLY (atomic with the
+            // busy test above — no await in between) before running, so any racing
+            // reply observes "busy" and queues behind us. runTurn runs with the lock
+            // pre-held (`lockAlreadyHeld`).
+            inFlight.insert(conv.key)
+            await runTurn(conv: conv, channelId: channel, projectName: resolved.name,
+                          cwd: resolved.cwd, obsidianPath: resolved.obsidianPath, text: text,
+                          lockAlreadyHeld: true)
+            return
+        }
+
+        if let resolved = resolveProject(forChannelName: name) {
+            SlackFileLog.log("resolved -> \(resolved.name)/\(resolved.cwd) (new top-level conversation)")
+            // Top-level message: start a fresh conversation in its OWN new thread.
+            // No busy/parked checks — a brand-new thread can never collide.
+            await runTurn(conv: nil, channelId: channel, projectName: resolved.name,
+                          cwd: resolved.cwd, obsidianPath: resolved.obsidianPath, text: text)
         } else {
             SlackFileLog.log("no match for #\(name)")
             await postMessage(
@@ -792,164 +870,169 @@ final class SlackService: ObservableObject {
         }
     }
 
-    // MARK: - Phase 2: turn driving
+    // MARK: - Phase 2: turn driving (per-thread)
 
-    /// Drive one Claude turn for a channel by reusing `ClaudeCLIClient` (the
-    /// same engine `ConversationManager` uses). Resumes the channel's session
-    /// if present, runs in the project's cwd with the channel's permission
-    /// mode, accumulates the streamed assistant text, persists the (new)
-    /// session id, and posts the final text back. Single-writer per channel.
-    private func runTurn(channelId: String, projectName: String, cwd: String,
+    /// Seed a brand-new conversation's session config from the channel defaults
+    /// (mode / effort / followup / maxTurns), so the channel-scoped slash commands
+    /// still shape new threads. sessionId / cwd start empty (a new thread is fresh).
+    private func sessionForNewConversation(channel: String) -> ChannelSession {
+        var s = ChannelSession(sessionId: nil, permissionMode: "default", cwd: nil)
+        if let d = channelDefaults[channel] {
+            s.permissionMode = d.permissionMode
+            s.effort = d.effort
+            s.followup = d.followup
+            s.maxTurns = d.maxTurns
+        }
+        return s
+    }
+
+    /// Drive one Claude turn for a CONVERSATION (one thread). `existing == nil`
+    /// starts a brand-new top-level conversation in its own thread; otherwise the
+    /// turn continues `existing`'s session and posts into its thread. Each
+    /// conversation has its own session id, engine, in-flight lock and queue, so
+    /// different threads run in parallel without blocking one another.
+    private func runTurn(conv existing: Conversation?, channelId: String,
+                         projectName: String, cwd: String,
                          obsidianPath: String, text: String,
                          bypassUsageGate: Bool = false,
-                         inboundThreadTs: String? = nil) async {
-        guard !inFlight.contains(channelId) else {
-            await postMessage(channel: channelId,
-                              text: "Busy with the current turn in this channel — resend once it finishes.")
+                         lockAlreadyHeld: Bool = false) async {
+        // The thread to respond in: the existing conversation's root, or nil for a
+        // brand-new top-level conversation (whose posted root opens its thread).
+        let responseThreadTs = existing?.threadRootTs
+
+        // Busy guard — only an existing conversation can already be in flight. (A
+        // mid-turn reply is auto-queued upstream; this catches programmatic
+        // re-entry such as Retry while still running.) When the caller pre-reserved
+        // the lock (`lockAlreadyHeld` — the thread-reply and drain paths), this is
+        // INTENTIONALLY held: skip the guard so we don't bail on our own reservation.
+        if !lockAlreadyHeld, let existing, inFlight.contains(existing.key) {
+            await postMessage(channel: channelId, text: "Busy with this thread's current turn — it'll run next.",
+                              threadTs: existing.threadRootTs)
             return
         }
 
         // USAGE-WINDOW PRE-FLIGHT (3.5, NO dollars): before spawning, check the
-        // shared subscription 5-hour window. If it is near-exhausted, surface the
-        // headroom and ask (Run anyway / Wait) rather than fire into a likely
-        // mid-turn rate-limit rejection. Bypassed when the operator chose Run
-        // anyway, on a Continue, or when we have no usage reading at all.
+        // shared subscription 5-hour window. If near-exhausted, ask (Run anyway /
+        // Wait) rather than fire into a likely rate-limit rejection. For a new
+        // conversation the gate card itself opens the thread.
         if !bypassUsageGate, let gate = usageGateIfNearExhausted() {
-            let rootTs = await postMessage(
+            let gateTs = await postMessage(
                 channel: channelId,
                 text: ":battery: Usage window nearly exhausted — decide before launching.",
+                threadTs: responseThreadTs,
                 blocks: SupervisorCards.usageGateCard(channelId: channelId,
                                                       utilizationPct: gate.pct, resetsHint: gate.hint))
-            usageHolds[channelId] = UsageHold(projectName: projectName, cwd: cwd,
-                                              obsidianPath: obsidianPath, text: text, rootTs: rootTs)
-            SlackFileLog.log("usage gate: #\(channelId) held launch at \(gate.pct)% (resets \(gate.hint))")
+            let threadRoot = responseThreadTs ?? gateTs ?? "pending-\(Date().timeIntervalSince1970)"
+            let conv = Conversation(channelId: channelId, threadRootTs: threadRoot)
+            usageHolds[conv.key] = UsageHold(conv: conv, projectName: projectName, cwd: cwd,
+                                             obsidianPath: obsidianPath, text: text, rootTs: gateTs)
+            // Releasing a pre-held lock here (this is an early return BEFORE the defer
+            // that would otherwise clear it) so the conversation isn't wedged busy
+            // while parked on the usage gate — Run-anyway re-enters cleanly later.
+            if lockAlreadyHeld, let existing { inFlight.remove(existing.key) }
+            SlackFileLog.log("usage gate: held launch \(conv.key) at \(gate.pct)% (resets \(gate.hint))")
             return
         }
 
-        inFlight.insert(channelId)
-        // A fresh turn clears any stale Stop flag and records its context so the
-        // Retry / Resume buttons can re-run it.
-        stopRequested.remove(channelId)
-        lastTurns[channelId] = LastTurn(projectName: projectName, cwd: cwd,
-                                        obsidianPath: obsidianPath, text: text)
-        // The state this turn resolves to, read by the deferred follow-up drain
-        // (2.4) so a buffered message auto-fires only across a clean Done.
-        var resolvedState: TurnState = .failed
-        defer {
-            inFlight.remove(channelId)
-            stopRequested.remove(channelId)
-            timeoutRequested.remove(channelId)
-            // Clear the live record + durable registry entry; the turn has
-            // resolved to a terminal state, so it is no longer reconcilable.
-            inFlightTurns.removeValue(forKey: channelId)
-            persistInFlight()
-            // Drain one buffered follow-up now that the channel is free (2.4).
-            // Scheduled (not awaited) so it runs AFTER this call unwinds and the
-            // inFlight slot is observably clear.
-            let term = resolvedState
-            Task { @MainActor in await self.drainFollowupQueue(channelId: channelId, lastTerminal: term) }
-        }
+        // Reserve the in-flight slot for an existing conversation immediately, so a
+        // racing reply observes "busy" while we post the root.
+        if let existing { inFlight.insert(existing.key) }
 
-        // Register the live in-flight turn (1.5 heartbeat + 1.6 durability) and
-        // start the heartbeat loop if it isn't already ticking.
         let startedAt = Date()
-        channelGeneration[channelId] = (channelGeneration[channelId] ?? 0) + 1
-        // Generation hygiene (3.4): a new turn supersedes the prior generation, so
-        // resolve any straggler parked prompt for this channel with its safe
-        // default before the new generation's prompts can land. Belt-and-suspenders
-        // for the (guarded) case where one outlived its turn.
-        await cancelParkedPrompts(channelId: channelId)
-        // Consume any one-shot turn-cap override (Continue +N from the turn-cap
-        // card, 3.5) for THIS turn, then clear it so it doesn't leak forward.
-        let turnCap = maxTurns(channelId)
-        turnCapOverride.removeValue(forKey: channelId)
-        let turnEffort = effortLevel(channelId)
-        let turnMode = channelSessions[channelId]?.permissionMode ?? "default"
-        let turn = InFlightTurn(channelId: channelId, rootTs: nil, request: text,
-                                projectName: projectName, cwd: cwd, obsidianPath: obsidianPath,
-                                generation: channelGeneration[channelId]!, startedAt: startedAt,
-                                effort: turnEffort, permissionMode: turnMode)
-        inFlightTurns[channelId] = turn
-        ensureHeartbeat()
 
-        // CHECKPOINT (1.7): before the agent touches the real working tree, take a
-        // side-effect-free git snapshot so the operator can Show diff / Undo turn
-        // from the terminal card. Nil when cwd is not a repo (buttons stay hidden).
-        let checkpoint = await GitCheckpointService.make(cwd: cwd)
-        turn.checkpoint = checkpoint
-
-        var state = channelSessions[channelId] ?? ChannelSession(sessionId: nil, permissionMode: "default", cwd: nil)
+        // Session state: the existing conversation's, or a fresh one seeded from the
+        // channel defaults for a brand-new thread.
+        var state = existing.flatMap { channelSessions[$0.key] }
+            ?? sessionForNewConversation(channel: channelId)
 
         // CWD-AWARE SESSIONS: a session id only resumes in the cwd's own
-        // `~/.claude/projects` store. If the project's resolved cwd changed
-        // since the session was created (or no cwd was recorded), the stored
-        // session is stranded — drop it and start fresh.
+        // `~/.claude/projects` store. If the resolved cwd changed since the session
+        // was created (or none was recorded), the stored session is stranded.
         if state.sessionId != nil, state.cwd != cwd {
             SlackFileLog.log("cwd changed (\(state.cwd ?? "none") -> \(cwd)); starting fresh session")
             state.sessionId = nil
         }
-
         let isFresh = state.sessionId == nil
-        SlackFileLog.log("turn: #\(channelId) project=\(projectName) resume=\(isFresh ? "N" : "Y") mode=\(state.permissionMode) effort=\(turnEffort)")
 
-        // On a FRESH session, prime Claude with the project's Obsidian context
-        // so a cold opener ("and now?") doesn't make it ask what we were
-        // working on. Resumed turns carry context in-session, so the bare
-        // message is sent (no re-injection every turn). The primed form is also
-        // what the empty-resume retry below uses (it's a fresh session then).
+        // Dials for this turn, read directly off the (possibly seeded) state so the
+        // key need not exist yet.
+        let turnEffort: String = {
+            let e = state.effort ?? Self.defaultEffort
+            return ClaudeCLIClient.effortLevels.contains(e) ? e : Self.defaultEffort
+        }()
+        let turnMode = state.permissionMode
+        let turnCap = existing.flatMap { turnCapOverride[$0.key] } ?? state.maxTurns ?? Self.defaultMaxTurns
+        // Generation supersedes the prior one for the SAME conversation (1 for a new).
+        let generation = (existing.map { channelGeneration[$0.key] ?? 0 } ?? 0) + 1
+
+        let turn = InFlightTurn(channelId: channelId, threadRootTs: responseThreadTs ?? "",
+                                rootTs: nil, request: text, projectName: projectName, cwd: cwd,
+                                obsidianPath: obsidianPath, generation: generation, startedAt: startedAt,
+                                effort: turnEffort, permissionMode: turnMode)
+
+        // CHECKPOINT (1.7): snapshot the working tree before the agent edits it.
+        let checkpoint = await GitCheckpointService.make(cwd: cwd)
+        turn.checkpoint = checkpoint
+
         let freshOutgoing = Self.contextPreamble(projectName: projectName, cwd: cwd,
                                                  obsidianPath: obsidianPath, userText: text)
-        if isFresh {
-            SlackFileLog.log("fresh session: primed with obsidian context for \(projectName) (\(obsidianPath))")
-        }
 
-        // STICKY THREAD (4.x): a channel is one continuous conversation. Reply IN
-        // a thread → that thread. Otherwise → the channel's persisted active
-        // thread (so a top-level message AND a post-restart resume, both with
-        // thread_ts==nil, continue in the same thread rather than fragmenting
-        // into a new channel root).
-        let responseThreadTs = inboundThreadTs ?? state.activeThreadTs
-
-        // The ROOT message is the turn's permanent anchor (its ts) and the clean
-        // ledger line: status + quoted request + control bar, no work noise. Stop
-        // is present from second one (its absence would itself be the bug). Reads
-        // can take ~45s; the root carries the liveness from the start.
-        SlackFileLog.log("runTurn: inboundThreadTs=\(inboundThreadTs ?? "nil") activeThreadTs=\(state.activeThreadTs ?? "nil") responseThreadTs=\(responseThreadTs ?? "nil") posting root")
+        // Post the ROOT — top-level for a new conversation (opening its thread), or
+        // as a reply into the existing thread. Its ts finalizes a new conversation's
+        // key (the thread root == this root for the first turn).
+        SlackFileLog.log("runTurn: convKey=\(existing?.key ?? "new") responseThreadTs=\(responseThreadTs ?? "nil") lockHeld=\(lockAlreadyHeld) posting root")
         let rootTs = await postMessage(
             channel: channelId,
             text: "\(TurnState.working.icon) Working…",
             threadTs: responseThreadTs,
             blocks: workingBlocks(turn: turn, now: startedAt, warning: false, stopping: false)
         )
-        SlackFileLog.log("runTurn: rootTs=\(rootTs ?? "nil")")
+        let threadRoot = responseThreadTs ?? rootTs ?? "pending-\(startedAt.timeIntervalSince1970)"
+        turn.threadRootTs = threadRoot
         turn.rootTs = rootTs
-        persistInFlight()
-        SlackFileLog.log("root message ts=\(rootTs ?? "nil") gen=\(turn.generation)")
+        let key = Self.convKey(channelId, threadRoot)
+        let conv = Conversation(channelId: channelId, threadRootTs: threadRoot)
+        SlackFileLog.log("runTurn: key=\(key) rootTs=\(rootTs ?? "nil") gen=\(generation) resume=\(isFresh ? "N" : "Y") mode=\(turnMode) effort=\(turnEffort)")
 
-        // A BRAND-NEW root (no thread chosen) opens the channel's sticky thread:
-        // every later message — top-level or threaded, this run or after a
-        // restart — continues under it. Persisted so it survives an app restart.
-        if responseThreadTs == nil, let rootTs {
-            state.activeThreadTs = rootTs
-            channelSessions[channelId] = state
-            saveChannelSessions()
-            SlackFileLog.log("sticky thread: #\(channelId) opened active thread \(rootTs)")
+        // Keyed registration (now that the conversation key is final).
+        inFlight.insert(key)
+        stopRequested.remove(key)
+        timeoutRequested.remove(key)
+        channelGeneration[key] = generation
+        lastConversation[channelId] = threadRoot
+        lastTurns[key] = LastTurn(projectName: projectName, cwd: cwd,
+                                  obsidianPath: obsidianPath, text: text)
+        turnCapOverride.removeValue(forKey: key)
+        inFlightTurns[key] = turn
+        ensureHeartbeat()
+        persistInFlight()
+        // Generation hygiene (3.4): supersede any straggler parked prompt for this
+        // conversation with its safe default before the new generation's land.
+        await cancelParkedPrompts(conv: conv)
+
+        // The state this turn resolves to, read by the deferred follow-up drain so
+        // a queued mid-turn message auto-runs next.
+        var resolvedState: TurnState = .failed
+        defer {
+            inFlight.remove(key)
+            stopRequested.remove(key)
+            timeoutRequested.remove(key)
+            inFlightTurns.removeValue(forKey: key)
+            persistInFlight()
+            let term = resolvedState
+            Task { @MainActor in await self.drainFollowupQueue(conv: conv, lastTerminal: term) }
         }
 
-        // Mirror the running state onto the root as a reaction (1.9) — reads
-        // instantly in the channel sidebar without opening the message.
         if let rootTs {
             await mirrorReaction(channel: channelId, ts: rootTs, to: .working, turn: turn)
         }
 
-        // Persist the checkpoint under the root ts (its Show-diff/Undo button key)
-        // so the affordances survive a restart, and flag a pre-existing dirty tree
-        // so Undo/Create-PR aren't muddied by the operator's own uncommitted edits.
+        // Persist the checkpoint under the root ts (its Show-diff/Undo button key).
         if let cp = checkpoint, cp.isCapturable, let rootTs {
             checkpoints[rootTs] = cp
             saveCheckpoints()
             if cp.dirtyAtStart {
-                SlackFileLog.log("checkpoint: #\(channelId) tree was dirty before turn")
+                SlackFileLog.log("checkpoint: \(key) tree was dirty before turn")
                 await postMessage(
                     channel: channelId,
                     text: ":information_source: Working tree had uncommitted changes before this turn — Undo restores to this pre-turn snapshot, not a clean tree.",
@@ -959,7 +1042,7 @@ final class SlackService: ObservableObject {
 
         do {
             var run = try await runEngine(
-                channelId: channelId,
+                conv: conv,
                 message: isFresh ? freshOutgoing : text,
                 permissionMode: state.permissionMode,
                 effort: turnEffort,
@@ -968,17 +1051,14 @@ final class SlackService: ObservableObject {
                 maxTurns: turnCap
             )
 
-            // EMPTY-RESUME AUTO-RETRY: a resumed turn that comes back empty
-            // (chars==0) usually means the session was missing/stranded in this
-            // cwd's store. Retry ONCE as a fresh session (primed, no --resume).
-            // Guard on stopRequested: a user-stopped resume also returns empty
-            // (the killed process exits with no output), and must NOT spawn a
-            // fresh session — the operator chose to stop, not to restart.
-            if !isFresh, run.text.isEmpty, !stopRequested.contains(channelId) {
+            // EMPTY-RESUME AUTO-RETRY: a resumed turn that returns empty usually
+            // means the session was stranded in this cwd's store. Retry ONCE fresh.
+            // Skip on Stop (a stopped resume also returns empty).
+            if !isFresh, run.text.isEmpty, !stopRequested.contains(key) {
                 SlackFileLog.log("empty resume result; retried fresh")
                 state.sessionId = nil
                 run = try await runEngine(
-                    channelId: channelId,
+                    conv: conv,
                     message: freshOutgoing,
                     permissionMode: state.permissionMode,
                     effort: turnEffort,
@@ -988,52 +1068,44 @@ final class SlackService: ObservableObject {
                 )
             }
 
-            // Claude replies in standard Markdown; Slack renders its own
-            // "mrkdwn", so convert before posting.
             let finalText = Self.toSlackMrkdwn(run.text)
             let toolCounts = run.tools
 
             if !run.result.sessionId.isEmpty {
                 state.sessionId = run.result.sessionId
                 state.cwd = cwd
-                channelSessions[channelId] = state
+                channelSessions[key] = state
                 saveChannelSessions()
             }
 
             let toolTotal = toolCounts.values.reduce(0, +)
             let summary = Self.toolSummary(toolCounts)
 
-            // TURN-CAP GUARDRAIL (3.5, NO dollars): the engine stopped because it
-            // hit `--max-turns`. This is a DECISION, not a failure — park the turn
-            // on a Continue/Stop card and hold the follow-up queue (resolvedState
-            // stays non-Done) so the operator chooses whether to keep going.
+            // TURN-CAP GUARDRAIL (3.5): the engine hit `--max-turns`. A DECISION,
+            // not a failure — park on a Continue/Stop card.
             if run.result.subtype == "error_max_turns",
-               !stopRequested.contains(channelId), !timeoutRequested.contains(channelId) {
+               !stopRequested.contains(key), !timeoutRequested.contains(key) {
                 resolvedState = .needsYou
                 turn.resolved = true
-                await finalizeTrail(channelId)
-                await finalizeTree(channelId, tokens: run.result.inputTokens + run.result.outputTokens)
-                budgetHolds[channelId] = BudgetHold(projectName: projectName, cwd: cwd,
-                                                    obsidianPath: obsidianPath, text: text,
-                                                    rootTs: rootTs, cap: turnCap)
+                await finalizeTrail(key)
+                await finalizeTree(key, tokens: run.result.inputTokens + run.result.outputTokens)
+                budgetHolds[key] = BudgetHold(conv: conv, projectName: projectName, cwd: cwd,
+                                              obsidianPath: obsidianPath, text: text,
+                                              rootTs: rootTs, cap: turnCap)
                 let doneSoFar = finalText.isEmpty ? summary : finalText
                 await renderTurnCapHold(channelId: channelId, rootTs: rootTs, request: text,
                                         cap: turnCap, doneSoFar: doneSoFar)
                 if let rootTs {
                     await mirrorReaction(channel: channelId, ts: rootTs, to: .needsYou, turn: turn)
                 }
-                SlackFileLog.log("turn-cap hit: #\(channelId) cap=\(turnCap); offered Continue/Stop")
+                SlackFileLog.log("turn-cap hit: \(key) cap=\(turnCap); offered Continue/Stop")
                 return
             }
 
-            // Resolve to exactly one terminal state — never leave the hourglass.
-            // Timeout (3.6) → Failed (timed out); Stop (1.4) and the result's
-            // `interrupted` flag → Stopped-by-you; a non-success result → Failed;
-            // otherwise Done.
             let terminal: TurnState
-            if timeoutRequested.contains(channelId) {
+            if timeoutRequested.contains(key) {
                 terminal = .failed
-            } else if stopRequested.contains(channelId) || run.result.interrupted {
+            } else if stopRequested.contains(key) || run.result.interrupted {
                 terminal = .stopped
             } else if run.result.isError {
                 terminal = .failed
@@ -1041,18 +1113,14 @@ final class SlackService: ObservableObject {
                 terminal = .done
             }
             resolvedState = terminal
-            SlackFileLog.log("turn resolved: state=\(terminal.rawValue) session=\(run.result.sessionId.prefix(8)) tools=\(toolTotal) chars=\(finalText.count)")
+            SlackFileLog.log("turn resolved: \(key) state=\(terminal.rawValue) session=\(run.result.sessionId.prefix(8)) tools=\(toolTotal) chars=\(finalText.count)")
 
-            turn.resolved = true   // stop the heartbeat from overwriting the terminal card
-            await finalizeTrail(channelId)   // last paint of the in-thread trail (§2.1)
-            // Last paint of the subagent tree (§4.1): fold in the whole-turn token
-            // total (NO dollars) and flip any straggler branch to done.
-            await finalizeTree(channelId, tokens: run.result.inputTokens + run.result.outputTokens)
+            turn.resolved = true
+            await finalizeTrail(key)
+            await finalizeTree(key, tokens: run.result.inputTokens + run.result.outputTokens)
 
             if terminal == .failed {
-                // Graceful failure (3.6): classify, surface completed-then-failed,
-                // stash the full error for Show-error, render Retry affordances.
-                let timedOut = timeoutRequested.contains(channelId)
+                let timedOut = timeoutRequested.contains(key)
                 let detail = timedOut
                     ? "Wall-clock timeout: the turn ran past \(Int(Self.wallClockTimeout / 60)) minutes and was stopped."
                     : (run.result.result.isEmpty ? "The engine returned an error result." : run.result.result)
@@ -1081,27 +1149,23 @@ final class SlackService: ObservableObject {
             case .stopped:
                 statusLine = "partial work kept"
             default:
-                // Subscription-billed engine: surface TOKEN usage, never dollars.
                 statusLine = Self.badge(durationMs: run.result.durationMs, tools: toolTotal,
                                         tokens: run.result.inputTokens + run.result.outputTokens)
             }
 
-            await renderTerminal(channelId: channelId, rootTs: rootTs, state: terminal,
+            await renderTerminal(channelId: channelId, convKey: key, rootTs: rootTs, state: terminal,
                                  request: text, statusLine: statusLine, body: body)
             if let rootTs {
                 await mirrorReaction(channel: channelId, ts: rootTs, to: terminal, turn: turn)
             }
         } catch {
-            // The ONE place a thrown engine error must still resolve the root —
-            // a user Stop OR a wall-clock timeout unwinds here too (killed process
-            // exits non-zero), so honor those flags before calling it a Failure.
-            SlackFileLog.log("turn error: \(error.localizedDescription)")
-            turn.resolved = true   // stop the heartbeat from overwriting the terminal card
-            await finalizeTrail(channelId)   // last paint of the in-thread trail (§2.1)
-            await finalizeTree(channelId)    // last paint of the subagent tree (§4.1)
-            if stopRequested.contains(channelId) && !timeoutRequested.contains(channelId) {
+            SlackFileLog.log("turn error: \(key) \(error.localizedDescription)")
+            turn.resolved = true
+            await finalizeTrail(key)
+            await finalizeTree(key)
+            if stopRequested.contains(key) && !timeoutRequested.contains(key) {
                 resolvedState = .stopped
-                await renderTerminal(channelId: channelId, rootTs: rootTs, state: .stopped,
+                await renderTerminal(channelId: channelId, convKey: key, rootTs: rootTs, state: .stopped,
                                      request: text, statusLine: "partial work kept",
                                      body: "Stopped. Any partial edits remain on disk.")
                 if let rootTs {
@@ -1109,7 +1173,7 @@ final class SlackService: ObservableObject {
                 }
             } else {
                 resolvedState = .failed
-                let timedOut = timeoutRequested.contains(channelId)
+                let timedOut = timeoutRequested.contains(key)
                 let detail = timedOut
                     ? "Wall-clock timeout: the turn ran past \(Int(Self.wallClockTimeout / 60)) minutes and was stopped."
                     : error.localizedDescription
@@ -1193,7 +1257,7 @@ final class SlackService: ObservableObject {
     /// THREAD — detail flows down in altitude, the root stays scannable. If the
     /// root post failed (no ts), post the terminal card fresh as a fallback so
     /// the turn is still never left unresolved.
-    private func renderTerminal(channelId: String, rootTs: String?, state: TurnState,
+    private func renderTerminal(channelId: String, convKey: String? = nil, rootTs: String?, state: TurnState,
                                 request: String, statusLine: String, body: String) async {
         let headCap = SlackBlocks.sectionLimit - 100
         var rootBody = body
@@ -1211,7 +1275,7 @@ final class SlackService: ObservableObject {
         // Carry the provenance line (effort/mode/project) onto the terminal card
         // too, read from the still-live in-flight record (2.3 "surface it").
         let provenance: String? = {
-            guard let t = inFlightTurns[channelId] else { return nil }
+            guard let k = convKey, let t = inFlightTurns[k] else { return nil }
             return Self.provenanceLine(project: t.projectName, mode: t.permissionMode, effort: t.effort)
         }()
         let blocks = rootBlocks(state: state, request: request, statusLine: statusLine,
@@ -1284,40 +1348,40 @@ final class SlackService: ObservableObject {
 
     /// Continue from a turn-cap hold (3.5): re-run the held turn with a raised cap
     /// (`--resume` continues the same session). Consumed once.
-    private func continueFromTurnCap(channelId: String) async {
-        guard let hold = budgetHolds.removeValue(forKey: channelId) else {
-            SlackFileLog.log("budget continue: no hold for \(channelId)")
+    private func continueFromTurnCap(conv: Conversation) async {
+        guard let hold = budgetHolds.removeValue(forKey: conv.key) else {
+            SlackFileLog.log("budget continue: no hold for \(conv.key)")
             return
         }
-        guard !inFlight.contains(channelId) else {
-            SlackFileLog.log("budget continue: busy, ignoring \(channelId)")
+        guard !inFlight.contains(conv.key) else {
+            SlackFileLog.log("budget continue: busy, ignoring \(conv.key)")
             return
         }
-        turnCapOverride[channelId] = hold.cap + Self.turnCapAddend
-        SlackFileLog.log("budget continue: #\(channelId) cap \(hold.cap) -> \(hold.cap + Self.turnCapAddend)")
+        turnCapOverride[conv.key] = hold.cap + Self.turnCapAddend
+        SlackFileLog.log("budget continue: \(conv.key) cap \(hold.cap) -> \(hold.cap + Self.turnCapAddend)")
         // Clear the old turn-cap card's buttons + reaction so they can't be tapped
         // again while the continuation runs (the continuation posts its own root).
         if let ts = hold.rootTs {
-            await chatUpdate(channel: channelId, ts: ts, text: "Continuing…",
+            await chatUpdate(channel: conv.channelId, ts: ts, text: "Continuing…",
                              blocks: [SlackBlocks.section(":arrows_counterclockwise: Continuing with +\(Self.turnCapAddend) turns — see the new turn below.")])
-            await reactionRemove(channel: channelId, ts: ts, name: TurnState.needsYou.reactionName)
+            await reactionRemove(channel: conv.channelId, ts: ts, name: TurnState.needsYou.reactionName)
         }
-        await runTurn(channelId: channelId, projectName: hold.projectName, cwd: hold.cwd,
-                      obsidianPath: hold.obsidianPath, text: hold.text, bypassUsageGate: true)
+        await runTurn(conv: hold.conv, channelId: conv.channelId, projectName: hold.projectName,
+                      cwd: hold.cwd, obsidianPath: hold.obsidianPath, text: hold.text, bypassUsageGate: true)
     }
 
     /// Stop at a turn-cap hold (3.5): resolve the root to a clean Stopped-by-you so
     /// the ledger closes and the follow-up queue can drain.
-    private func stopAtTurnCap(channelId: String) async {
-        guard let hold = budgetHolds.removeValue(forKey: channelId) else { return }
-        SlackFileLog.log("budget stop: #\(channelId)")
-        await renderTerminal(channelId: channelId, rootTs: hold.rootTs, state: .stopped,
+    private func stopAtTurnCap(conv: Conversation) async {
+        guard let hold = budgetHolds.removeValue(forKey: conv.key) else { return }
+        SlackFileLog.log("budget stop: \(conv.key)")
+        await renderTerminal(channelId: conv.channelId, rootTs: hold.rootTs, state: .stopped,
                              request: hold.text, statusLine: "stopped at the turn cap · partial work kept",
                              body: "Stopped at the turn cap. Any partial edits remain on disk; Resume to continue.")
         if let ts = hold.rootTs {
             // The hold card carried the Needs-you glyph; swap it to Stopped.
-            await reactionRemove(channel: channelId, ts: ts, name: TurnState.needsYou.reactionName)
-            await reactionAdd(channel: channelId, ts: ts, name: TurnState.stopped.reactionName)
+            await reactionRemove(channel: conv.channelId, ts: ts, name: TurnState.needsYou.reactionName)
+            await reactionAdd(channel: conv.channelId, ts: ts, name: TurnState.stopped.reactionName)
         }
         // The follow-up queue was already drained (held) when the turn-cap hold
         // resolved via runTurn's defer; nothing more to drain here.
@@ -1325,25 +1389,25 @@ final class SlackService: ObservableObject {
 
     /// Operator chose Run-anyway on the usage gate (3.5): re-enter the launch with
     /// the headroom check bypassed.
-    private func resolveUsageGate(channelId: String, run: Bool) async {
-        guard let hold = usageHolds.removeValue(forKey: channelId) else {
-            SlackFileLog.log("usage gate: no hold for \(channelId)")
+    private func resolveUsageGate(conv: Conversation, run: Bool) async {
+        guard let hold = usageHolds.removeValue(forKey: conv.key) else {
+            SlackFileLog.log("usage gate: no hold for \(conv.key)")
             return
         }
         if run {
-            SlackFileLog.log("usage gate: #\(channelId) Run anyway")
+            SlackFileLog.log("usage gate: \(conv.key) Run anyway")
             // Clear the gate card so it isn't left as a dangling prompt; the new
             // turn posts its own root.
             if let ts = hold.rootTs {
-                await chatUpdate(channel: channelId, ts: ts, text: "Launching…",
+                await chatUpdate(channel: conv.channelId, ts: ts, text: "Launching…",
                                  blocks: [SlackBlocks.section(":arrow_forward: Running despite the usage window — launching.")])
             }
-            await runTurn(channelId: channelId, projectName: hold.projectName, cwd: hold.cwd,
-                          obsidianPath: hold.obsidianPath, text: hold.text, bypassUsageGate: true)
+            await runTurn(conv: hold.conv, channelId: conv.channelId, projectName: hold.projectName,
+                          cwd: hold.cwd, obsidianPath: hold.obsidianPath, text: hold.text, bypassUsageGate: true)
         } else {
-            SlackFileLog.log("usage gate: #\(channelId) Wait")
-            lastTurns[channelId] = LastTurn(projectName: hold.projectName, cwd: hold.cwd,
-                                            obsidianPath: hold.obsidianPath, text: hold.text)
+            SlackFileLog.log("usage gate: \(conv.key) Wait")
+            lastTurns[conv.key] = LastTurn(projectName: hold.projectName, cwd: hold.cwd,
+                                           obsidianPath: hold.obsidianPath, text: hold.text)
             let blocks: [[String: Any]] = [
                 SlackBlocks.section(":hourglass: *Waiting on the usage window*  ·  not launched"),
                 SlackBlocks.context("> \(SlackBlocks.truncate(Self.singleLine(hold.text), 280))"),
@@ -1353,7 +1417,7 @@ final class SlackService: ObservableObject {
                 ])
             ]
             if let ts = hold.rootTs {
-                await chatUpdate(channel: channelId, ts: ts,
+                await chatUpdate(channel: conv.channelId, ts: ts,
                                  text: "Waiting on the usage window.", blocks: blocks)
             }
         }
@@ -1562,18 +1626,18 @@ final class SlackService: ObservableObject {
         // Backstop the trail debounce (§2.1): if the stream emitted a final batch
         // then fell silent inside the 2s window, the deferred flush still fires —
         // but this guarantees a dirty trail can never be left unpainted.
-        for channelId in Array(trails.keys) where trails[channelId]?.dirty == true {
-            await renderTrail(channelId)
+        for key in Array(trails.keys) where trails[key]?.dirty == true {
+            await renderTrail(key)
         }
         // Same backstop for the subagent tree (§4.1): a final fan-out batch that
         // lands inside the debounce window then falls silent still gets painted.
-        for channelId in Array(subagentTrees.keys) where subagentTrees[channelId]?.dirty == true {
-            await renderTree(channelId)
+        for key in Array(subagentTrees.keys) where subagentTrees[key]?.dirty == true {
+            await renderTree(key)
         }
 
         guard !inFlightTurns.isEmpty else { return }
         let now = Date()
-        for (channelId, turn) in inFlightTurns {
+        for (key, turn) in inFlightTurns {
             guard let ts = turn.rootTs, !turn.stopping, !turn.resolved else { continue }
             // A turn parked on a supervisory prompt (Phase 3) is Needs-you, not
             // silent-working: the watchdog must not paint it "still working" while
@@ -1584,21 +1648,21 @@ final class SlackService: ObservableObject {
             // WALL-CLOCK CAP (3.6 / E5): a runaway-but-ACTIVE loop never trips the
             // silence watchdog, so a hard per-turn wall-clock timeout force-kills it
             // and resolves to Failed (timed out). Fire once per turn.
-            if !timeoutRequested.contains(channelId),
+            if !timeoutRequested.contains(key),
                now.timeIntervalSince(turn.startedAt) >= Self.wallClockTimeout {
-                SlackFileLog.log("watchdog: #\(channelId) exceeded wall-clock \(Int(Self.wallClockTimeout))s; force-stopping")
-                await forceTimeout(channelId: channelId)
+                SlackFileLog.log("watchdog: \(key) exceeded wall-clock \(Int(Self.wallClockTimeout))s; force-stopping")
+                await forceTimeout(conv: turn.conv)
                 continue
             }
             let silence = now.timeIntervalSince(turn.lastEventAt)
             let warning = silence >= 45
             if warning && !turn.warned {
                 turn.warned = true
-                SlackFileLog.log("watchdog: #\(channelId) silent \(Int(silence))s; surfaced warning + Force-stop")
+                SlackFileLog.log("watchdog: \(key) silent \(Int(silence))s; surfaced warning + Force-stop")
             } else if !warning && turn.warned {
                 turn.warned = false
             }
-            await chatUpdate(channel: channelId, ts: ts, text: "Working…",
+            await chatUpdate(channel: turn.channelId, ts: ts, text: "Working…",
                              blocks: workingBlocks(turn: turn, now: now, warning: warning, stopping: false))
         }
     }
@@ -1617,7 +1681,8 @@ final class SlackService: ObservableObject {
     private func persistInFlight() {
         let map: [String: PersistedTurn] = inFlightTurns.compactMapValues { t in
             guard !t.resolved else { return nil }
-            return PersistedTurn(channelId: t.channelId, rootTs: t.rootTs, sessionId: t.sessionId,
+            return PersistedTurn(channelId: t.channelId, threadRootTs: t.threadRootTs,
+                                 rootTs: t.rootTs, sessionId: t.sessionId,
                                  pid: t.pid, pgid: t.pgid, startedAt: t.startedAt,
                                  generation: t.generation, request: t.request,
                                  projectName: t.projectName, cwd: t.cwd, obsidianPath: t.obsidianPath)
@@ -1651,31 +1716,39 @@ final class SlackService: ObservableObject {
               !map.isEmpty else { return }
         SlackFileLog.log("reconcile: \(map.count) orphaned in-flight turn(s) from previous run")
 
-        for (channelId, p) in map {
+        for (storedKey, p) in map {
+            // The conversation this orphan belonged to. Prefer the persisted thread
+            // root; fall back to the turn's root ts (a new conversation's first turn)
+            // or the stored map key for legacy per-channel registries.
+            let channelId = p.channelId
+            let threadRoot = p.threadRootTs ?? p.rootTs ?? Self.conversation(fromKey: storedKey)?.threadRootTs ?? channelId
+            let conv = Conversation(channelId: channelId, threadRootTs: threadRoot)
+            let key = conv.key
             // Liveness + safe cleanup: only kill a group we can positively
             // identify as our own orphan (alive pid whose group still matches).
             var reaped = false
             if let pid = p.pid, pid > 0, kill(pid, 0) == 0 {
                 if let pgid = p.pgid, getpgid(pid) == pgid {
-                    SlackFileLog.log("reconcile: #\(channelId) orphan pid=\(pid) alive; killpg(SIGTERM) pgid=\(pgid)")
+                    SlackFileLog.log("reconcile: \(key) orphan pid=\(pid) alive; killpg(SIGTERM) pgid=\(pgid)")
                     killpg(pgid, SIGTERM)
                     reaped = true
                 } else {
-                    SlackFileLog.log("reconcile: #\(channelId) pid=\(pid) alive but group mismatch (pid reuse); leaving it")
+                    SlackFileLog.log("reconcile: \(key) pid=\(pid) alive but group mismatch (pid reuse); leaving it")
                 }
             }
 
             // Restore Resume context so the button works after a cold start.
-            lastTurns[channelId] = LastTurn(projectName: p.projectName, cwd: p.cwd,
-                                            obsidianPath: p.obsidianPath, text: p.request)
-            // Point the channel session at the interrupted turn's session so
+            lastTurns[key] = LastTurn(projectName: p.projectName, cwd: p.cwd,
+                                      obsidianPath: p.obsidianPath, text: p.request)
+            lastConversation[channelId] = threadRoot
+            // Point the conversation session at the interrupted turn's session so
             // Resume continues from its JSONL rather than starting fresh.
             if let sid = p.sessionId, !sid.isEmpty {
-                var st = channelSessions[channelId]
+                var st = channelSessions[key]
                     ?? ChannelSession(sessionId: nil, permissionMode: "default", cwd: nil)
                 st.sessionId = sid
                 st.cwd = p.cwd
-                channelSessions[channelId] = st
+                channelSessions[key] = st
                 saveChannelSessions()
             }
 
@@ -1689,13 +1762,14 @@ final class SlackService: ObservableObject {
                 let blocks = rootBlocks(state: .interrupted, request: p.request,
                                         statusLine: statusLine, body: body,
                                         buttons: controlBar(for: .interrupted, checkpointKey: cpKey))
+                // Resume-after-restart posts into ITS original thread root.
                 await chatUpdate(channel: channelId, ts: ts,
                                  text: "\(TurnState.interrupted.icon) Interrupted (app restarted)",
                                  blocks: blocks)
                 // Swap the sidebar reaction from running to interrupted (1.9).
                 await mirrorReaction(channel: channelId, ts: ts, to: .interrupted, turn: nil)
             }
-            SlackFileLog.log("reconcile: #\(channelId) -> Interrupted")
+            SlackFileLog.log("reconcile: \(key) -> Interrupted")
         }
 
         // All entries reconciled — clear the registry.
@@ -1728,9 +1802,17 @@ final class SlackService: ObservableObject {
     private func handleBlockAction(_ payload: [String: Any]) async {
         let channelId = (payload["channel"] as? [String: Any])?["id"] as? String ?? ""
         let triggerId = payload["trigger_id"] as? String ?? ""
-        let messageTs = (payload["message"] as? [String: Any])?["ts"] as? String
+        let message = payload["message"] as? [String: Any]
+        let messageTs = message?["ts"] as? String
+        // The CONVERSATION the tapped card belongs to: every turn card lives in its
+        // thread, so the thread root (message.thread_ts, or the message ts itself
+        // when the card IS the thread root) plus the channel identifies the
+        // conversation. This routes Stop/Retry/Continue/etc. to the right per-thread
+        // turn even when several threads run in parallel in one channel.
+        let threadRoot = (message?["thread_ts"] as? String) ?? messageTs ?? channelId
+        let conv = Conversation(channelId: channelId, threadRootTs: threadRoot)
         // The interactive payload's response_url is the only handle to an
-        // ephemeral message (2.4), used to clear the Queue/Steer prompt.
+        // ephemeral message, used to clear a follow-up prompt.
         let responseUrl = payload["response_url"] as? String
         let actions = payload["actions"] as? [[String: Any]] ?? []
         guard let action = actions.first,
@@ -1741,53 +1823,46 @@ final class SlackService: ObservableObject {
         // The git affordances (1.7) carry the checkpoint key (the turn's root ts)
         // in the button value; fall back to the message ts the button lives on.
         let actionValue = (action["value"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? messageTs ?? ""
-        SlackFileLog.log("block_action id=\(actionId) channel=\(channelId)")
+        SlackFileLog.log("block_action id=\(actionId) conv=\(conv.key)")
 
         switch actionId {
         case SlackAction.stop:
-            await stopTurn(channelId: channelId)
+            await stopTurn(conv: conv)
         case SlackAction.retry, SlackAction.resume:
-            await retryTurn(channelId: channelId)
+            await retryTurn(conv: conv)
         case SlackAction.showDiff:
-            await showDiff(channelId: channelId, key: actionValue, threadTs: messageTs ?? actionValue)
+            await showDiff(conv: conv, key: actionValue, threadTs: messageTs ?? actionValue)
         case SlackAction.undoTurn:
-            await undoTurn(channelId: channelId, key: actionValue, threadTs: messageTs ?? actionValue)
+            await undoTurn(conv: conv, key: actionValue, threadTs: messageTs ?? actionValue)
         case SlackAction.resumeWithChanges:
-            await openResumeWithChangesModal(channelId: channelId, triggerId: triggerId)
-        // 3.5 — turn-cap Continue/Stop. `actionValue` is the channel id.
+            await openResumeWithChangesModal(conv: conv, triggerId: triggerId)
+        // 3.5 — turn-cap Continue/Stop.
         case SlackAction.budgetContinue:
-            await continueFromTurnCap(channelId: channelId)
+            await continueFromTurnCap(conv: conv)
         case SlackAction.budgetStop:
-            await stopAtTurnCap(channelId: channelId)
-        // 3.5 — usage-window gate. `actionValue` is the channel id.
+            await stopAtTurnCap(conv: conv)
+        // 3.5 — usage-window gate.
         case SlackAction.usageRunAnyway:
-            await resolveUsageGate(channelId: channelId, run: true)
+            await resolveUsageGate(conv: conv, run: true)
         case SlackAction.usageWait:
-            await resolveUsageGate(channelId: channelId, run: false)
+            await resolveUsageGate(conv: conv, run: false)
         // 3.6 — graceful failure affordances.
         case SlackAction.showError:
             await showError(rootTs: actionValue, channelId: channelId,
                             threadTs: messageTs ?? actionValue)
         case SlackAction.retryWithChanges:
-            await openRetryWithChangesModal(channelId: channelId, triggerId: triggerId)
+            await openRetryWithChangesModal(conv: conv, triggerId: triggerId)
         case SlackAction.showDetails:
             await showTrailDetails(rootTs: actionValue, triggerId: triggerId)
         case SlackAction.showReasoning:
             await toggleReasoning(rootTs: actionValue, triggerId: triggerId)
         case SlackAction.feedbackUp:
-            SlackFileLog.log("feedback +1 channel=\(channelId)")
+            SlackFileLog.log("feedback +1 conv=\(conv.key)")
         case SlackAction.feedbackDown:
-            SlackFileLog.log("feedback -1 channel=\(channelId)")
-        // Queue vs Steer follow-up controls (2.4). `actionValue` is the pending /
-        // queued item id stashed in the button value.
-        case SlackAction.followupQueue, SlackAction.followupSteer, SlackAction.followupCancel:
-            await resolveFollowupAsk(actionId: actionId, pendingId: actionValue, responseUrl: responseUrl)
+            SlackFileLog.log("feedback -1 conv=\(conv.key)")
+        // Auto-queue Dequeue control. `actionValue` is the queued item id.
         case SlackAction.followupDequeue:
-            await dequeueFollowup(channelId: channelId, itemId: actionValue)
-        case SlackAction.followupRun:
-            await resolveHeldFollowup(run: true, itemId: actionValue, responseUrl: responseUrl)
-        case SlackAction.followupDiscard:
-            await resolveHeldFollowup(run: false, itemId: actionValue, responseUrl: responseUrl)
+            await dequeueFollowup(conv: conv, itemId: actionValue)
         // ASK-YOU spine (Phase 3) ---------------------------------------------
         // 3.1 — clarifying questions. The option button value is `promptId|qIndex|optIndex`.
         case SlackAction.answerOption:
@@ -1828,20 +1903,24 @@ final class SlackService: ObservableObject {
         SlackFileLog.log("view_submission callback_id=\(callbackId)")
         switch callbackId {
         case SlackAction.resumeWithChangesModal:
-            // The channel id rides in private_metadata; the note is the modal's
+            // The conversation key rides in private_metadata; the note is the modal's
             // single multiline input. Run a fresh turn that resumes the stopped
             // session with the adjustment appended — the honest Tier-A substitute
             // for mid-flight steering (1.4).
-            let channelId = view?["private_metadata"] as? String ?? ""
+            let convKey = view?["private_metadata"] as? String ?? ""
             let note = Self.modalInputValue(view, blockId: "adjust", actionId: "note")
-            SlackFileLog.log("resume-with-changes submit channel=\(channelId) note_chars=\(note.count)")
-            await resumeWithChanges(channelId: channelId, note: note)
+            SlackFileLog.log("resume-with-changes submit conv=\(convKey) note_chars=\(note.count)")
+            if let conv = Self.conversation(fromKey: convKey) {
+                await resumeWithChanges(conv: conv, note: note)
+            }
         // 3.6 — retry-with-changes: re-run the last turn with an appended adjustment.
         case SlackAction.retryChangesModal:
-            let channelId = view?["private_metadata"] as? String ?? ""
+            let convKey = view?["private_metadata"] as? String ?? ""
             let note = Self.modalInputValue(view, blockId: "adjust", actionId: "note")
-            SlackFileLog.log("retry-with-changes submit channel=\(channelId) note_chars=\(note.count)")
-            await retryWithChanges(channelId: channelId, note: note)
+            SlackFileLog.log("retry-with-changes submit conv=\(convKey) note_chars=\(note.count)")
+            if let conv = Self.conversation(fromKey: convKey) {
+                await retryWithChanges(conv: conv, note: note)
+            }
         // 3.1 — freeform "Let me type it" answer. private_metadata = `promptId|qIndex`.
         case SlackAction.answerModal:
             let meta = view?["private_metadata"] as? String ?? ""
@@ -1878,9 +1957,9 @@ final class SlackService: ObservableObject {
     }
 
     /// Open the Resume-with-changes modal: a single prefilled-prompt box whose
-    /// submission re-runs the turn with the operator's adjustment. The channel id
-    /// is carried in `private_metadata` so the submit handler can route it.
-    private func openResumeWithChangesModal(channelId: String, triggerId: String) async {
+    /// submission re-runs the turn with the operator's adjustment. The conversation
+    /// key is carried in `private_metadata` so the submit handler can route it.
+    private func openResumeWithChangesModal(conv: Conversation, triggerId: String) async {
         guard !triggerId.isEmpty else {
             SlackFileLog.log("resume-with-changes: missing trigger_id")
             return
@@ -1888,7 +1967,7 @@ final class SlackService: ObservableObject {
         let view: [String: Any] = [
             "type": "modal",
             "callback_id": SlackAction.resumeWithChangesModal,
-            "private_metadata": channelId,
+            "private_metadata": conv.key,
             "title": ["type": "plain_text", "text": "Resume with changes"],
             "submit": ["type": "plain_text", "text": "Resume"],
             "close": ["type": "plain_text", "text": "Cancel"],
@@ -1909,28 +1988,28 @@ final class SlackService: ObservableObject {
         await openModal(triggerId: triggerId, view: view)
     }
 
-    /// Re-run a channel's most recent turn with an operator adjustment appended
-    /// to the original goal. Refuses while a turn is already in flight.
-    private func resumeWithChanges(channelId: String, note: String) async {
-        guard let lt = lastTurns[channelId] else {
-            SlackFileLog.log("resume-with-changes: no recorded turn for \(channelId)")
+    /// Re-run a conversation's most recent turn with an operator adjustment
+    /// appended to the original goal. Refuses while that thread's turn is in flight.
+    private func resumeWithChanges(conv: Conversation, note: String) async {
+        guard let lt = lastTurns[conv.key] else {
+            SlackFileLog.log("resume-with-changes: no recorded turn for \(conv.key)")
             return
         }
-        guard !inFlight.contains(channelId) else {
-            SlackFileLog.log("resume-with-changes: busy, ignoring for \(channelId)")
+        guard !inFlight.contains(conv.key) else {
+            SlackFileLog.log("resume-with-changes: busy, ignoring for \(conv.key)")
             return
         }
         let combined = note.isEmpty
             ? lt.text
             : "\(lt.text)\n\n[Adjustment before continuing: \(note)]"
-        await runTurn(channelId: channelId, projectName: lt.projectName, cwd: lt.cwd,
-                      obsidianPath: lt.obsidianPath, text: combined)
+        await runTurn(conv: conv, channelId: conv.channelId, projectName: lt.projectName,
+                      cwd: lt.cwd, obsidianPath: lt.obsidianPath, text: combined)
     }
 
     /// Open the Retry-with-changes modal (3.6): a single adjustment box whose
     /// submission re-runs the FAILED turn with the note appended. Distinct from
     /// Resume-with-changes (a stopped turn) only in copy; both append to the goal.
-    private func openRetryWithChangesModal(channelId: String, triggerId: String) async {
+    private func openRetryWithChangesModal(conv: Conversation, triggerId: String) async {
         guard !triggerId.isEmpty else {
             SlackFileLog.log("retry-with-changes: missing trigger_id")
             return
@@ -1938,7 +2017,7 @@ final class SlackService: ObservableObject {
         let view: [String: Any] = [
             "type": "modal",
             "callback_id": SlackAction.retryChangesModal,
-            "private_metadata": channelId,
+            "private_metadata": conv.key,
             "title": ["type": "plain_text", "text": "Retry with changes"],
             "submit": ["type": "plain_text", "text": "Retry"],
             "close": ["type": "plain_text", "text": "Cancel"],
@@ -1959,50 +2038,49 @@ final class SlackService: ObservableObject {
         await openModal(triggerId: triggerId, view: view)
     }
 
-    /// Re-run a channel's most recent (failed) turn with an operator adjustment
-    /// appended (3.6). Refuses while a turn is already in flight.
-    private func retryWithChanges(channelId: String, note: String) async {
-        guard let lt = lastTurns[channelId] else {
-            SlackFileLog.log("retry-with-changes: no recorded turn for \(channelId)")
+    /// Re-run a conversation's most recent (failed) turn with an operator
+    /// adjustment appended (3.6). Refuses while that thread's turn is in flight.
+    private func retryWithChanges(conv: Conversation, note: String) async {
+        guard let lt = lastTurns[conv.key] else {
+            SlackFileLog.log("retry-with-changes: no recorded turn for \(conv.key)")
             return
         }
-        guard !inFlight.contains(channelId) else {
-            SlackFileLog.log("retry-with-changes: busy, ignoring for \(channelId)")
+        guard !inFlight.contains(conv.key) else {
+            SlackFileLog.log("retry-with-changes: busy, ignoring for \(conv.key)")
             return
         }
         let combined = note.isEmpty
             ? lt.text
             : "\(lt.text)\n\n[Adjustment before retrying: \(note)]"
-        await runTurn(channelId: channelId, projectName: lt.projectName, cwd: lt.cwd,
-                      obsidianPath: lt.obsidianPath, text: combined)
+        await runTurn(conv: conv, channelId: conv.channelId, projectName: lt.projectName,
+                      cwd: lt.cwd, obsidianPath: lt.obsidianPath, text: combined)
     }
 
-    /// Stop the in-flight turn: flag it (so it resolves to Stopped-by-you, not
-    /// Failed) and cancel the channel's engine. Full process-group kill + partial
-    /// capture is 1.4; this is the lifecycle + routing seam it refines.
-    private func stopTurn(channelId: String) async {
-        guard inFlight.contains(channelId) else {
-            SlackFileLog.log("stop: no in-flight turn for \(channelId)")
+    /// Stop a conversation's in-flight turn: flag it (so it resolves to
+    /// Stopped-by-you, not Failed) and cancel that thread's engine. Per-thread —
+    /// stopping one thread never touches another running in parallel.
+    private func stopTurn(conv: Conversation) async {
+        guard inFlight.contains(conv.key) else {
+            SlackFileLog.log("stop: no in-flight turn for \(conv.key)")
             return
         }
-        stopRequested.insert(channelId)
+        stopRequested.insert(conv.key)
         // Optimistic relabel: flip the root to "Stopping…" and drop the Stop
         // button so it can't be double-tapped while the kill is in flight. The
         // turn's terminal .stopped card lands a beat later from `runTurn`.
-        if let turn = inFlightTurns[channelId] {
+        if let turn = inFlightTurns[conv.key] {
             turn.stopping = true
             if let ts = turn.rootTs {
-                await chatUpdate(channel: channelId, ts: ts, text: "Stopping…",
+                await chatUpdate(channel: conv.channelId, ts: ts, text: "Stopping…",
                                  blocks: workingBlocks(turn: turn, now: Date(),
                                                        warning: false, stopping: true))
             }
         }
         // Generation hygiene (3.4): resolve any parked supervisory prompt for this
-        // channel with its safe default, so no dangling button resolves a dead RPC
-        // and the blocked MCP unblocks before the kill races it.
-        await cancelParkedPrompts(channelId: channelId)
-        clients[channelId]?.cancel()
-        SlackFileLog.log("stop requested for \(channelId)")
+        // conversation with its safe default before the kill races it.
+        await cancelParkedPrompts(conv: conv)
+        clients[conv.key]?.cancel()
+        SlackFileLog.log("stop requested for \(conv.key)")
     }
 
     /// Wall-clock watchdog kill (3.6 / E5): the turn ran past `wallClockTimeout`
@@ -2010,248 +2088,131 @@ final class SlackService: ObservableObject {
     /// Stopped-by-you), flip the root, cancel any parked prompt, and kill the
     /// process group. The `runTurn` resolution reads `timeoutRequested` to render
     /// the timed-out Failed card with Retry — never a hung spinner.
-    private func forceTimeout(channelId: String) async {
-        guard inFlight.contains(channelId) else { return }
-        timeoutRequested.insert(channelId)
-        if let turn = inFlightTurns[channelId] {
+    private func forceTimeout(conv: Conversation) async {
+        guard inFlight.contains(conv.key) else { return }
+        timeoutRequested.insert(conv.key)
+        if let turn = inFlightTurns[conv.key] {
             turn.stopping = true
             if let ts = turn.rootTs {
-                await chatUpdate(channel: channelId, ts: ts, text: "Timing out…",
+                await chatUpdate(channel: conv.channelId, ts: ts, text: "Timing out…",
                                  blocks: workingBlocks(turn: turn, now: Date(),
                                                        warning: false, stopping: true))
             }
         }
-        await cancelParkedPrompts(channelId: channelId)
-        clients[channelId]?.cancel()
-        SlackFileLog.log("wall-clock timeout fired for \(channelId)")
+        await cancelParkedPrompts(conv: conv)
+        clients[conv.key]?.cancel()
+        SlackFileLog.log("wall-clock timeout fired for \(conv.key)")
     }
 
-    /// Re-run a channel's most recent turn (Retry / Resume). Refuses while a turn
-    /// is already in flight (single-writer per channel).
-    private func retryTurn(channelId: String) async {
-        guard let lt = lastTurns[channelId] else {
-            SlackFileLog.log("retry: no recorded turn for \(channelId)")
+    /// Re-run a conversation's most recent turn (Retry / Resume). Refuses while
+    /// that thread's turn is in flight (single-writer per thread).
+    private func retryTurn(conv: Conversation) async {
+        guard let lt = lastTurns[conv.key] else {
+            SlackFileLog.log("retry: no recorded turn for \(conv.key)")
             return
         }
-        guard !inFlight.contains(channelId) else {
-            SlackFileLog.log("retry: busy, ignoring for \(channelId)")
+        guard !inFlight.contains(conv.key) else {
+            SlackFileLog.log("retry: busy, ignoring for \(conv.key)")
             return
         }
-        SlackFileLog.log("retry/resume turn for \(channelId)")
-        await runTurn(channelId: channelId, projectName: lt.projectName, cwd: lt.cwd,
-                      obsidianPath: lt.obsidianPath, text: lt.text)
+        SlackFileLog.log("retry/resume turn for \(conv.key)")
+        await runTurn(conv: conv, channelId: conv.channelId, projectName: lt.projectName,
+                      cwd: lt.cwd, obsidianPath: lt.obsidianPath, text: lt.text)
     }
 
-    // MARK: - Phase 2.4: Queue vs Steer (follow-up handling)
+    // MARK: - Per-thread auto-queue (follow-up handling)
 
-    /// A message arrived while a turn is running. Apply the channel's follow-up
-    /// policy (2.4): `queue` buffers it for after a clean Done, `steer` stops the
-    /// current turn and re-runs combined, `ask` (default) offers the choice as an
-    /// ephemeral prompt visible only to the poster.
-    private func handleFollowup(channelId: String, user: String, text: String,
-                                resolved: (name: String, cwd: String, obsidianPath: String)) async {
-        let policy = followupPolicy(channelId)
-        SlackFileLog.log("followup: mid-turn message #\(channelId) policy=\(policy) chars=\(text.count)")
-        switch policy {
-        case "queue":
-            await enqueueFollowup(channelId: channelId, kind: .queue, text: text, resolved: resolved)
-        case "steer":
-            await steerNow(channelId: channelId, newText: text, resolved: resolved)
-        default: // "ask"
-            await postFollowupAsk(channelId: channelId, user: user, text: text, resolved: resolved)
-        }
-    }
-
-    /// Buffer a follow-up and log it onto the live turn's thread with a
-    /// `[ Dequeue ]` affordance (gap G25). Returns the queued item's id.
-    @discardableResult
-    private func enqueueFollowup(channelId: String, kind: FollowupKind, text: String,
-                                 resolved: (name: String, cwd: String, obsidianPath: String)) async -> String {
+    /// A message arrived in a thread while THAT thread's turn was running.
+    /// AUTO-QUEUE it (no Queue/Steer/Cancel prompt) — exactly like the terminal
+    /// CLI queues a message typed mid-turn — with a lightweight `:hourglass:`
+    /// reaction as the ack and a Dequeue affordance. It runs automatically after
+    /// the current turn finishes. (Steer/interrupt stays an explicit action: the
+    /// Stop button or `/claude-stop`.)
+    private func autoQueueFollowup(conv: Conversation, text: String,
+                                   resolved: (name: String, cwd: String, obsidianPath: String)) async {
         let id = UUID().uuidString
-        var item = QueuedFollowup(id: id, channelId: channelId, kind: kind, text: text,
-                                  projectName: resolved.name, cwd: resolved.cwd,
+        let item = QueuedFollowup(id: id, channelId: conv.channelId, threadRootTs: conv.threadRootTs,
+                                  text: text, projectName: resolved.name, cwd: resolved.cwd,
                                   obsidianPath: resolved.obsidianPath, dequeueTs: nil)
-        // Log the queued item into the running turn's thread (the audit trail),
-        // carrying a Dequeue button keyed by the item id.
-        let threadTs = inFlightTurns[channelId]?.rootTs
-        let verb = kind == .steer ? "steer queued" : "queued"
+        // ENQUEUE SYNCHRONOUSLY — before any await — so the append is atomic with
+        // the caller's busy test. Previously the append happened only AFTER the
+        // postMessage round-trip below; during that suspension the running turn
+        // could resolve and its drain fire on a still-empty queue, orphaning this
+        // item (it would then never run). Appending first eliminates that window.
+        followupQueue[conv.key, default: []].append(item)
+        SlackFileLog.log("followup: auto-queued id=\(id.prefix(8)) \(conv.key) depth=\(followupQueue[conv.key]?.count ?? 0)")
+        // Audit the queued item in the running turn's thread with a Dequeue button.
+        let threadTs = inFlightTurns[conv.key]?.rootTs ?? conv.threadRootTs
         let ts = await postMessage(
-            channel: channelId,
-            text: "↳ \(verb): \(SlackBlocks.truncate(Self.singleLine(text), 200))",
+            channel: conv.channelId,
+            text: "↳ queued: \(SlackBlocks.truncate(Self.singleLine(text), 200))",
             threadTs: threadTs,
             blocks: [
-                SlackBlocks.context("↳ \(verb): \(SlackBlocks.truncate(Self.singleLine(text), 200))"),
+                SlackBlocks.context("↳ queued (runs after the current turn): \(SlackBlocks.truncate(Self.singleLine(text), 200))"),
                 SlackBlocks.actions([
                     SlackBlocks.button(text: ":wastebasket: Dequeue",
                                        actionId: SlackAction.followupDequeue, value: id)
                 ])
             ])
-        item.dequeueTs = ts
-        followupQueue[channelId, default: []].append(item)
-        SlackFileLog.log("followup: enqueued \(kind.rawValue) id=\(id.prefix(8)) #\(channelId) depth=\(followupQueue[channelId]?.count ?? 0)")
-        return id
-    }
-
-    /// Steer-now (2.4, labelled honestly as "Stop + restart with this"): combine
-    /// the running turn's goal with the new instruction, buffer it as a `steer`
-    /// item at the FRONT of the queue, then Stop the current turn. The drain that
-    /// fires on the resulting `.stopped` auto-runs the steer item.
-    private func steerNow(channelId: String, newText: String,
-                          resolved: (name: String, cwd: String, obsidianPath: String)) async {
-        guard inFlight.contains(channelId) else {
-            // The turn finished between the message and this call — just run it.
-            await runTurn(channelId: channelId, projectName: resolved.name, cwd: resolved.cwd,
-                          obsidianPath: resolved.obsidianPath, text: newText)
-            return
+        // Patch the queued item's Dequeue affordance ts BY ID. The queue may have
+        // been drained or reordered during the await above; locating the item by id
+        // (rather than blindly mutating index 0) keeps the affordance attached to
+        // the right item, and if the item already ran this simply finds nothing.
+        if let idx = followupQueue[conv.key]?.firstIndex(where: { $0.id == id }) {
+            followupQueue[conv.key]?[idx].dequeueTs = ts
         }
-        let original = inFlightTurns[channelId]?.request ?? lastTurns[channelId]?.text ?? ""
-        let combined = original.isEmpty
-            ? newText
-            : "\(original)\n\n[Additional instruction: \(newText)]"
-        let id = UUID().uuidString
-        let item = QueuedFollowup(id: id, channelId: channelId, kind: .steer, text: combined,
-                                  projectName: resolved.name, cwd: resolved.cwd,
-                                  obsidianPath: resolved.obsidianPath, dequeueTs: nil)
-        followupQueue[channelId, default: []].insert(item, at: 0)
-        SlackFileLog.log("followup: steer-now #\(channelId) id=\(id.prefix(8)); stopping current turn")
-        if let ts = inFlightTurns[channelId]?.rootTs {
-            await postMessage(channel: channelId,
-                              text: "↳ steering: stopping the current turn and restarting with your instruction.",
-                              threadTs: ts)
+        // Lightweight ack: an :hourglass: reaction on the queued message itself.
+        if let ts {
+            await reactionAdd(channel: conv.channelId, ts: ts, name: "hourglass")
         }
-        await stopTurn(channelId: channelId)
     }
 
-    /// Post the ephemeral Queue / Steer / Cancel prompt under the `ask` policy
-    /// (2.4), visible only to the poster. The candidate is stashed by a short id
-    /// the buttons carry (the message text is too large/sensitive for a value).
-    private func postFollowupAsk(channelId: String, user: String, text: String,
-                                 resolved: (name: String, cwd: String, obsidianPath: String)) async {
-        let id = UUID().uuidString
-        pendingFollowups[id] = PendingFollowup(channelId: channelId, user: user, text: text,
-                                               projectName: resolved.name, cwd: resolved.cwd,
-                                               obsidianPath: resolved.obsidianPath)
-        SlackFileLog.log("followup: ask prompt #\(channelId) id=\(id.prefix(8)) user=\(user)")
-        let blocks: [[String: Any]] = [
-            SlackBlocks.section("A turn is already running. Your message:"),
-            SlackBlocks.context("> \(SlackBlocks.truncate(Self.singleLine(text), 280))"),
-            SlackBlocks.actions([
-                SlackBlocks.button(text: "Queue for next turn",
-                                   actionId: SlackAction.followupQueue, value: id),
-                SlackBlocks.button(text: "Steer now (stop + restart)",
-                                   actionId: SlackAction.followupSteer, value: id, style: "danger"),
-                SlackBlocks.button(text: "Cancel",
-                                   actionId: SlackAction.followupCancel, value: id)
-            ])
-        ]
-        await postEphemeral(channel: channelId, user: user,
-                            text: "A turn is already running — Queue, Steer, or Cancel your message.",
-                            blocks: blocks)
-    }
-
-    /// Drain one buffered follow-up after a turn resolves (2.4). A `queue` item
-    /// auto-fires ONLY across a clean Done (gap C16); after Failed/Stopped/
-    /// Needs-you it is parked on an explicit Run-now / Discard. A `steer` item
-    /// auto-fires across the Stop it itself triggered.
-    private func drainFollowupQueue(channelId: String, lastTerminal: TurnState) async {
-        guard !inFlight.contains(channelId) else { return }   // a new turn already started
-        guard var q = followupQueue[channelId], !q.isEmpty else { return }
+    /// Drain one queued follow-up after a turn resolves. Runs automatically after
+    /// ANY terminal state (like the CLI's typed-ahead queue); the operator can
+    /// Dequeue before it fires. runTurn's own resolution drains the next item, so
+    /// the queue processes sequentially.
+    private func drainFollowupQueue(conv: Conversation, lastTerminal: TurnState) async {
+        guard !inFlight.contains(conv.key) else { return }   // a new turn already started
+        guard var q = followupQueue[conv.key], !q.isEmpty else { return }
+        // RESERVE the in-flight slot SYNCHRONOUSLY (no await between the not-busy
+        // checks above and this insert), THEN dequeue under the same reservation.
+        // This closes the dropped-message race: previously the item was removed and
+        // then `clearDequeueAffordance` suspended with inFlight cleared, so a racing
+        // reply saw "not busy", ran directly, and re-acquired the lock — causing the
+        // resumed drain's runTurn to bail busy and silently discard the dequeued
+        // item (FIFO broken). Holding the lock across the affordance clear forces any
+        // racing reply to queue behind us, and runTurn runs with the lock pre-held.
+        inFlight.insert(conv.key)
         let item = q.removeFirst()
-        followupQueue[channelId] = q
-        await clearDequeueAffordance(channelId: channelId, item: item)
-
-        let autoRun = (lastTerminal == .done) || (item.kind == .steer)
-        if autoRun {
-            SlackFileLog.log("followup: auto-run \(item.kind.rawValue) id=\(item.id.prefix(8)) after \(lastTerminal.rawValue) #\(channelId)")
-            await runTurn(channelId: channelId, projectName: item.projectName, cwd: item.cwd,
-                          obsidianPath: item.obsidianPath, text: item.text)
-            // runTurn's own resolution drains the NEXT item, so the queue
-            // processes sequentially across clean Dones.
-        } else {
-            heldFollowups[item.id] = item
-            SlackFileLog.log("followup: holding id=\(item.id.prefix(8)) after \(lastTerminal.rawValue) #\(channelId)")
-            await postMessage(
-                channel: channelId,
-                text: "A queued follow-up is waiting, but the last turn ended *\(lastTerminal.label)* — run it anyway?",
-                blocks: [
-                    SlackBlocks.section("A queued follow-up is waiting, but the last turn ended *\(lastTerminal.label)*. Run it now?"),
-                    SlackBlocks.context("> \(SlackBlocks.truncate(Self.singleLine(item.text), 280))"),
-                    SlackBlocks.actions([
-                        SlackBlocks.button(text: ":arrow_forward: Run now",
-                                           actionId: SlackAction.followupRun, value: item.id, style: "primary"),
-                        SlackBlocks.button(text: ":wastebasket: Discard",
-                                           actionId: SlackAction.followupDiscard, value: item.id)
-                    ])
-                ])
-        }
+        followupQueue[conv.key] = q
+        await clearDequeueAffordance(channelId: conv.channelId, item: item)
+        SlackFileLog.log("followup: auto-run id=\(item.id.prefix(8)) after \(lastTerminal.rawValue) \(conv.key) depth=\(q.count)")
+        await runTurn(conv: item.conv, channelId: item.channelId, projectName: item.projectName,
+                      cwd: item.cwd, obsidianPath: item.obsidianPath, text: item.text,
+                      lockAlreadyHeld: true)
     }
 
     /// Strip the `[ Dequeue ]` button from a queued item's trail line once it
     /// runs / is dequeued, leaving the audit text in place.
     private func clearDequeueAffordance(channelId: String, item: QueuedFollowup) async {
         guard let ts = item.dequeueTs else { return }
-        await chatUpdate(channel: channelId, ts: ts,
-                         text: "↳ \(item.kind.rawValue): \(SlackBlocks.truncate(Self.singleLine(item.text), 200))",
-                         blocks: [SlackBlocks.context("↳ \(item.kind.rawValue): \(SlackBlocks.truncate(Self.singleLine(item.text), 200))")])
+        let line = "↳ queued: \(SlackBlocks.truncate(Self.singleLine(item.text), 200))"
+        await chatUpdate(channel: channelId, ts: ts, text: line,
+                         blocks: [SlackBlocks.context(line)])
     }
 
-    // MARK: - Phase 2.4: follow-up interactive handlers
-
-    /// Resolve an ephemeral Queue / Steer / Cancel choice. If the turn has since
-    /// finished, Queue runs immediately; otherwise it buffers / steers as chosen.
-    private func resolveFollowupAsk(actionId: String, pendingId: String, responseUrl: String?) async {
-        guard let p = pendingFollowups.removeValue(forKey: pendingId) else {
-            SlackFileLog.log("followup ask: stale/unknown pending id \(pendingId.prefix(8))")
-            await replaceEphemeral(responseUrl: responseUrl, text: "_This prompt is no longer active._")
-            return
-        }
-        let resolved = (name: p.projectName, cwd: p.cwd, obsidianPath: p.obsidianPath)
-        switch actionId {
-        case SlackAction.followupQueue:
-            if inFlight.contains(p.channelId) {
-                await enqueueFollowup(channelId: p.channelId, kind: .queue, text: p.text, resolved: resolved)
-                await replaceEphemeral(responseUrl: responseUrl, text: ":inbox_tray: Queued for the next turn.")
-            } else {
-                await replaceEphemeral(responseUrl: responseUrl, text: ":arrow_forward: The turn finished — running it now.")
-                await runTurn(channelId: p.channelId, projectName: p.projectName, cwd: p.cwd,
-                              obsidianPath: p.obsidianPath, text: p.text)
-            }
-        case SlackAction.followupSteer:
-            await replaceEphemeral(responseUrl: responseUrl, text: ":twisted_rightwards_arrows: Stopping the current turn and restarting with your message.")
-            await steerNow(channelId: p.channelId, newText: p.text, resolved: resolved)
-        default: // cancel
-            await replaceEphemeral(responseUrl: responseUrl, text: ":x: Cancelled — your message was not run.")
-        }
-    }
-
-    /// Dequeue a still-buffered follow-up before it runs (gap G25).
-    private func dequeueFollowup(channelId: String, itemId: String) async {
-        guard var q = followupQueue[channelId], let idx = q.firstIndex(where: { $0.id == itemId }) else {
+    /// Dequeue a still-buffered follow-up before it runs.
+    private func dequeueFollowup(conv: Conversation, itemId: String) async {
+        guard var q = followupQueue[conv.key], let idx = q.firstIndex(where: { $0.id == itemId }) else {
             SlackFileLog.log("followup dequeue: id \(itemId.prefix(8)) not queued")
             return
         }
         let item = q.remove(at: idx)
-        followupQueue[channelId] = q
-        await clearDequeueAffordance(channelId: channelId, item: item)
-        SlackFileLog.log("followup: dequeued id=\(itemId.prefix(8)) #\(channelId)")
+        followupQueue[conv.key] = q
+        await clearDequeueAffordance(channelId: conv.channelId, item: item)
+        SlackFileLog.log("followup: dequeued id=\(itemId.prefix(8)) \(conv.key)")
         if let ts = item.dequeueTs {
-            await postMessage(channel: channelId, text: ":wastebasket: Dequeued — this follow-up will not run.", threadTs: ts)
-        }
-    }
-
-    /// Resolve a held follow-up's Run-now / Discard choice.
-    private func resolveHeldFollowup(run: Bool, itemId: String, responseUrl: String?) async {
-        guard let item = heldFollowups.removeValue(forKey: itemId) else {
-            SlackFileLog.log("followup held: stale id \(itemId.prefix(8))")
-            await replaceEphemeral(responseUrl: responseUrl, text: "_This follow-up is no longer pending._")
-            return
-        }
-        if run {
-            await replaceEphemeral(responseUrl: responseUrl, text: ":arrow_forward: Running the held follow-up.")
-            await runTurn(channelId: item.channelId, projectName: item.projectName, cwd: item.cwd,
-                          obsidianPath: item.obsidianPath, text: item.text)
-        } else {
-            await replaceEphemeral(responseUrl: responseUrl, text: ":wastebasket: Discarded.")
+            await postMessage(channel: conv.channelId, text: ":wastebasket: Dequeued — this follow-up will not run.", threadTs: ts)
         }
     }
 
@@ -2260,7 +2221,8 @@ final class SlackService: ObservableObject {
     /// Render `git diff` of what the keyed turn changed into its thread. The key
     /// is the turn's root ts; the diff is size-capped and posted in a code block
     /// (the secret-redaction pass lands with Security S3 in a later phase).
-    private func showDiff(channelId: String, key: String, threadTs: String?) async {
+    private func showDiff(conv: Conversation, key: String, threadTs: String?) async {
+        let channelId = conv.channelId
         guard let cp = checkpoints[key] else {
             SlackFileLog.log("show-diff: no checkpoint for key \(key)")
             await postMessage(channel: channelId,
@@ -2269,7 +2231,7 @@ final class SlackService: ObservableObject {
             return
         }
         let diff = await GitCheckpointService.diff(cp)
-        SlackFileLog.log("show-diff: #\(channelId) key=\(key) chars=\(diff.count)")
+        SlackFileLog.log("show-diff: \(conv.key) key=\(key) chars=\(diff.count)")
         guard !diff.isEmpty else {
             await postMessage(channel: channelId,
                               text: ":mag: No changes since the pre-turn checkpoint.",
@@ -2288,7 +2250,8 @@ final class SlackService: ObservableObject {
     /// Restore the working tree to the keyed turn's pre-turn checkpoint and report
     /// the outcome into the thread. Refuses while a turn is in flight (the live
     /// turn is editing the same tree).
-    private func undoTurn(channelId: String, key: String, threadTs: String?) async {
+    private func undoTurn(conv: Conversation, key: String, threadTs: String?) async {
+        let channelId = conv.channelId
         guard let cp = checkpoints[key] else {
             SlackFileLog.log("undo: no checkpoint for key \(key)")
             await postMessage(channel: channelId,
@@ -2296,15 +2259,15 @@ final class SlackService: ObservableObject {
                               threadTs: threadTs)
             return
         }
-        guard !inFlight.contains(channelId) else {
-            SlackFileLog.log("undo: busy, refusing for \(channelId)")
+        guard !inFlight.contains(conv.key) else {
+            SlackFileLog.log("undo: busy, refusing for \(conv.key)")
             await postMessage(channel: channelId,
-                              text: "A turn is running in this channel — Stop it before undoing.",
+                              text: "A turn is running in this thread — Stop it before undoing.",
                               threadTs: threadTs)
             return
         }
         let result = await GitCheckpointService.undo(cp)
-        SlackFileLog.log("undo: #\(channelId) key=\(key) ok=\(result.ok) — \(result.detail)")
+        SlackFileLog.log("undo: \(conv.key) key=\(key) ok=\(result.ok) — \(result.detail)")
         let icon = result.ok ? ":leftwards_arrow_with_hook:" : ":x:"
         await postMessage(channel: channelId,
                           text: "\(icon) \(result.detail)" + (result.ok
@@ -2407,23 +2370,24 @@ final class SlackService: ObservableObject {
     /// `currentSessionId` is cleared first so `send()` can't fall back to it.
     /// Returns the final assistant text, per-tool counts, and the (new) session
     /// id. Repeatable, so the empty-resume retry can call it twice.
-    private func runEngine(channelId: String, message: String, permissionMode: String,
+    private func runEngine(conv: Conversation, message: String, permissionMode: String,
                            effort: String, sessionId: String?, cwd: String,
                            maxTurns: Int? = nil) async throws
         -> (result: CLIResultEvent, text: String, tools: [String: Int]) {
-        let client = clientFor(channelId)
+        let key = conv.key
+        let client = clientFor(key)
         if sessionId == nil { client.newSession() }
 
         // SUPERVISED MODE (Phase 3): drop --dangerously-skip-permissions and route
         // every gated tool through the bundled MCP server (permission-prompt-tool +
-        // risk policy). The per-turn mcp-config carries the channel + generation +
-        // cwd as env so the server stamps each parked request for routing. If the
-        // config can't be written (no bundled script), fall back to the legacy skip
-        // path so the turn still runs (degrade, never break).
-        let generation = inFlightTurns[channelId]?.generation ?? 0
+        // risk policy). The per-turn mcp-config carries the channel + thread +
+        // generation + cwd as env so the server stamps each parked request for
+        // per-thread routing. If the config can't be written, fall back to the
+        // legacy skip path so the turn still runs (degrade, never break).
+        let generation = inFlightTurns[key]?.generation ?? 0
         var mcpConfigPath: String? = nil
         var supervisedSystemPrompt: String? = nil
-        if supervisedMode, let path = writeMcpConfig(channelId: channelId,
+        if supervisedMode, let path = writeMcpConfig(conv: conv,
                                                      generation: generation, cwd: cwd) {
             mcpConfigPath = path
             supervisedSystemPrompt = Self.supervisedPreamble
@@ -2444,48 +2408,46 @@ final class SlackService: ObservableObject {
             onSpawn: { [weak self] pid, pgid in
                 // Record the live process in the durable registry (1.6) the
                 // moment it spawns, so a crash an instant later is reconcilable.
-                guard let self, let turn = self.inFlightTurns[channelId] else { return }
+                guard let self, let turn = self.inFlightTurns[key] else { return }
                 turn.pid = pid
                 turn.pgid = pgid
                 self.persistInFlight()
-                SlackFileLog.log("inflight registered: #\(channelId) pid=\(pid) gen=\(turn.generation)")
+                SlackFileLog.log("inflight registered: \(key) pid=\(pid) gen=\(turn.generation)")
             }
         ) { [weak self] event in
             // Every event bumps the watchdog's silence clock (1.5).
-            if let turn = self?.inFlightTurns[channelId] { turn.lastEventAt = Date() }
+            if let turn = self?.inFlightTurns[key] { turn.lastEventAt = Date() }
             switch event {
             case .system(let sys):
-                if let turn = self?.inFlightTurns[channelId], !sys.sessionId.isEmpty,
+                if let turn = self?.inFlightTurns[key], !sys.sessionId.isEmpty,
                    turn.sessionId != sys.sessionId {
                     turn.sessionId = sys.sessionId
                     self?.persistInFlight()
                 }
                 // Cache the authoritative per-session skills/agents the init event
                 // reports so `/claude-skills` and `/claude-agents` can answer from
-                // this channel's live session (Phase 0 extension). Set on every
-                // init (even when empty) so dictionary presence marks "a turn has
-                // run" distinct from "ran, reports none".
+                // this conversation's live session.
                 if sys.subtype == "init" {
-                    self?.channelSkills[channelId] = sys.skills
-                    self?.channelAgents[channelId] = sys.agents
+                    self?.channelSkills[key] = sys.skills
+                    self?.channelAgents[key] = sys.agents
                 }
             case .assistant(let msg):
                 if let t = msg.text { assistantText = t }
                 // Thinking summary → collapsed reasoning line in the thread (§2.2),
                 // never the answer text, never the channel root.
-                if msg.isThinking { self?.recordTrailEvent(channelId: channelId, event: event) }
+                if msg.isThinking { self?.recordTrailEvent(convKey: key, event: event) }
             case .toolUse(let tool):
                 // The supervisory tools (mcp__hud__approve / ask_human) are the
                 // pause MECHANISM, not work the operator wants on the trail — skip
                 // them from the count and the activity trail.
                 if tool.toolName.hasPrefix("mcp__hud__") { break }
                 toolCounts[tool.toolName, default: 0] += 1
-                self?.inFlightTurns[channelId]?.toolCount += 1
+                self?.inFlightTurns[key]?.toolCount += 1
                 // Open a semantic line in the in-thread trail (§2.1).
-                self?.recordTrailEvent(channelId: channelId, event: event)
+                self?.recordTrailEvent(convKey: key, event: event)
             case .toolResult:
                 // Close the matching trail line by tool_use_id (§2.1).
-                self?.recordTrailEvent(channelId: channelId, event: event)
+                self?.recordTrailEvent(convKey: key, event: event)
             case .result(let r):
                 if !r.result.isEmpty { assistantText = r.result }
             default:
@@ -2496,11 +2458,12 @@ final class SlackService: ObservableObject {
         return (result, text, toolCounts)
     }
 
-    /// The channel's dedicated CLI engine (created on first use).
-    private func clientFor(_ channelId: String) -> ClaudeCLIClient {
-        if let existing = clients[channelId] { return existing }
+    /// The conversation's dedicated CLI engine (created on first use), keyed by
+    /// `Conversation.key` so each thread runs its own process in parallel.
+    private func clientFor(_ key: String) -> ClaudeCLIClient {
+        if let existing = clients[key] { return existing }
         let client = ClaudeCLIClient()
-        clients[channelId] = client
+        clients[key] = client
         return client
     }
 
@@ -2592,10 +2555,12 @@ final class SlackService: ObservableObject {
     /// the root to Needs-you, park the live turn, and escalate a push.
     private func handleRelayRequest(_ req: SupervisorRequest) async {
         let channelId = req.channel
-        guard let turn = inFlightTurns[channelId], let rootTs = turn.rootTs else {
+        // Route to the per-thread turn via the conversation key (channel + thread).
+        let convKey = Self.convKey(req.channel, req.thread)
+        guard let turn = inFlightTurns[convKey], let rootTs = turn.rootTs else {
             // No live turn for this request (already resolved / stale) — unblock
             // the MCP with a safe default so it never hangs.
-            SlackFileLog.log("relay: no live turn for request \(req.id.prefix(8)); safe-default")
+            SlackFileLog.log("relay: no live turn for request \(req.id.prefix(8)) conv=\(convKey); safe-default")
             writeDecision(promptId: req.id, decision: safeDefault(for: req.kind))
             return
         }
@@ -2628,7 +2593,7 @@ final class SlackService: ObservableObject {
         prompt.cardTs = cardTs
         parkedPrompts[req.id] = prompt
         turn.parked = true
-        SlackFileLog.log("parked: #\(channelId) kind=\(req.kind.rawValue) id=\(req.id.prefix(8)) card=\(cardTs ?? "nil")")
+        SlackFileLog.log("parked: \(convKey) kind=\(req.kind.rawValue) id=\(req.id.prefix(8)) card=\(cardTs ?? "nil")")
 
         await renderNeedsYouRoot(turn: turn, kind: req.kind)
         await escalateNeedsYou(channelId: channelId, rootTs: rootTs, kind: req.kind)
@@ -2719,7 +2684,7 @@ final class SlackService: ObservableObject {
             await chatUpdate(channel: prompt.channelId, ts: cardTs, text: cardNote,
                              blocks: [SlackBlocks.section(cardNote)])
         }
-        if let turn = inFlightTurns[prompt.channelId], turn.generation == prompt.generation {
+        if let turn = inFlightTurns[prompt.convKey], turn.generation == prompt.generation {
             await restoreWorkingRoot(turn: turn)
         }
         SlackFileLog.log("resolved parked \(prompt.id.prefix(8)): \(cardNote)")
@@ -2736,16 +2701,16 @@ final class SlackService: ObservableObject {
             await chatUpdate(channel: prompt.channelId, ts: cardTs, text: note,
                              blocks: [SlackBlocks.section(note)])
         }
-        if let turn = inFlightTurns[prompt.channelId], turn.generation == prompt.generation {
+        if let turn = inFlightTurns[prompt.convKey], turn.generation == prompt.generation {
             await restoreWorkingRoot(turn: turn)
         }
     }
 
-    /// Generation hygiene (3.4): resolve every parked prompt for a channel (e.g. on
-    /// Stop or a superseding new turn) with its safe default so no live button can
-    /// resolve a dead RPC and no MCP RPC is left hanging.
-    private func cancelParkedPrompts(channelId: String) async {
-        for (_, prompt) in parkedPrompts where prompt.channelId == channelId && !prompt.locked {
+    /// Generation hygiene (3.4): resolve every parked prompt for a CONVERSATION
+    /// (e.g. on Stop or a superseding new turn) with its safe default so no live
+    /// button can resolve a dead RPC and no MCP RPC is left hanging.
+    private func cancelParkedPrompts(conv: Conversation) async {
+        for (_, prompt) in parkedPrompts where prompt.convKey == conv.key && !prompt.locked {
             await finishParked(prompt, decision: safeDefault(for: prompt.kind),
                                cardNote: ":black_square_for_stop: Cancelled — the turn was stopped or superseded.")
         }
@@ -2769,7 +2734,7 @@ final class SlackService: ObservableObject {
             SlackFileLog.log("parked \(promptId.prefix(8)) already locked (stale tap)")
             return nil
         }
-        guard let turn = inFlightTurns[prompt.channelId] else {
+        guard let turn = inFlightTurns[prompt.convKey] else {
             SlackFileLog.log("parked \(promptId.prefix(8)) has no live turn (stale tap)")
             return nil
         }
@@ -2822,7 +2787,7 @@ final class SlackService: ObservableObject {
         if !force && prompt.answers.count < questions.count {
             // Partial — nudge in-thread so the operator sees progress on a
             // multi-question ask.
-            let rootTs = inFlightTurns[prompt.channelId]?.rootTs
+            let rootTs = inFlightTurns[prompt.convKey]?.rootTs
             await postMessage(channel: prompt.channelId,
                               text: "Recorded \(prompt.answers.count)/\(questions.count); answer the rest.",
                               threadTs: rootTs)
@@ -2836,12 +2801,12 @@ final class SlackService: ObservableObject {
     }
 
     /// Thread-reply precedence (3.1): if a clarifying question is parked for this
-    /// channel, capture the reply as the next unanswered question's answer. Returns
-    /// true if the reply was consumed as an answer.
-    private func captureThreadReplyAnswer(channelId: String, text: String) -> Bool {
-        // The most recently parked ASK prompt for this channel.
+    /// CONVERSATION, capture the reply as the next unanswered question's answer.
+    /// Returns true if the reply was consumed as an answer.
+    private func captureThreadReplyAnswer(conv: Conversation, text: String) -> Bool {
+        // The most recently parked ASK prompt for this conversation.
         let asks = parkedPrompts.values
-            .filter { $0.channelId == channelId && $0.kind == .ask && !$0.locked }
+            .filter { $0.convKey == conv.key && $0.kind == .ask && !$0.locked }
             .sorted { $0.createdAt > $1.createdAt }
         guard let prompt = asks.first else { return false }
         let questions = prompt.request.questions
@@ -2992,10 +2957,11 @@ final class SlackService: ObservableObject {
     // MARK: - Phase 3: per-turn MCP config
 
     /// Write the per-turn mcp-config that points `claude` at the bundled supervisory
-    /// MCP server, carrying the channel + generation + cwd + relay dir + timeout as
-    /// env so each parked request is stamped for routing. Returns its path, or nil
-    /// if the bundled script is missing (caller then falls back to the skip path).
-    private func writeMcpConfig(channelId: String, generation: Int, cwd: String) -> String? {
+    /// MCP server, carrying the channel + thread + generation + cwd + relay dir +
+    /// timeout as env so each parked request is stamped for PER-THREAD routing.
+    /// Returns its path, or nil if the bundled script is missing (caller then falls
+    /// back to the skip path).
+    private func writeMcpConfig(conv: Conversation, generation: Int, cwd: String) -> String? {
         guard let script = mcpScriptPath else {
             SlackFileLog.log("mcp-config: bundled hud-slack-mcp.py not found; falling back")
             return nil
@@ -3007,7 +2973,8 @@ final class SlackService: ObservableObject {
                     "args": [script],
                     "env": [
                         "HUD_SLACK_RELAY_DIR": Self.relayDir,
-                        "HUD_SLACK_CHANNEL": channelId,
+                        "HUD_SLACK_CHANNEL": conv.channelId,
+                        "HUD_SLACK_THREAD": conv.threadRootTs,
                         "HUD_SLACK_GENERATION": String(generation),
                         "HUD_SLACK_CWD": cwd,
                         "HUD_SLACK_TIMEOUT": String(Int(Self.parkedPromptTimeout))
@@ -3018,7 +2985,10 @@ final class SlackService: ObservableObject {
         let dir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/ClaudeHUD")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent("slack-mcp-\(channelId).json")
+        // Name by a filesystem-safe conversation token so parallel same-channel
+        // threads never clobber each other's per-turn config.
+        let safe = "\(conv.channelId)-\(conv.threadRootTs)".replacingOccurrences(of: ".", with: "-")
+        let url = dir.appendingPathComponent("slack-mcp-\(safe).json")
         guard let data = try? JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted]) else {
             return nil
         }
@@ -3033,47 +3003,48 @@ final class SlackService: ObservableObject {
 
     // MARK: - Phase 2.1/2.2: activity trail driving
 
-    /// Lazily create (or fetch) the channel's live trail. Needs the turn's root
-    /// ts (the thread anchor + button key); returns nil until the root is posted.
-    private func ensureTrail(channelId: String) -> TurnTrail? {
-        if let t = trails[channelId] { return t }
-        guard let turn = inFlightTurns[channelId], let root = turn.rootTs else { return nil }
-        let t = TurnTrail(channelId: channelId, rootTs: root)
-        trails[channelId] = t
+    /// Lazily create (or fetch) the conversation's live trail. Needs the turn's
+    /// root ts; returns nil until the root is posted. Keyed by `Conversation.key`;
+    /// the trail stores the real channel id for its own Slack posts.
+    private func ensureTrail(convKey: String) -> TurnTrail? {
+        if let t = trails[convKey] { return t }
+        guard let turn = inFlightTurns[convKey], let root = turn.rootTs else { return nil }
+        let t = TurnTrail(channelId: turn.channelId, rootTs: root)
+        trails[convKey] = t
         return t
     }
 
     /// Fold one stream event into the live trail, then schedule a debounced
     /// render. Only tool_use / tool_result / thinking land here (the answer text
     /// promotes to the root, never the trail).
-    private func recordTrailEvent(channelId: String, event: CLIStreamEvent) {
-        guard let trail = ensureTrail(channelId: channelId) else { return }
+    private func recordTrailEvent(convKey: String, event: CLIStreamEvent) {
+        guard let trail = ensureTrail(convKey: convKey) else { return }
         switch event {
         case .toolUse(let t):
             trail.addToolUse(t)
-            scheduleTrailRender(channelId)
+            scheduleTrailRender(convKey)
         case .toolResult(let r):
             trail.closeResult(r)
-            scheduleTrailRender(channelId)
+            scheduleTrailRender(convKey)
         case .assistant(let a) where a.isThinking:
-            if let th = a.thinkingText { trail.addThinking(th); scheduleTrailRender(channelId) }
+            if let th = a.thinkingText { trail.addThinking(th); scheduleTrailRender(convKey) }
         default:
             break
         }
         // Fan the same event into the subagent tree (§4.1) — independent of the
         // flat trail, only materializes when the turn actually spawns subagents.
-        feedSubagentTree(channelId: channelId, event: event)
+        feedSubagentTree(convKey: convKey, event: event)
     }
 
     // MARK: - Phase 4.1: subagent tree driving
 
-    /// Lazily create (or fetch) the channel's subagent tree. Needs the turn's root
-    /// ts (the thread anchor); returns nil until the root is posted.
-    private func ensureTree(channelId: String) -> SubagentTree? {
-        if let t = subagentTrees[channelId] { return t }
-        guard let turn = inFlightTurns[channelId], let root = turn.rootTs else { return nil }
-        let t = SubagentTree(channelId: channelId, rootTs: root)
-        subagentTrees[channelId] = t
+    /// Lazily create (or fetch) the conversation's subagent tree. Needs the turn's
+    /// root ts; returns nil until the root is posted.
+    private func ensureTree(convKey: String) -> SubagentTree? {
+        if let t = subagentTrees[convKey] { return t }
+        guard let turn = inFlightTurns[convKey], let root = turn.rootTs else { return nil }
+        let t = SubagentTree(channelId: turn.channelId, rootTs: root)
+        subagentTrees[convKey] = t
         return t
     }
 
@@ -3082,23 +3053,23 @@ final class SlackService: ObservableObject {
     /// child tool call (carrying `parent_tool_use_id`) rolls up to its branch; a
     /// `tool_result` keyed by a branch's Task id closes it. Only re-renders when
     /// the event actually touched the tree, so a non-fan-out turn is untouched.
-    private func feedSubagentTree(channelId: String, event: CLIStreamEvent) {
+    private func feedSubagentTree(convKey: String, event: CLIStreamEvent) {
         switch event {
         case .toolUse(let t):
             if t.toolName == "Task" {
-                guard let tree = ensureTree(channelId: channelId) else { return }
+                guard let tree = ensureTree(convKey: convKey) else { return }
                 tree.addTask(t)
-                SlackFileLog.log("subagent tree: #\(channelId) spawned '\(SubagentTree.taskTitle(t.input))' (\(tree.total) total)")
-                scheduleTreeRender(channelId)
+                SlackFileLog.log("subagent tree: \(convKey) spawned '\(SubagentTree.taskTitle(t.input))' (\(tree.total) total)")
+                scheduleTreeRender(convKey)
             } else if t.parentToolUseId != nil {
                 // A subagent's own tool call — only meaningful once its tree exists.
-                guard let tree = subagentTrees[channelId], tree.recordChild(t) else { return }
-                scheduleTreeRender(channelId)
+                guard let tree = subagentTrees[convKey], tree.recordChild(t) else { return }
+                scheduleTreeRender(convKey)
             }
         case .toolResult(let r):
-            guard let tree = subagentTrees[channelId], tree.closeBranch(r) else { return }
-            SlackFileLog.log("subagent tree: #\(channelId) branch closed (\(tree.doneCount)/\(tree.total) done)")
-            scheduleTreeRender(channelId)
+            guard let tree = subagentTrees[convKey], tree.closeBranch(r) else { return }
+            SlackFileLog.log("subagent tree: \(convKey) branch closed (\(tree.doneCount)/\(tree.total) done)")
+            scheduleTreeRender(convKey)
         default:
             break
         }
@@ -3114,19 +3085,19 @@ final class SlackService: ObservableObject {
 
     /// Debounce tree re-renders to ~1/2s (shares the trail's budget, within
     /// chat.update's 1/3s ceiling). Mirrors `scheduleTrailRender`.
-    private func scheduleTreeRender(_ channelId: String) {
-        guard let tree = subagentTrees[channelId] else { return }
+    private func scheduleTreeRender(_ convKey: String) {
+        guard let tree = subagentTrees[convKey] else { return }
         tree.dirty = true
         let since = Date().timeIntervalSince(tree.lastRenderedAt)
         if since >= Self.trailDebounce {
-            Task { await renderTree(channelId) }
+            Task { await renderTree(convKey) }
         } else if !tree.flushScheduled {
             tree.flushScheduled = true
             let delay = Self.trailDebounce - since
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: UInt64(max(delay, 0) * 1_000_000_000))
                 tree.flushScheduled = false
-                if tree.dirty { await renderTree(channelId) }
+                if tree.dirty { await renderTree(convKey) }
             }
         }
     }
@@ -3134,8 +3105,8 @@ final class SlackService: ObservableObject {
     /// Render the tree's single thread message — posting it the first time,
     /// `chat.update`-ing it in place thereafter (one message, never N). Reentrancy
     /// guarded so two near-simultaneous renders can't double-post the thread reply.
-    private func renderTree(_ channelId: String) async {
-        guard let tree = subagentTrees[channelId], tree.hasBranches else { return }
+    private func renderTree(_ convKey: String) async {
+        guard let tree = subagentTrees[convKey], tree.hasBranches else { return }
         if tree.rendering { tree.dirty = true; return }
         tree.rendering = true
         tree.dirty = false
@@ -3143,24 +3114,24 @@ final class SlackService: ObservableObject {
 
         let blocks = tree.blocks(usageHint: usageWindowHint())
         if let ts = tree.threadTs {
-            await chatUpdate(channel: channelId, ts: ts, text: "Subagent tree", blocks: blocks)
+            await chatUpdate(channel: tree.channelId, ts: ts, text: "Subagent tree", blocks: blocks)
         } else {
-            let ts = await postMessage(channel: channelId, text: "Subagent tree",
+            let ts = await postMessage(channel: tree.channelId, text: "Subagent tree",
                                        threadTs: tree.rootTs, blocks: blocks)
             tree.threadTs = ts
             SlackFileLog.log("subagent tree: posted thread message ts=\(ts ?? "nil") root=\(tree.rootTs)")
         }
 
         tree.rendering = false
-        if tree.dirty { await renderTree(channelId) }
+        if tree.dirty { await renderTree(convKey) }
     }
 
     /// Final tree render on turn resolution: flip lingering running branches to
     /// done, fold in the whole-turn token total (NO dollars), force one last
     /// update, then retire it. No-op when the turn never spawned a subagent.
-    private func finalizeTree(_ channelId: String, tokens: Int = 0) async {
-        guard let tree = subagentTrees[channelId], tree.hasBranches else {
-            subagentTrees.removeValue(forKey: channelId)
+    private func finalizeTree(_ convKey: String, tokens: Int = 0) async {
+        guard let tree = subagentTrees[convKey], tree.hasBranches else {
+            subagentTrees.removeValue(forKey: convKey)
             return
         }
         tree.finished = true
@@ -3168,27 +3139,27 @@ final class SlackService: ObservableObject {
         tree.markRunningDone()
         tree.dirty = true
         tree.lastRenderedAt = .distantPast   // bypass debounce for the final paint
-        await renderTree(channelId)
-        subagentTrees.removeValue(forKey: channelId)
+        await renderTree(convKey)
+        subagentTrees.removeValue(forKey: convKey)
     }
 
     /// Debounce trail re-renders to ~1/2s (Plan §L4, within chat.update's 1/3s).
     /// Renders immediately if the debounce window has elapsed; otherwise arms a
     /// single deferred flush. The heartbeat tick is the backstop for the final
     /// batch when the stream falls silent before the window elapses.
-    private func scheduleTrailRender(_ channelId: String) {
-        guard let trail = trails[channelId] else { return }
+    private func scheduleTrailRender(_ convKey: String) {
+        guard let trail = trails[convKey] else { return }
         trail.dirty = true
         let since = Date().timeIntervalSince(trail.lastRenderedAt)
         if since >= Self.trailDebounce {
-            Task { await renderTrail(channelId) }
+            Task { await renderTrail(convKey) }
         } else if !trail.flushScheduled {
             trail.flushScheduled = true
             let delay = Self.trailDebounce - since
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: UInt64(max(delay, 0) * 1_000_000_000))
                 trail.flushScheduled = false
-                if trail.dirty { await renderTrail(channelId) }
+                if trail.dirty { await renderTrail(convKey) }
             }
         }
     }
@@ -3197,8 +3168,8 @@ final class SlackService: ObservableObject {
     /// `chat.update`-ing it in place thereafter (one message, never N). Reentrancy
     /// guarded so two near-simultaneous renders can't double-post the thread reply
     /// (the first post awaits the network round-trip before threadTs is set).
-    private func renderTrail(_ channelId: String) async {
-        guard let trail = trails[channelId], !trail.isEmpty else { return }
+    private func renderTrail(_ convKey: String) async {
+        guard let trail = trails[convKey], !trail.isEmpty else { return }
         if trail.rendering { trail.dirty = true; return }
         trail.rendering = true
         trail.dirty = false
@@ -3206,9 +3177,9 @@ final class SlackService: ObservableObject {
 
         let blocks = trail.blocks()
         if let ts = trail.threadTs {
-            await chatUpdate(channel: channelId, ts: ts, text: "Activity trail", blocks: blocks)
+            await chatUpdate(channel: trail.channelId, ts: ts, text: "Activity trail", blocks: blocks)
         } else {
-            let ts = await postMessage(channel: channelId, text: "Activity trail",
+            let ts = await postMessage(channel: trail.channelId, text: "Activity trail",
                                        threadTs: trail.rootTs, blocks: blocks)
             trail.threadTs = ts
             SlackFileLog.log("trail: posted thread message ts=\(ts ?? "nil") root=\(trail.rootTs)")
@@ -3216,25 +3187,25 @@ final class SlackService: ObservableObject {
 
         trail.rendering = false
         // Coalesce any changes that arrived mid-render.
-        if trail.dirty { await renderTrail(channelId) }
+        if trail.dirty { await renderTrail(convKey) }
     }
 
     /// Final trail render on turn resolution: flip lingering running lines to done,
     /// force one last update, then retire the trail to `trailsByRoot` so its
     /// Show-details / Show-reasoning buttons keep resolving after the turn leaves
     /// the active map. No-op when the turn produced no trail-worthy events.
-    private func finalizeTrail(_ channelId: String) async {
-        guard let trail = trails[channelId] else { return }
+    private func finalizeTrail(_ convKey: String) async {
+        guard let trail = trails[convKey] else { return }
         trail.finished = true
         trail.markRunningDone()
         trail.dirty = true
         trail.lastRenderedAt = .distantPast   // bypass debounce for the final paint
-        await renderTrail(channelId)
+        await renderTrail(convKey)
         if trail.threadTs != nil {
             trailsByRoot[trail.rootTs] = trail
             pruneTrailsByRoot()
         }
-        trails.removeValue(forKey: channelId)
+        trails.removeValue(forKey: convKey)
     }
 
     private func pruneTrailsByRoot() {
@@ -3558,18 +3529,60 @@ final class SlackService: ObservableObject {
         return chunks
     }
 
-    // MARK: - Phase 2: per-channel session persistence
+    // MARK: - Per-conversation session persistence
 
     private static var sessionsFileURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/ClaudeHUD/slack-sessions.json")
     }
+    private static var defaultsFileURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/ClaudeHUD/slack-defaults.json")
+    }
+
+    /// The conversation-key separator. Persisted keys that contain it are
+    /// per-conversation; keys without it are LEGACY per-channel entries.
+    private static let convKeySeparator = "\u{0001}"
 
     private func loadChannelSessions() {
+        // Channel-level config defaults (mode/effort/followup/maxTurns).
+        if let data = try? Data(contentsOf: Self.defaultsFileURL),
+           let map = try? JSONDecoder().decode([String: ChannelSession].self, from: data) {
+            channelDefaults = map
+            SlackFileLog.log("loaded \(map.count) channel defaults")
+        }
         guard let data = try? Data(contentsOf: Self.sessionsFileURL),
               let map = try? JSONDecoder().decode([String: ChannelSession].self, from: data) else { return }
-        channelSessions = map
-        SlackFileLog.log("loaded \(map.count) channel sessions")
+        // MIGRATION: this file used to be keyed by channel id (per-channel model).
+        // Per-conversation keys carry the U+0001 separator; any key WITHOUT it is a
+        // legacy per-channel entry. Migrate its CONFIG into channelDefaults (so the
+        // operator's mode/effort survive) and drop its sessionId/cwd (stranded — a
+        // per-channel session id has no thread to resume into in the new model).
+        var migrated = 0
+        for (key, session) in map {
+            if key.contains(Self.convKeySeparator) {
+                channelSessions[key] = session
+            } else {
+                // Legacy per-channel entry → seed channel defaults (config only).
+                if channelDefaults[key] == nil {
+                    channelDefaults[key] = ChannelSession(sessionId: nil,
+                                                          permissionMode: session.permissionMode,
+                                                          cwd: nil, effort: session.effort,
+                                                          followup: session.followup,
+                                                          maxTurns: session.maxTurns)
+                }
+                migrated += 1
+            }
+        }
+        SlackFileLog.log("loaded \(channelSessions.count) conversation sessions (migrated \(migrated) legacy per-channel)")
+        if migrated > 0 {
+            saveChannelSessions()
+            saveChannelDefaults()
+        }
+    }
+
+    private func saveChannelDefaults() {
+        Self.writeJSON(channelDefaults, to: Self.defaultsFileURL, label: "saveChannelDefaults")
     }
 
     private func saveChannelSessions() {
@@ -3962,10 +3975,16 @@ final class SlackService: ObservableObject {
         case "/claude-budget":
             await setBudget(arg: text, channelId: channelId, responseUrl: responseUrl)
         case "/claude-stop":
-            let wasLive = inFlight.contains(channelId)
-            await stopTurn(channelId: channelId)
-            await respond(channel: channelId, responseUrl: responseUrl,
-                          text: wasLive ? "Stopping the live turn…" : "No live turn to stop.")
+            // Slash commands carry no thread context; stop the channel's current
+            // (most-recent) conversation if it is live.
+            if let conv = currentConv(channelId), inFlight.contains(conv.key) {
+                await stopTurn(conv: conv)
+                await respond(channel: channelId, responseUrl: responseUrl,
+                              text: "Stopping the live turn…")
+            } else {
+                await respond(channel: channelId, responseUrl: responseUrl,
+                              text: "No live turn to stop.")
+            }
         case "/claude-status":
             await statusCard(channelId: channelId, responseUrl: responseUrl)
         case "/claude-help":
@@ -3986,14 +4005,48 @@ final class SlackService: ObservableObject {
     /// cwd, plus any live turn and the 5-hour usage-window headroom (the
     /// subscription engine bills tokens not dollars, so "spend" is the usage
     /// window, never a money figure). Ephemeral so it never clutters the ledger.
+    /// The channel's CURRENT conversation (most-recent thread), or nil if none has
+    /// run. Channel-scoped slash commands (no thread context) act on this.
+    private func currentConv(_ channelId: String) -> Conversation? {
+        guard let root = lastConversation[channelId] else { return nil }
+        return Conversation(channelId: channelId, threadRootTs: root)
+    }
+
+    /// The effective config for a channel-scoped slash command: the current
+    /// conversation's session if one exists, else the channel defaults.
+    private func effectiveConfig(_ channelId: String) -> ChannelSession {
+        if let conv = currentConv(channelId), let s = channelSessions[conv.key] { return s }
+        return channelDefaults[channelId] ?? ChannelSession(sessionId: nil, permissionMode: "default", cwd: nil)
+    }
+
+    /// Apply a config mutation to BOTH the channel defaults (so new conversations
+    /// inherit it) and the current conversation's session (so it takes effect now).
+    private func applyConfig(_ channelId: String, _ mutate: (inout ChannelSession) -> Void) {
+        var d = channelDefaults[channelId] ?? ChannelSession(sessionId: nil, permissionMode: "default", cwd: nil)
+        mutate(&d)
+        channelDefaults[channelId] = d
+        saveChannelDefaults()
+        if let conv = currentConv(channelId) {
+            var s = channelSessions[conv.key] ?? ChannelSession(sessionId: nil, permissionMode: "default", cwd: nil)
+            mutate(&s)
+            channelSessions[conv.key] = s
+            saveChannelSessions()
+        }
+    }
+
     private func statusCard(channelId: String, responseUrl: String?) async {
-        let mode = channelSessions[channelId]?.permissionMode ?? "default"
-        let effort = effortLevel(channelId)
-        let followup = followupPolicy(channelId)
-        let turns = maxTurns(channelId)
+        let cfg = effectiveConfig(channelId)
+        let curConv = currentConv(channelId)
+        let mode = cfg.permissionMode
+        let effort = curConv.map { effortLevel($0.key) } ?? {
+            let e = cfg.effort ?? Self.defaultEffort
+            return ClaudeCLIClient.effortLevels.contains(e) ? e : Self.defaultEffort
+        }()
+        let followup = cfg.followup ?? Self.defaultFollowup
+        let turns = cfg.maxTurns ?? Self.defaultMaxTurns
         let resolved = await resolvedContext(channelId: channelId)
-        let sid = channelSessions[channelId]?.sessionId
-        let cwd = channelSessions[channelId]?.cwd ?? resolved?.cwd
+        let sid = cfg.sessionId
+        let cwd = cfg.cwd ?? resolved?.cwd
 
         var lines: [String] = []
         lines.append("*Config*")
@@ -4007,17 +4060,19 @@ final class SlackService: ObservableObject {
         lines.append("• Working dir: \(cwd.map { "`\($0)`" } ?? "_not bound — run `/claude-project`_")")
         lines.append("• Session: \(sid.map { "`\($0)`" } ?? "_fresh (next message starts a new one)_")")
 
-        // Live turn
+        // Live turn (the current conversation's). Note: other threads in this
+        // channel may be running in parallel; this shows the most-recent one.
         lines.append("")
-        if let t = inFlightTurns[channelId], inFlight.contains(channelId) {
+        let liveKey = curConv?.key
+        if let liveKey, let t = inFlightTurns[liveKey], inFlight.contains(liveKey) {
             let age = Int(Date().timeIntervalSince(t.startedAt))
             let stateWord = t.parked ? "Needs you (parked)" : (t.stopping ? "Stopping…" : "Working")
             lines.append("*Live turn:* \(stateWord) · \(Self.ago(age)) · \(t.toolCount) tools")
             lines.append("> \(SlackBlocks.truncate(Self.singleLine(t.request), 180))")
-        } else if inFlight.contains(channelId) {
+        } else if let liveKey, inFlight.contains(liveKey) {
             lines.append("*Live turn:* running")
         } else {
-            lines.append("*Live turn:* none")
+            lines.append("*Live turn:* none in this thread")
         }
 
         // Usage-window headroom (no dollars: subscription bills tokens).
@@ -4035,7 +4090,7 @@ final class SlackService: ObservableObject {
             SlackBlocks.section(":gear: *Channel status*"),
             SlackBlocks.section(lines.joined(separator: "\n"))
         ]
-        SlackFileLog.log("claude-status: \(channelId) mode=\(mode) effort=\(effort) live=\(inFlight.contains(channelId))")
+        SlackFileLog.log("claude-status: \(channelId) mode=\(mode) effort=\(effort)")
         await respond(channel: channelId, responseUrl: responseUrl,
                       text: "Channel status", ephemeral: true, blocks: blocks)
     }
@@ -4045,22 +4100,23 @@ final class SlackService: ObservableObject {
     private func helpCard(channelId: String, responseUrl: String?) async {
         let grammar = """
         *How this channel works*
-        One channel = one project = one resumable session. Post a message to launch an autonomous turn against the project's working tree.
-        • *Channel root* = the task + its status line (Working → Done/Failed/Stopped/Needs-you).
+        Each THREAD = one project session. A top-level message starts a NEW thread (a fresh session); a reply in a thread continues that thread's session. Different threads run in PARALLEL.
+        • *Thread root* = the task + its status line (Working → Done/Failed/Stopped/Needs-you).
         • *Thread under it* = the live work: activity trail, thinking, plan, questions, approvals.
         • *Buttons* = control (Stop, Approve/Deny, Answer, Resume, Show diff, Undo). Never typed from memory.
 
+        *Mid-turn messages*
+        Reply in a thread while its turn is running → AUTO-QUEUED (an :hourglass: ack) and run after the current turn finishes, like the terminal CLI's typed-ahead queue. To interrupt instead, use the Stop button or `/claude-stop`.
+
         *Thread-reply precedence*
         1. A question is pending → your next reply is its answer.
-        2. Reply starts with `?` → read-only status recap, never perturbs the run.
-        3. Otherwise → a follow-up, handled by the channel's follow-up default.
+        2. Otherwise → a follow-up, auto-queued if the thread is busy.
         """
         let commands = """
-        *Slash commands*
-        • `/claude-new` — start a fresh session (clear the session id)
+        *Slash commands* (act on this channel's most-recent thread)
+        • `/claude-new` — start a fresh session for the current thread
         • `/claude-mode <plan|default|skip>` — permission tier
         • `/claude-effort <low|medium|high|xhigh|max>` — reasoning dial
-        • `/claude-followup <queue|steer|ask>` — mid-turn message default
         • `/claude-budget <turns>` — per-turn turn cap (no dollars; tokens bill the subscription)
         • `/claude-stop` — kill the live turn (same as the Stop button)
         • `/claude-status` — config + live turn + usage-window headroom
@@ -4092,7 +4148,7 @@ final class SlackService: ObservableObject {
             return
         }
         let storeDir = Self.projectStoreDir(forCwd: resolved.cwd)
-        let sid = channelSessions[channelId]?.sessionId
+        let sid = effectiveConfig(channelId).sessionId
         let filePath: String?
         if let sid {
             let p = "\(storeDir)/\(sid).jsonl"
@@ -4135,9 +4191,15 @@ final class SlackService: ObservableObject {
     /// the cwd's `~/.claude/projects` store before binding (E8: resume only works
     /// inside the cwd that created the session).
     private func resumeSession(arg: String, channelId: String, responseUrl: String?) async {
-        guard !inFlight.contains(channelId) else {
+        guard let conv = currentConv(channelId) else {
             await respond(channel: channelId, responseUrl: responseUrl,
-                          text: "A turn is already running — `/claude-stop` it first, then resume.",
+                          text: "No thread to resume in this channel yet. Post a message to start one, then `/claude-resume`.",
+                          ephemeral: true)
+            return
+        }
+        guard !inFlight.contains(conv.key) else {
+            await respond(channel: channelId, responseUrl: responseUrl,
+                          text: "A turn is already running in this thread — `/claude-stop` it first, then resume.",
                           ephemeral: true)
             return
         }
@@ -4173,12 +4235,12 @@ final class SlackService: ObservableObject {
             return
         }
 
-        var state = channelSessions[channelId] ?? ChannelSession(sessionId: nil, permissionMode: "default", cwd: nil)
+        var state = channelSessions[conv.key] ?? ChannelSession(sessionId: nil, permissionMode: "default", cwd: nil)
         state.sessionId = sid
         state.cwd = resolved.cwd
-        channelSessions[channelId] = state
+        channelSessions[conv.key] = state
         saveChannelSessions()
-        SlackFileLog.log("claude-resume: \(channelId) -> \(sid) (cwd=\(resolved.cwd))")
+        SlackFileLog.log("claude-resume: \(conv.key) -> \(sid) (cwd=\(resolved.cwd))")
         await respond(channel: channelId, responseUrl: responseUrl,
                       text: "Re-attached to session `\(sid)` in *\(resolved.name)*. Your next message continues it.",
                       ephemeral: false)
@@ -4190,7 +4252,7 @@ final class SlackService: ObservableObject {
     /// turn, then the persisted session cwd, then a fresh project lookup by
     /// channel name. Returns nil only when the channel maps to no project.
     private func resolvedContext(channelId: String) async -> (name: String, cwd: String, obsidianPath: String)? {
-        if let lt = lastTurns[channelId] {
+        if let conv = currentConv(channelId), let lt = lastTurns[conv.key] {
             return (lt.projectName, lt.cwd, lt.obsidianPath)
         }
         if let name = await channelName(for: channelId),
@@ -4297,43 +4359,24 @@ final class SlackService: ObservableObject {
     private func setEffort(arg: String, channelId: String, responseUrl: String?) async {
         let level = arg.lowercased()
         guard ClaudeCLIClient.effortLevels.contains(level) else {
-            let current = effortLevel(channelId)
+            let cur = effectiveConfig(channelId).effort ?? Self.defaultEffort
+            let current = ClaudeCLIClient.effortLevels.contains(cur) ? cur : Self.defaultEffort
             await respond(channel: channelId, responseUrl: responseUrl,
                           text: "Usage: `/claude-effort <low|medium|high|xhigh|max>` — currently *\(current)* (\(Self.effortLabel(current))).")
             return
         }
-        var state = channelSessions[channelId] ?? ChannelSession(sessionId: nil, permissionMode: "default", cwd: nil)
-        state.effort = level
-        channelSessions[channelId] = state
-        saveChannelSessions()
+        applyConfig(channelId) { $0.effort = level }
         SlackFileLog.log("claude-effort: \(channelId) -> \(level)")
         await respond(channel: channelId, responseUrl: responseUrl,
-                      text: "Reasoning effort set to *\(level)* — \(Self.effortLabel(level)). Applies to the next turn.")
+                      text: "Reasoning effort set to *\(level)* — \(Self.effortLabel(level)). Applies to the current and new threads.")
     }
 
-    /// `/claude-followup <queue|steer|ask>` — set + persist the channel's default
-    /// behavior for a message that arrives while a turn is running (2.4).
+    /// `/claude-followup` — retained for compatibility. Mid-turn messages now
+    /// AUTO-QUEUE per-thread (no Queue/Steer/Cancel prompt), so this is
+    /// informational; the stored value has no runtime effect.
     private func setFollowup(arg: String, channelId: String, responseUrl: String?) async {
-        let policy = arg.lowercased()
-        guard ["queue", "steer", "ask"].contains(policy) else {
-            let current = followupPolicy(channelId)
-            await respond(channel: channelId, responseUrl: responseUrl,
-                          text: "Usage: `/claude-followup <queue|steer|ask>` — currently *\(current)*.")
-            return
-        }
-        var state = channelSessions[channelId] ?? ChannelSession(sessionId: nil, permissionMode: "default", cwd: nil)
-        state.followup = policy
-        channelSessions[channelId] = state
-        saveChannelSessions()
-        SlackFileLog.log("claude-followup: \(channelId) -> \(policy)")
-        let detail: String
-        switch policy {
-        case "queue": detail = "a mid-turn message is *queued* and runs after the current turn finishes cleanly."
-        case "steer": detail = "a mid-turn message *stops* the current turn and restarts combined with it."
-        default:      detail = "a mid-turn message *asks* you to Queue, Steer, or Cancel."
-        }
         await respond(channel: channelId, responseUrl: responseUrl,
-                      text: "Follow-up policy set to *\(policy)* — \(detail)")
+                      text: "Mid-turn messages now *auto-queue* per thread (an :hourglass: ack) and run after the current turn finishes — like the terminal CLI. To interrupt instead, use the Stop button or `/claude-stop`.")
     }
 
     /// `/claude-budget <turns>` — set + persist the channel's per-turn turn-count
@@ -4344,35 +4387,36 @@ final class SlackService: ObservableObject {
     private func setBudget(arg: String, channelId: String, responseUrl: String?) async {
         let trimmed = arg.trimmingCharacters(in: .whitespaces)
         guard let turns = Int(trimmed), turns > 0, turns <= 1000 else {
-            let current = maxTurns(channelId)
+            let current = effectiveConfig(channelId).maxTurns ?? Self.defaultMaxTurns
             await respond(channel: channelId, responseUrl: responseUrl,
                           text: "Usage: `/claude-budget <turns>` (1–1000) — currently *\(current)* turns per run. No dollar cap: the subscription engine bills tokens, not dollars, so this caps agentic turns and the usage-window headroom guard does the rest.")
             return
         }
-        var state = channelSessions[channelId] ?? ChannelSession(sessionId: nil, permissionMode: "default", cwd: nil)
-        state.maxTurns = turns
-        channelSessions[channelId] = state
-        saveChannelSessions()
+        applyConfig(channelId) { $0.maxTurns = turns }
         SlackFileLog.log("claude-budget: \(channelId) -> \(turns) turns")
         await respond(channel: channelId, responseUrl: responseUrl,
                       text: "Turn budget set to *\(turns)* turns per run. On hitting it, the turn pauses with a Continue/Stop choice — partial work is always kept.")
     }
 
-    /// `/claude-new` — clear the channel's session id so the next message
-    /// starts fresh. Also resets the channel's CLI engine resume state.
+    /// `/claude-new` — start a fresh session for the CURRENT thread: clear that
+    /// conversation's session id and reset its CLI engine resume state, so the next
+    /// message in the thread begins anew. (A top-level message already starts a
+    /// fresh session in its own thread, so this is for resetting an active thread.)
     private func newSession(channelId: String, responseUrl: String?) async {
-        var state = channelSessions[channelId] ?? ChannelSession(sessionId: nil, permissionMode: "default", cwd: nil)
-        state.sessionId = nil
-        // Clear the sticky thread too: the next message starts a fresh root +
-        // a new conversation thread.
-        state.activeThreadTs = nil
-        channelSessions[channelId] = state
-        clients[channelId]?.newSession()
-        saveChannelSessions()
-        SlackFileLog.log("claude-new: cleared session + active thread for \(channelId)")
         let name = await channelName(for: channelId) ?? channelId
+        guard let conv = currentConv(channelId) else {
+            await respond(channel: channelId, responseUrl: responseUrl,
+                          text: "No active thread to reset in #\(name) — your next top-level message starts a fresh session.")
+            return
+        }
+        var state = channelSessions[conv.key] ?? ChannelSession(sessionId: nil, permissionMode: "default", cwd: nil)
+        state.sessionId = nil
+        channelSessions[conv.key] = state
+        clients[conv.key]?.newSession()
+        saveChannelSessions()
+        SlackFileLog.log("claude-new: cleared session for \(conv.key)")
         await respond(channel: channelId, responseUrl: responseUrl,
-                      text: "Started a fresh session in #\(name).")
+                      text: "Started a fresh session for the current thread in #\(name).")
     }
 
     /// `/claude-skills` — reply with the skills the engine reported for this
@@ -4380,7 +4424,7 @@ final class SlackService: ObservableObject {
     /// per-session list Claude loads, not a static catalog. If no turn has run in
     /// the channel yet there is nothing to read, so ask the operator to post first.
     private func reportSkills(channelId: String, responseUrl: String?) async {
-        guard let skills = channelSkills[channelId] else {
+        guard let key = currentConv(channelId)?.key, let skills = channelSkills[key] else {
             await respond(channel: channelId, responseUrl: responseUrl,
                           text: "Post a message first so I can read this session's skills.")
             return
@@ -4400,7 +4444,7 @@ final class SlackService: ObservableObject {
     /// this channel's current session (Phase 0 init event). Authoritative
     /// per-session list. Same empty/no-session handling as `/claude-skills`.
     private func reportAgents(channelId: String, responseUrl: String?) async {
-        guard let agents = channelAgents[channelId] else {
+        guard let key = currentConv(channelId)?.key, let agents = channelAgents[key] else {
             await respond(channel: channelId, responseUrl: responseUrl,
                           text: "Post a message first so I can read this session's agents.")
             return
@@ -4432,10 +4476,7 @@ final class SlackService: ObservableObject {
                           text: "Usage: `/claude-mode <plan|default|skip>`")
             return
         }
-        var state = channelSessions[channelId] ?? ChannelSession(sessionId: nil, permissionMode: "default", cwd: nil)
-        state.permissionMode = mode
-        channelSessions[channelId] = state
-        saveChannelSessions()
+        applyConfig(channelId) { $0.permissionMode = mode }
         SlackFileLog.log("claude-mode: \(channelId) -> \(mode)")
 
         let reply: String

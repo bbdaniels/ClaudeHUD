@@ -46,6 +46,10 @@ import uuid
 
 RELAY_DIR = os.environ.get("HUD_SLACK_RELAY_DIR", os.path.expanduser("~/.claude/hud/slack"))
 CHANNEL = os.environ.get("HUD_SLACK_CHANNEL", "")
+# The conversation thread root (session key component). Different threads in the
+# same channel run in parallel, so the request must carry the thread to route the
+# parked prompt back to the right per-thread turn. Falls back to the channel id.
+THREAD = os.environ.get("HUD_SLACK_THREAD", "") or CHANNEL
 GENERATION = os.environ.get("HUD_SLACK_GENERATION", "0")
 CWD = os.environ.get("HUD_SLACK_CWD", os.getcwd())
 try:
@@ -192,6 +196,7 @@ def park(kind, payload, reason=None):
         "id": pid,
         "kind": kind,
         "channel": CHANNEL,
+        "thread": THREAD,
         "generation": GENERATION,
         "cwd": CWD,
         "reason": reason,
