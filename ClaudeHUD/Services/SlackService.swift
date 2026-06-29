@@ -690,7 +690,7 @@ final class SlackService: ObservableObject {
         let threadTs = event["thread_ts"] as? String
         SlackFileLog.log("rx: channel=\(channel) ts=\(ts) thread_ts=\(threadTs ?? "nil") text=\(text.prefix(40))")
 
-        Task { await self.handleMessage(channel: channel, text: text, user: user, imageFiles: imageFiles, inboundThreadTs: threadTs) }
+        Task { await self.handleMessage(channel: channel, text: text, user: user, imageFiles: imageFiles, inboundThreadTs: threadTs, messageTs: ts) }
     }
 
     /// On `channel_created`: join the new channel and bind it to a project if
@@ -788,7 +788,8 @@ final class SlackService: ObservableObject {
 
     private func handleMessage(channel: String, text rawText: String, user: String,
                                imageFiles: [[String: Any]] = [],
-                               inboundThreadTs: String? = nil) async {
+                               inboundThreadTs: String? = nil,
+                               messageTs: String = "") async {
         // Inbound images: download any image attachments to a local scratch dir
         // and splice their paths into the turn so Claude can Read them.
         var text = rawText
@@ -856,10 +857,13 @@ final class SlackService: ObservableObject {
         }
 
         if let resolved = resolveProject(forChannelName: name) {
-            SlackFileLog.log("resolved -> \(resolved.name)/\(resolved.cwd) (new top-level conversation)")
-            // Top-level message: start a fresh conversation in its OWN new thread.
-            // No busy/parked checks — a brand-new thread can never collide.
-            await runTurn(conv: nil, channelId: channel, projectName: resolved.name,
+            SlackFileLog.log("resolved -> \(resolved.name)/\(resolved.cwd) (new top-level conversation, thread under user msg \(messageTs))")
+            // Top-level message: start a fresh conversation threaded UNDER the user's
+            // OWN message (messageTs is the thread root), so Claude's reply + work are
+            // replies to the user's post rather than a separate Claude channel root.
+            // The conv key is the user's message ts — unique, so it can never be busy.
+            let conv = messageTs.isEmpty ? nil : Conversation(channelId: channel, threadRootTs: messageTs)
+            await runTurn(conv: conv, channelId: channel, projectName: resolved.name,
                           cwd: resolved.cwd, obsidianPath: resolved.obsidianPath, text: text)
         } else {
             SlackFileLog.log("no match for #\(name)")
