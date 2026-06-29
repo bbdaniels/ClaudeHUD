@@ -126,6 +126,13 @@ final class TurnTrail {
     var isEmpty: Bool { entries.isEmpty && thinking.isEmpty }
     var hasThinking: Bool { !thinking.isEmpty }
 
+    /// Total actions seen (the count surfaced in the root tile's one-line summary).
+    var actionCount: Int { entries.count }
+    /// Distinct subagent spawns (the "· M subagents" part of the summary).
+    var subagentCount: Int { subagentSpawns }
+    /// True when there is raw tool I/O worth a Show-details modal.
+    var hasShowableDetails: Bool { entries.contains { $0.rawOutput != nil || !$0.rawInput.isEmpty } }
+
     /// Full reasoning text (joined), used by Show reasoning.
     var reasoningText: String { thinking.joined(separator: "\n\n") }
 

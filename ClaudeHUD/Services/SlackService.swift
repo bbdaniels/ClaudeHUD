@@ -1282,8 +1282,12 @@ final class SlackService: ObservableObject {
             guard let k = convKey, let t = inFlightTurns[k] else { return nil }
             return Self.provenanceLine(project: t.projectName, mode: t.permissionMode, effort: t.effort)
         }()
+        // The single turn message keeps Show details / Show reasoning on the
+        // terminal card (the trail was retired to `trailsByRoot` just before this).
+        let (_, trailButtons) = trailSummaryAndButtons(forRoot: rootTs)
         let blocks = rootBlocks(state: state, request: request, statusLine: statusLine,
-                                body: rootBody, buttons: controlBar(for: state, checkpointKey: cpKey),
+                                body: rootBody,
+                                buttons: controlBar(for: state, checkpointKey: cpKey) + trailButtons,
                                 provenance: provenance)
         let fallback = "\(state.icon) \(state.label) · \(statusLine)"
 
@@ -1508,6 +1512,10 @@ final class SlackService: ObservableObject {
             buttons.append(SlackBlocks.button(text: ":leftwards_arrow_with_hook: Undo turn",
                                               actionId: SlackAction.undoTurn, value: ts))
         }
+        // Keep the folded-in Show details / Show reasoning on the failed card too,
+        // so a failed turn's actions remain inspectable (one message, no trail).
+        let (_, trailButtons) = trailSummaryAndButtons(forRoot: rootTs)
+        buttons += trailButtons
 
         let provenance = Self.provenanceLine(project: turn.projectName,
                                              mode: turn.permissionMode, effort: turn.effort)
@@ -1595,8 +1603,41 @@ final class SlackService: ObservableObject {
             SlackBlocks.context(Self.provenanceLine(project: turn.projectName,
                                                     mode: turn.permissionMode, effort: turn.effort))
         ]
-        if !buttons.isEmpty { blocks.append(SlackBlocks.actions(buttons)) }
+        // One-message turn: the activity trail is folded INTO this root tile as a
+        // single counts-only line (NO inline action list, NO inline thinking) plus
+        // the Show-details / Show-reasoning affordances — the full log lives only
+        // behind those modals now.
+        let (summary, extraButtons) = trailSummaryAndButtons(forRoot: turn.rootTs)
+        if let summary { blocks.append(SlackBlocks.context(summary)) }
+        let allButtons = buttons + extraButtons
+        if !allButtons.isEmpty { blocks.append(SlackBlocks.actions(allButtons)) }
         return blocks
+    }
+
+    /// The trail's one-line activity summary (":gear: N actions · M subagents",
+    /// counts only) and its Show-details / Show-reasoning buttons, folded into the
+    /// single turn message. Resolves the live trail (running) or the retired trail
+    /// (resolved) by root ts. Returns (nil, []) when there's nothing trail-worthy.
+    private func trailSummaryAndButtons(forRoot rootTs: String?) -> (summary: String?, buttons: [[String: Any]]) {
+        guard let rootTs, let trail = trail(forRoot: rootTs), !trail.isEmpty else { return (nil, []) }
+        var parts: [String] = []
+        if trail.actionCount > 0 {
+            parts.append("\(trail.actionCount) action\(trail.actionCount == 1 ? "" : "s")")
+        }
+        if trail.subagentCount > 0 {
+            parts.append("\(trail.subagentCount) subagent\(trail.subagentCount == 1 ? "" : "s")")
+        }
+        let summary = parts.isEmpty ? nil : ":gear: \(parts.joined(separator: "  ·  "))"
+        var buttons: [[String: Any]] = []
+        if trail.hasShowableDetails {
+            buttons.append(SlackBlocks.button(text: ":file_folder: Show details",
+                                              actionId: SlackAction.showDetails, value: rootTs))
+        }
+        if trail.hasThinking {
+            buttons.append(SlackBlocks.button(text: ":brain: Show reasoning",
+                                              actionId: SlackAction.showReasoning, value: rootTs))
+        }
+        return (summary, buttons)
     }
 
     /// Faint provenance/context line carried on a turn's root: where it came
@@ -1627,14 +1668,11 @@ final class SlackService: ObservableObject {
     /// One heartbeat pass: refresh every live working root that isn't resolved
     /// or mid-stop.
     private func tickHeartbeat() async {
-        // Backstop the trail debounce (§2.1): if the stream emitted a final batch
-        // then fell silent inside the 2s window, the deferred flush still fires —
-        // but this guarantees a dirty trail can never be left unpainted.
-        for key in Array(trails.keys) where trails[key]?.dirty == true {
-            await renderTrail(key)
-        }
-        // Same backstop for the subagent tree (§4.1): a final fan-out batch that
-        // lands inside the debounce window then falls silent still gets painted.
+        // The flat trail now folds into the root tile, and the per-turn root
+        // repaint below flushes its latest summary every tick — so no separate
+        // trail backstop is needed. Keep the subagent-tree backstop (§4.1): a
+        // final fan-out batch landing inside the debounce window then falling
+        // silent still gets painted on its own tree message.
         for key in Array(subagentTrees.keys) where subagentTrees[key]?.dirty == true {
             await renderTree(key)
         }
@@ -3168,10 +3206,12 @@ final class SlackService: ObservableObject {
         }
     }
 
-    /// Render the trail's single thread message — posting it the first time,
-    /// `chat.update`-ing it in place thereafter (one message, never N). Reentrancy
-    /// guarded so two near-simultaneous renders can't double-post the thread reply
-    /// (the first post awaits the network round-trip before threadTs is set).
+    /// Fold the trail's latest state into the SINGLE turn message: the trail no
+    /// longer owns its own thread message — its counts-only summary + Show-details
+    /// /Show-reasoning buttons live in the root tile, so a trail render just
+    /// repaints that root (`workingBlocks` reads the trail). Reentrancy + debounce
+    /// bookkeeping preserved. No-op once the turn is resolved/stopping (the
+    /// terminal card owns the root then).
     private func renderTrail(_ convKey: String) async {
         guard let trail = trails[convKey], !trail.isEmpty else { return }
         if trail.rendering { trail.dirty = true; return }
@@ -3179,14 +3219,12 @@ final class SlackService: ObservableObject {
         trail.dirty = false
         trail.lastRenderedAt = Date()
 
-        let blocks = trail.blocks()
-        if let ts = trail.threadTs {
-            await chatUpdate(channel: trail.channelId, ts: ts, text: "Activity trail", blocks: blocks)
-        } else {
-            let ts = await postMessage(channel: trail.channelId, text: "Activity trail",
-                                       threadTs: trail.rootTs, blocks: blocks)
-            trail.threadTs = ts
-            SlackFileLog.log("trail: posted thread message ts=\(ts ?? "nil") root=\(trail.rootTs)")
+        if let turn = inFlightTurns[convKey], let ts = turn.rootTs,
+           !turn.resolved, !turn.stopping {
+            let now = Date()
+            let warning = now.timeIntervalSince(turn.lastEventAt) >= 45
+            await chatUpdate(channel: turn.channelId, ts: ts, text: "Working…",
+                             blocks: workingBlocks(turn: turn, now: now, warning: warning, stopping: false))
         }
 
         trail.rendering = false
@@ -3194,21 +3232,17 @@ final class SlackService: ObservableObject {
         if trail.dirty { await renderTrail(convKey) }
     }
 
-    /// Final trail render on turn resolution: flip lingering running lines to done,
-    /// force one last update, then retire the trail to `trailsByRoot` so its
-    /// Show-details / Show-reasoning buttons keep resolving after the turn leaves
-    /// the active map. No-op when the turn produced no trail-worthy events.
+    /// Retire the trail on turn resolution: flip lingering running lines to done
+    /// and move it to `trailsByRoot` so its Show-details / Show-reasoning buttons
+    /// (now carried on the single terminal card) keep resolving after the turn
+    /// leaves the active map. No separate trail message to repaint — the terminal
+    /// render owns the root. No-op when the turn produced no trail-worthy events.
     private func finalizeTrail(_ convKey: String) async {
         guard let trail = trails[convKey] else { return }
         trail.finished = true
         trail.markRunningDone()
-        trail.dirty = true
-        trail.lastRenderedAt = .distantPast   // bypass debounce for the final paint
-        await renderTrail(convKey)
-        if trail.threadTs != nil {
-            trailsByRoot[trail.rootTs] = trail
-            pruneTrailsByRoot()
-        }
+        trailsByRoot[trail.rootTs] = trail
+        pruneTrailsByRoot()
         trails.removeValue(forKey: convKey)
     }
 
@@ -3246,27 +3280,20 @@ final class SlackService: ObservableObject {
         await openModal(triggerId: triggerId, view: trail.detailsModalView())
     }
 
-    /// Toggle the collapsed reasoning line inline (§2.2). Short reasoning expands
-    /// in place via a `chat.update` of the trail message; long reasoning (>3000
-    /// chars, over a section's limit) opens a modal instead so nothing is clipped.
+    /// Open the reasoning MODAL (§2.2). With the one-message turn there is no
+    /// separate trail message to expand inline, so reasoning lives ONLY in the
+    /// modal now — short or long, it always opens there.
     private func toggleReasoning(rootTs: String, triggerId: String) async {
         guard let trail = trail(forRoot: rootTs) else {
             SlackFileLog.log("show-reasoning: no trail for root \(rootTs)")
             return
         }
-        // Long reasoning can't fit a section — surface it in a scrollable modal.
-        if trail.reasoningText.count > 2800 {
-            guard !triggerId.isEmpty else { return }
-            SlackFileLog.log("show-reasoning: long; opening modal root=\(rootTs)")
-            await openModal(triggerId: triggerId, view: trail.reasoningModalView())
+        guard !triggerId.isEmpty else {
+            SlackFileLog.log("show-reasoning: missing trigger_id")
             return
         }
-        // Short reasoning: flip the inline collapse and repaint the trail message.
-        trail.thinkingExpanded.toggle()
-        SlackFileLog.log("show-reasoning: inline expanded=\(trail.thinkingExpanded) root=\(rootTs)")
-        guard let ts = trail.threadTs else { return }
-        await chatUpdate(channel: trail.channelId, ts: ts, text: "Activity trail",
-                         blocks: trail.blocks())
+        SlackFileLog.log("show-reasoning: opening modal root=\(rootTs)")
+        await openModal(triggerId: triggerId, view: trail.reasoningModalView())
     }
 
     /// Context preamble prepended to the first message of a FRESH channel
