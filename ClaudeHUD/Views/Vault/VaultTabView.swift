@@ -257,7 +257,10 @@ private struct ProjectRowView: View {
     let onToggle: () -> Void
     @Environment(\.fontScale) private var scale
     @EnvironmentObject private var slack: SlackService
+    @EnvironmentObject private var terminalService: TerminalService
     @State private var slackHovering = false
+    @State private var launchHovering = false
+    @State private var launched = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -323,6 +326,7 @@ private struct ProjectRowView: View {
                     .font(.custom("Fira Code", size: 10 * scale))
                     .foregroundColor(.secondary.opacity(0.5))
             }
+            launchButton
             slackButton
         }
         // Match Session History's project-row rhythm: 8pt vertical
@@ -345,6 +349,41 @@ private struct ProjectRowView: View {
         .buttonStyle(.plain)
         .help("Open in Slack")
         .onHover { slackHovering = $0 }
+    }
+
+    /// Visible WORK launcher at the trailing edge — starts a wiki-bootstrap
+    /// session in the project's repo cwd with its saved Safe/Unsafe + effort, so
+    /// the launch is usable WITHOUT expanding the row. Hidden when the project
+    /// declares no `cwds:` (nothing to launch in).
+    @ViewBuilder private var launchButton: some View {
+        if let cwd = project.primaryCwd {
+            Button { launch(cwd: cwd) } label: {
+                Image(systemName: launched ? "checkmark.circle.fill" : "pencil.and.outline")
+                    .font(.system(size: 11 * scale, weight: .semibold))
+                    .foregroundColor(launched ? .green
+                                     : .secondary.opacity(launchHovering ? 0.95 : 0.45))
+            }
+            .buttonStyle(.plain)
+            .help("New session — loads project context from the Obsidian wiki")
+            .onHover { launchHovering = $0 }
+        }
+    }
+
+    private func launch(cwd: String) {
+        // Mirror WorkSubsection's per-project flags (same UserDefaults keys, keyed
+        // by the repo cwd) so a collapsed-row launch matches the expanded one.
+        let key = project.primaryCwd ?? project.name
+        var flags = ""
+        if UserDefaults.standard.bool(forKey: "history.unsafe.\(key)") {
+            flags += " --dangerously-skip-permissions"
+        }
+        let effort = UserDefaults.standard.string(forKey: "history.effort.\(key)") ?? "default"
+        if effort != "default" { flags += " --effort \(effort)" }
+        _ = performMagicLaunch(projectName: project.name, cwd: cwd,
+                               resolvedVaultPath: project.folder.path,
+                               launchFlags: flags, terminalService: terminalService)
+        launched = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { launched = false }
     }
 
     private var ingestedCount: Int {
