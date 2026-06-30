@@ -261,6 +261,26 @@ private struct ProjectRowView: View {
     @State private var slackHovering = false
     @State private var launchHovering = false
     @State private var launched = false
+    @State private var unsafeMode: Bool
+    @State private var effort: String
+
+    private static let effortLevels = ["default", "low", "medium", "high", "max"]
+
+    init(project: VaultProjectService.Project, isExpanded: Bool,
+         ingestService: VaultIngestService, vaultPath: URL?,
+         effectiveDate: Date, onToggle: @escaping () -> Void) {
+        self.project = project
+        self.isExpanded = isExpanded
+        self.ingestService = ingestService
+        self.vaultPath = vaultPath
+        self.effectiveDate = effectiveDate
+        self.onToggle = onToggle
+        // Per-project launch flags, keyed by the repo cwd so they stay shared with
+        // the expanded WORK section + Session History (one source of truth).
+        let key = project.primaryCwd ?? project.name
+        _unsafeMode = State(initialValue: UserDefaults.standard.bool(forKey: "history.unsafe.\(key)"))
+        _effort = State(initialValue: UserDefaults.standard.string(forKey: "history.effort.\(key)") ?? "default")
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -326,7 +346,7 @@ private struct ProjectRowView: View {
                     .font(.custom("Fira Code", size: 10 * scale))
                     .foregroundColor(.secondary.opacity(0.5))
             }
-            launchButton
+            launchControls
             slackButton
         }
         // Match Session History's project-row rhythm: 8pt vertical
@@ -351,12 +371,33 @@ private struct ProjectRowView: View {
         .onHover { slackHovering = $0 }
     }
 
-    /// Visible WORK launcher at the trailing edge — starts a wiki-bootstrap
-    /// session in the project's repo cwd with its saved Safe/Unsafe + effort, so
-    /// the launch is usable WITHOUT expanding the row. Hidden when the project
-    /// declares no `cwds:` (nothing to launch in).
-    @ViewBuilder private var launchButton: some View {
+    /// WORK launcher controls surfaced on the collapsed row (after the timestamp):
+    /// Safe/Unsafe, effort, and Launch — so a project can be configured + started
+    /// WITHOUT expanding it. Shown only when the project has a launchable cwd
+    /// (`primaryCwd`: a bare, glob-free absolute path). The two toggles persist to
+    /// the same per-project UserDefaults keys the expanded WORK section + Session
+    /// History use, so all three surfaces stay in sync.
+    @ViewBuilder private var launchControls: some View {
         if let cwd = project.primaryCwd {
+            Button {
+                unsafeMode.toggle()
+                UserDefaults.standard.set(unsafeMode, forKey: defaultsKey)
+            } label: {
+                Image(systemName: unsafeMode ? "lock.open.fill" : "lock.fill")
+                    .font(.system(size: 11 * scale))
+                    .foregroundColor(unsafeMode ? .red : .green)
+            }
+            .buttonStyle(.plain)
+            .help(unsafeMode ? "Unsafe mode (click to toggle)" : "Safe mode (click to toggle)")
+
+            Button { cycleEffort() } label: {
+                Image(systemName: effortIcon)
+                    .font(.system(size: 11 * scale))
+                    .foregroundColor(effortColor)
+            }
+            .buttonStyle(.plain)
+            .help("Effort: \(effort) (click to cycle)")
+
             Button { launch(cwd: cwd) } label: {
                 Image(systemName: launched ? "checkmark.circle.fill" : "pencil.and.outline")
                     .font(.system(size: 11 * scale, weight: .semibold))
@@ -369,19 +410,42 @@ private struct ProjectRowView: View {
         }
     }
 
-    private func launch(cwd: String) {
-        // Mirror WorkSubsection's per-project flags (same UserDefaults keys, keyed
-        // by the repo cwd) so a collapsed-row launch matches the expanded one.
-        let key = project.primaryCwd ?? project.name
-        var flags = ""
-        if UserDefaults.standard.bool(forKey: "history.unsafe.\(key)") {
-            flags += " --dangerously-skip-permissions"
+    private var defaultsKey: String { "history.unsafe.\(project.primaryCwd ?? project.name)" }
+    private var effortKey: String { "history.effort.\(project.primaryCwd ?? project.name)" }
+    private var launchFlags: String {
+        var f = ""
+        if unsafeMode { f += " --dangerously-skip-permissions" }
+        if effort != "default" { f += " --effort \(effort)" }
+        return f
+    }
+    private func cycleEffort() {
+        guard let idx = Self.effortLevels.firstIndex(of: effort) else { effort = "default"; return }
+        effort = Self.effortLevels[(idx + 1) % Self.effortLevels.count]
+        UserDefaults.standard.set(effort, forKey: effortKey)
+    }
+    private var effortIcon: String {
+        switch effort {
+        case "low": return "gauge.with.dots.needle.0percent"
+        case "medium": return "gauge.with.dots.needle.33percent"
+        case "high": return "gauge.with.dots.needle.67percent"
+        case "max": return "gauge.with.dots.needle.100percent"
+        default: return "gauge.with.dots.needle.50percent"
         }
-        let effort = UserDefaults.standard.string(forKey: "history.effort.\(key)") ?? "default"
-        if effort != "default" { flags += " --effort \(effort)" }
+    }
+    private var effortColor: Color {
+        switch effort {
+        case "low": return .red
+        case "medium": return .orange
+        case "high": return .white
+        case "max": return .green
+        default: return .secondary
+        }
+    }
+
+    private func launch(cwd: String) {
         _ = performMagicLaunch(projectName: project.name, cwd: cwd,
                                resolvedVaultPath: project.folder.path,
-                               launchFlags: flags, terminalService: terminalService)
+                               launchFlags: launchFlags, terminalService: terminalService)
         launched = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { launched = false }
     }
