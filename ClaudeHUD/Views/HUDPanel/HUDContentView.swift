@@ -855,20 +855,38 @@ struct SessionHistoryView: View {
         }
 
         let home = NSHomeDirectory()
-        // Merge worktree sessions into their parent project
-        let grouped = Dictionary(grouping: filtered) { session -> String in
-            if let range = session.projectPath.range(of: "/.claude/worktrees/") {
-                return String(session.projectPath[..<range.lowerBound])
+        // Collapse a worktree path back to its parent repo cwd.
+        func repoCwd(_ p: String) -> String {
+            if let range = p.range(of: "/.claude/worktrees/") {
+                return String(p[..<range.lowerBound])
             }
-            return session.projectPath
+            return p
+        }
+        // Group by the Obsidian project that OWNS the cwd (a writeable `cwds:`
+        // match) so a project spanning several repos/paths is ONE row named for the
+        // vault project. Unclaimed cwds fall back to grouping by the repo cwd
+        // (leaf-named), exactly as before. Same canonical resolver as the unclaimed
+        // marker; a "vault::" key can't collide with an absolute cwd path.
+        let grouped = Dictionary(grouping: filtered) { session -> String in
+            let cwd = repoCwd(session.projectPath)
+            if resolvePrimed, let vid = vaultProjects.folderName(forCwd: cwd) {
+                return "vault::\(vid)"
+            }
+            return cwd
         }
         return grouped.map { entry in
+            // The most-recent session supplies the launch/open cwd and the folder
+            // bucket for a merged vault project (its sessions may span repos).
+            let recent = entry.value.max { $0.timestamp < $1.timestamp }!
+            let repCwd = repoCwd(recent.projectPath)
+            let isVault = entry.key.hasPrefix("vault::")
+            let name = isVault ? String(entry.key.dropFirst("vault::".count))
+                               : URL(fileURLWithPath: repCwd).lastPathComponent
             // Home dir project: group under "~" instead of "/Users"
-            let parentPath = entry.key == home
+            let parentPath = repCwd == home
                 ? home
-                : URL(fileURLWithPath: entry.key).deletingLastPathComponent().path
-            let name = URL(fileURLWithPath: entry.key).lastPathComponent
-            return (name: name, path: entry.key, parentPath: parentPath, sessions: entry.value)
+                : URL(fileURLWithPath: repCwd).deletingLastPathComponent().path
+            return (name: name, path: repCwd, parentPath: parentPath, sessions: entry.value)
         }
         .filter { $0.path != "/" && $0.parentPath != "/" }
         .sorted { $0.sessions.first!.timestamp > $1.sessions.first!.timestamp }
