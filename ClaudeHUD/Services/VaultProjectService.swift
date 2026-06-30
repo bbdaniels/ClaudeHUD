@@ -194,15 +194,21 @@ final class VaultProjectService: ObservableObject {
                 continue
             }
             if collecting {
-                // A new top-level key ends the list.
-                if !line.isEmpty, !line.hasPrefix(" "), !line.hasPrefix("\t") {
-                    collecting = false
-                    continue
-                }
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
+                // A list item — collect it whether indented (`  - x`) or flush-left
+                // (`- x`). YAML allows a block sequence at the key's own indent, and
+                // some serializers (e.g. the YAML lib behind property editors) emit
+                // the flush-left form; the old "non-indented line ends the list"
+                // check ran first and wrongly dropped those, leaving cwds empty
+                // (so the project showed no launch controls — primaryCwd was nil).
                 if trimmed.hasPrefix("- ") {
                     let v = trimmed.dropFirst(2).trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
                     out.append(String(v))
+                    continue
+                }
+                // A non-list, non-indented line is a new top-level key → list ends.
+                if !line.isEmpty, !line.hasPrefix(" "), !line.hasPrefix("\t") {
+                    collecting = false
                 }
             }
         }
