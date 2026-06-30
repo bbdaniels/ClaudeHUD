@@ -1923,6 +1923,12 @@ final class SlackService: ObservableObject {
             await onAnswerSubmit(promptId: actionValue, payload: payload)
         case SlackAction.answerCustom:
             await openAnswerModal(value: actionValue, triggerId: triggerId)
+        case SlackAction.answerStage:
+            // Radio/checkbox selection on the inline card — staged only; the Submit
+            // button commits it (this no-op is the "holding" behavior, CLI-like).
+            break
+        case SlackAction.answerOpenForm:
+            await openAnswerFormModal(promptId: actionValue, triggerId: triggerId)
         // 3.2 — risk-tiered permission approval.
         case SlackAction.approveAllow:
             await resolveApproval(promptId: actionValue, behavior: .allow)
@@ -1978,6 +1984,10 @@ final class SlackService: ObservableObject {
             let meta = view?["private_metadata"] as? String ?? ""
             let answer = Self.modalInputValue(view, blockId: "answer", actionId: "text")
             await submitFreeformAnswer(meta: meta, answer: answer)
+        // 3.1 — multi-question staged form. private_metadata = promptId; each
+        // question's pick(s) live under block_id `askq:<qi>`, element action_id `sel`.
+        case SlackAction.answerFormModal:
+            await submitAnswerForm(promptId: view?["private_metadata"] as? String ?? "", view: view)
         // 3.2 — deny-with-note (deny carries steering). private_metadata = promptId.
         case SlackAction.denyNoteModal:
             let promptId = view?["private_metadata"] as? String ?? ""
@@ -2625,10 +2635,14 @@ final class SlackService: ObservableObject {
         }
 
         let prompt = ParkedPrompt(request: req)
-        let blocks: [[String: Any]]
+        var blocks: [[String: Any]]
         switch req.kind {
         case .ask:
-            blocks = SupervisorCards.questionCard(promptId: req.id, questions: req.questions)
+            // 1 question → inline staged radio/checkbox card; 2+ → a compact card with
+            // an "Answer…" button that opens the staged modal form (CLI parity).
+            blocks = req.questions.count >= 2
+                ? SupervisorCards.questionFormCard(promptId: req.id, questions: req.questions)
+                : SupervisorCards.questionCard(promptId: req.id, questions: req.questions)
         case .approve:
             blocks = SupervisorCards.approvalCard(promptId: req.id, toolName: req.toolName,
                                                   preview: req.actionPreview, cwd: req.cwd,
@@ -2639,8 +2653,21 @@ final class SlackService: ObservableObject {
             blocks = SupervisorCards.planCard(promptId: req.id, plan: req.planText)  // reserved
         }
 
+        // Fold the operator @mention into the card's lead line so the SINGLE card
+        // both pings the operator (watch/phone push) and shows the prompt — this
+        // replaces the separate "a decision is needed" escalation reply, which read
+        // as a redundant follow-on next to the card.
+        let mention = operatorUserId[channelId].map { "<@\($0)> " } ?? ""
+        if !mention.isEmpty, !blocks.isEmpty,
+           let textObj = blocks[0]["text"] as? [String: Any],
+           let leadText = textObj["text"] as? String {
+            var lead = blocks[0]
+            lead["text"] = ["type": "mrkdwn", "text": "\(mention)\(leadText)"]
+            blocks[0] = lead
+        }
+
         var cardTs = await postMessage(channel: channelId,
-                                       text: needsYouFallback(req.kind),
+                                       text: "\(mention)\(needsYouFallback(req.kind))",
                                        threadTs: rootTs, blocks: blocks)
         if cardTs == nil {
             // The Block Kit card was rejected (e.g. invalid_blocks) — postMessage
@@ -2651,7 +2678,7 @@ final class SlackService: ObservableObject {
             // decision readable and points to the app's buttons.
             SlackFileLog.log("card post FAILED (err=\(lastError ?? "unknown")); plain-text fallback for \(req.id.prefix(8))")
             cardTs = await postMessage(channel: channelId,
-                                       text: plainTextRequest(req),
+                                       text: "\(mention)\(plainTextRequest(req))",
                                        threadTs: rootTs)
         }
         prompt.cardTs = cardTs
@@ -2660,7 +2687,6 @@ final class SlackService: ObservableObject {
         SlackFileLog.log("parked: \(convKey) kind=\(req.kind.rawValue) id=\(req.id.prefix(8)) card=\(cardTs ?? "nil")")
 
         await renderNeedsYouRoot(turn: turn, kind: req.kind)
-        await escalateNeedsYou(channelId: channelId, rootTs: rootTs, kind: req.kind)
     }
 
     private func needsYouFallback(_ kind: HudPromptKind) -> String {
@@ -2729,15 +2755,6 @@ final class SlackService: ObservableObject {
         await chatUpdate(channel: turn.channelId, ts: ts, text: "Working…",
                          blocks: workingBlocks(turn: turn, now: Date(), warning: false, stopping: false))
         await mirrorReaction(channel: turn.channelId, ts: ts, to: .working, turn: turn)
-    }
-
-    /// Push escalation (N1): `chat.update` is silent, so post an @mention thread
-    /// reply for Needs-you/approval so the operator's watch actually buzzes.
-    private func escalateNeedsYou(channelId: String, rootTs: String, kind: HudPromptKind) async {
-        guard let op = operatorUserId[channelId] else { return }
-        await postMessage(channel: channelId,
-                          text: "<@\(op)> \(needsYouFallback(kind))",
-                          threadTs: rootTs)
     }
 
     // MARK: - Phase 3: decision plumbing
@@ -2854,24 +2871,38 @@ final class SlackService: ObservableObject {
         await maybeResolveAsk(prompt)
     }
 
-    /// Multi-select Submit: read the message's checkbox state and record the
-    /// chosen labels per question, then resolve.
+    /// Submit on the inline staged card: read each question's HELD selection from
+    /// message state (radio = one option, checkboxes = many) and record the chosen
+    /// labels, then resolve. Nudges (without resolving) if nothing was picked, so a
+    /// stray Submit can't commit "(no answer)".
     private func onAnswerSubmit(promptId: String, payload: [String: Any]) async {
         guard let prompt = validParked(promptId), prompt.kind == .ask else { return }
         let questions = prompt.request.questions
         let state = (payload["state"] as? [String: Any])?["values"] as? [String: Any] ?? [:]
-        for (qi, q) in questions.enumerated() where q.multiSelect {
+        func label(_ v: String, _ q: HudQuestion) -> String? {
+            let p = v.split(separator: "|").map(String.init)
+            guard p.count == 3, let oi = Int(p[2]), oi < q.options.count else { return nil }
+            return q.options[oi].label
+        }
+        var recorded = 0
+        for (qi, q) in questions.enumerated() {
             let blockId = "ask:\(promptId):\(qi)"
             guard let block = state[blockId] as? [String: Any],
-                  let element = block[SlackAction.answerOption] as? [String: Any],
-                  let selected = element["selected_options"] as? [[String: Any]] else { continue }
-            let labels = selected.compactMap { opt -> String? in
-                guard let v = opt["value"] as? String else { return nil }
-                let p = v.split(separator: "|").map(String.init)
-                guard p.count == 3, let oi = Int(p[2]), oi < q.options.count else { return nil }
-                return q.options[oi].label
+                  let element = block[SlackAction.answerStage] as? [String: Any] else { continue }
+            if q.multiSelect {
+                let selected = element["selected_options"] as? [[String: Any]] ?? []
+                let labels = selected.compactMap { ($0["value"] as? String).flatMap { label($0, q) } }
+                if !labels.isEmpty { prompt.answers[qi] = labels.joined(separator: ", "); recorded += 1 }
+            } else if let opt = element["selected_option"] as? [String: Any],
+                      let v = opt["value"] as? String, let l = label(v, q) {
+                prompt.answers[qi] = l; recorded += 1
             }
-            prompt.answers[qi] = labels.isEmpty ? "(none selected)" : labels.joined(separator: ", ")
+        }
+        if recorded == 0 {
+            let user = (payload["user"] as? [String: Any])?["id"] as? String ?? ""
+            await postEphemeral(channel: prompt.channelId, user: user,
+                                text: "Pick an option (or tap “Let me type it”) before Submit.")
+            return
         }
         await maybeResolveAsk(prompt, force: true)
     }
@@ -2944,6 +2975,41 @@ final class SlackService: ObservableObject {
               let prompt = validParked(parts[0]), prompt.kind == .ask else { return }
         prompt.answers[qi] = answer.isEmpty ? "(no answer)" : answer
         await maybeResolveAsk(prompt)
+    }
+
+    /// Open the multi-question staged form (a 2+-question ask). `promptId` rides in
+    /// the view's private_metadata; the modal's Submit lands in handleViewSubmission.
+    private func openAnswerFormModal(promptId: String, triggerId: String) async {
+        guard !triggerId.isEmpty, let prompt = validParked(promptId), prompt.kind == .ask else { return }
+        let view = SupervisorCards.questionModalView(promptId: promptId, questions: prompt.request.questions)
+        await openModal(triggerId: triggerId, view: view)
+    }
+
+    /// Submit handler for the multi-question modal: map each question's staged
+    /// selection (radio = one, checkboxes = many) to its chosen label(s), then resolve.
+    /// Option values are `qIndex|optIndex`; the promptId came from private_metadata.
+    private func submitAnswerForm(promptId: String, view: [String: Any]?) async {
+        guard let prompt = validParked(promptId), prompt.kind == .ask else { return }
+        let questions = prompt.request.questions
+        let values = ((view?["state"] as? [String: Any])?["values"] as? [String: Any]) ?? [:]
+        func label(_ v: String, _ q: HudQuestion) -> String? {
+            let p = v.split(separator: "|").map(String.init)
+            guard p.count == 2, let oi = Int(p[1]), oi < q.options.count else { return nil }
+            return q.options[oi].label
+        }
+        for (qi, q) in questions.enumerated() {
+            guard let block = values["askq:\(qi)"] as? [String: Any],
+                  let element = block["sel"] as? [String: Any] else { continue }
+            if q.multiSelect {
+                let selected = element["selected_options"] as? [[String: Any]] ?? []
+                let labels = selected.compactMap { ($0["value"] as? String).flatMap { label($0, q) } }
+                if !labels.isEmpty { prompt.answers[qi] = labels.joined(separator: ", ") }
+            } else if let opt = element["selected_option"] as? [String: Any],
+                      let v = opt["value"] as? String, let l = label(v, q) {
+                prompt.answers[qi] = l
+            }
+        }
+        await maybeResolveAsk(prompt, force: true)
     }
 
     // MARK: - Phase 3.2/3.3: permission + plan resolution

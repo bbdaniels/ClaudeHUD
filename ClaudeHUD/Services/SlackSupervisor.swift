@@ -134,73 +134,113 @@ enum SupervisorDecision {
 /// parked RPC it belongs to (generation hygiene, 3.4, is checked in `SlackService`
 /// against the parked prompt's stored generation).
 enum SupervisorCards {
-    /// Slack button text ceiling.
-    private static let buttonCap = 70
-
-    /// 3.1 — the clarifying-question poll. One button per option for single-select
-    /// (taps resolve immediately, zero recall); checkboxes + Submit for
-    /// multi-select. A "Let me type it" button opens the freeform modal. `qIndex`
-    /// scopes the buttons when an ask carries more than one question.
+    /// 3.1 — the clarifying-question poll, STAGED like the CLI: single-select renders
+    /// `radio_buttons`, multi-select `checkboxes`; the pick is HELD in message state
+    /// and a single Submit commits it (no fire-on-tap). Each question's element sits
+    /// in its own block, so the shared `answerStage` action_id is unique within its
+    /// block. Used for a single-question ask; a 2+-question ask uses `questionFormCard`
+    /// + the modal instead. "Let me type it" opens the freeform modal.
     static func questionCard(promptId: String, questions: [HudQuestion]) -> [[String: Any]] {
         var blocks: [[String: Any]] = []
         blocks.append(SlackBlocks.section(":raising_hand:  *I need a decision before continuing.*"))
         for (qi, q) in questions.enumerated() {
             blocks.append(SlackBlocks.divider())
             blocks.append(SlackBlocks.section("*\(q.header)*\n\(q.question)"))
-            if q.multiSelect {
-                // Checkboxes capture multiple; Submit reads message state.values.
-                let options = q.options.enumerated().map { (oi, opt) -> [String: Any] in
-                    [
-                        "text": ["type": "mrkdwn", "text": "*\(opt.label)*"],
-                        "description": ["type": "mrkdwn",
-                                        "text": SlackBlocks.truncate(opt.description, 200)],
-                        "value": "\(promptId)|\(qi)|\(oi)"
-                    ]
+            // Staged selection held in message state: radio = one, checkboxes = many.
+            let options = q.options.enumerated().map { (oi, opt) -> [String: Any] in
+                var o: [String: Any] = [
+                    "text": ["type": "mrkdwn", "text": "*\(opt.label)*"],
+                    "value": "\(promptId)|\(qi)|\(oi)"
+                ]
+                if !opt.description.isEmpty {
+                    o["description"] = ["type": "mrkdwn",
+                                        "text": SlackBlocks.truncate(opt.description, 200)]
                 }
-                blocks.append([
-                    "type": "actions",
-                    "block_id": "ask:\(promptId):\(qi)",
-                    "elements": [[
-                        "type": "checkboxes",
-                        "action_id": SlackAction.answerOption,
-                        "options": options
-                    ]]
-                ])
-            } else {
-                // One button per option — the operator taps and it resolves.
-                var buttons = q.options.enumerated().map { (oi, opt) -> [String: Any] in
-                    // Slack requires a UNIQUE action_id for every element within an
-                    // actions block. A question with ≥2 options otherwise posts N
-                    // buttons all carrying `answerOption` → `invalid_blocks`, and the
-                    // whole card is silently dropped (chat.postMessage returns nil).
-                    // Suffix the id per option; the tap still routes to onAnswerOption
-                    // via the prefix match in the dispatch, and the button `value`
-                    // (promptId|qi|oi) still carries the chosen option.
-                    SlackBlocks.button(text: SlackBlocks.truncate(opt.label, buttonCap),
-                                       actionId: "\(SlackAction.answerOption):\(qi):\(oi)",
-                                       value: "\(promptId)|\(qi)|\(oi)")
-                }
-                buttons.append(SlackBlocks.button(text: ":pencil2: Let me type it",
-                                                  actionId: SlackAction.answerCustom,
-                                                  value: "\(promptId)|\(qi)"))
-                blocks.append(["type": "actions",
-                               "block_id": "ask:\(promptId):\(qi)",
-                               "elements": buttons])
-                // The option descriptions, as a context line under the buttons.
-                let gloss = q.options.map { "*\($0.label)* — \($0.description)" }
-                    .joined(separator: "\n")
-                if !gloss.isEmpty { blocks.append(SlackBlocks.context(gloss)) }
+                return o
             }
+            blocks.append([
+                "type": "actions",
+                "block_id": "ask:\(promptId):\(qi)",
+                "elements": [[
+                    "type": q.multiSelect ? "checkboxes" : "radio_buttons",
+                    "action_id": SlackAction.answerStage,
+                    "options": options
+                ]]
+            ])
         }
-        // For any multi-select question, a Submit resolves from message state.
-        if questions.contains(where: { $0.multiSelect }) {
-            blocks.append(SlackBlocks.actions([
-                SlackBlocks.button(text: "Submit", actionId: SlackAction.answerSubmit,
-                                   value: promptId, style: "primary")
-            ]))
-        }
-        blocks.append(SlackBlocks.context("or reply in-thread to answer in words"))
+        // One Submit commits all staged selections; "Let me type it" opens the
+        // freeform modal for the first (typically only) question.
+        blocks.append(SlackBlocks.actions([
+            SlackBlocks.button(text: "Submit", actionId: SlackAction.answerSubmit,
+                               value: promptId, style: "primary"),
+            SlackBlocks.button(text: ":pencil2: Let me type it",
+                               actionId: SlackAction.answerCustom, value: "\(promptId)|0")
+        ]))
+        blocks.append(SlackBlocks.context("pick an option, then Submit · or reply in-thread to answer in words"))
         return blocks
+    }
+
+    /// 3.1 (multi-question) — the compact thread card for a 2+-question ask. The
+    /// questions are answered together in a modal (one Submit for all), so the card
+    /// just lists them and offers the Answer button; this keeps the thread readable
+    /// and matches the CLI's "answer the whole prompt at once" flow. In-thread replies
+    /// still resolve it positionally if the operator prefers words.
+    static func questionFormCard(promptId: String, questions: [HudQuestion]) -> [[String: Any]] {
+        var blocks: [[String: Any]] = []
+        blocks.append(SlackBlocks.section(":raising_hand:  *I need \(questions.count) decisions before continuing.*"))
+        let list = questions.enumerated()
+            .map { (i, q) in "*\(i + 1).*  \(q.header) — \(q.question)" }
+            .joined(separator: "\n")
+        blocks.append(SlackBlocks.section(SlackBlocks.truncate(list, 2900)))
+        blocks.append(SlackBlocks.actions([
+            SlackBlocks.button(text: ":memo: Answer…", actionId: SlackAction.answerOpenForm,
+                               value: promptId, style: "primary")
+        ]))
+        blocks.append(SlackBlocks.context("opens a form to answer all at once · or reply in-thread, one per question"))
+        return blocks
+    }
+
+    /// 3.1 (multi-question) — the staged modal form: one input block per question
+    /// (`radio_buttons` for single-select, `checkboxes` for multi), all committed by
+    /// the modal's single Submit. `promptId` rides in `private_metadata`; each option
+    /// `value` is `qIndex|optIndex` (the promptId is already in metadata). Single-select
+    /// inputs are required; multi-select are optional.
+    static func questionModalView(promptId: String, questions: [HudQuestion]) -> [String: Any] {
+        var blocks: [[String: Any]] = []
+        for (qi, q) in questions.enumerated() {
+            let options = q.options.enumerated().map { (oi, opt) -> [String: Any] in
+                var o: [String: Any] = [
+                    "text": ["type": "plain_text", "text": SlackBlocks.truncate(opt.label, 150), "emoji": true],
+                    "value": "\(qi)|\(oi)"
+                ]
+                if !opt.description.isEmpty {
+                    o["description"] = ["type": "plain_text",
+                                        "text": SlackBlocks.truncate(opt.description, 150), "emoji": true]
+                }
+                return o
+            }
+            blocks.append([
+                "type": "input",
+                "block_id": "askq:\(qi)",
+                "optional": q.multiSelect,
+                "label": ["type": "plain_text", "text": SlackBlocks.truncate(q.header, 150), "emoji": true],
+                "hint": ["type": "plain_text", "text": SlackBlocks.truncate(q.question, 300)],
+                "element": [
+                    "type": q.multiSelect ? "checkboxes" : "radio_buttons",
+                    "action_id": "sel",
+                    "options": options
+                ]
+            ])
+        }
+        return [
+            "type": "modal",
+            "callback_id": SlackAction.answerFormModal,
+            "private_metadata": promptId,
+            "title": ["type": "plain_text", "text": "Your answers"],
+            "submit": ["type": "plain_text", "text": "Submit"],
+            "close": ["type": "plain_text", "text": "Cancel"],
+            "blocks": blocks
+        ]
     }
 
     /// 3.2 — the risk-tiered permission card. The gated action is shown verbatim

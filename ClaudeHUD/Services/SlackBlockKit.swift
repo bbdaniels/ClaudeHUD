@@ -98,6 +98,8 @@ enum SlackAction {
     static let answerOption  = "hud:answer:option"   // radio/checkbox select (one per option)
     static let answerSubmit  = "hud:answer:submit"
     static let answerCustom  = "hud:answer:custom"    // "Let me type it" → modal
+    static let answerStage    = "hud:answer:stage"     // staged radio/checkbox pick (held; Submit commits)
+    static let answerOpenForm = "hud:answer:open_form" // 2+-question ask → opens the staged modal form
     // 3.2 — risk-tiered permission approval.
     static let approveAllow      = "hud:approve:allow"
     static let approveAlways     = "hud:approve:always"   // allow + write a settings rule
@@ -129,6 +131,7 @@ enum SlackAction {
     // against these; declared now so the dispatch scaffold is complete.
     static let resumeWithChangesModal = "hud:modal:resume_with_changes"
     static let answerModal            = "hud:modal:answer"      // 3.1 freeform answer
+    static let answerFormModal        = "hud:modal:answer_form" // 3.1 multi-question staged form
     static let denyNoteModal          = "hud:modal:deny_note"   // 3.2 deny-with-note
     static let editPlanModal          = "hud:modal:edit_plan"   // 3.3 edit-plan steering
     static let detailsModal           = "hud:modal:details"
