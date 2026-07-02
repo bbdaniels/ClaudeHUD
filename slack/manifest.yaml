@@ -7,6 +7,12 @@ display_information:
   name: Claude
   description: ClaudeHUD teammate. Per-channel sessions backed by your vault.
 features:
+  app_home:
+    # The DM with the bot is the generic (no-project) surface: plain messages
+    # run scratch-workspace sessions; PM verbs take a project argument. The
+    # messages tab must be explicitly enabled or Slack hides the DM composer.
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
   bot_user:
     display_name: claude
     always_online: true
