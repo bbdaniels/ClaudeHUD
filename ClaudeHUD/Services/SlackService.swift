@@ -77,6 +77,10 @@ final class SlackService: ObservableObject {
         /// ceiling handed to the engine. Optional + defaulted (`maxTurns`) for
         /// backward-compat with state persisted before the guardrail existed.
         var maxTurns: Int? = nil
+        /// Engine model for this channel/thread ("sonnet" | "opus" | "haiku",
+        /// or a full `claude-…` id). Optional + defaulted (`slackModel`) for
+        /// backward-compat with state persisted before the dial existed.
+        var model: String? = nil
     }
 
     /// A Slack conversation = one thread = one session. The thread's ROOT message
@@ -297,10 +301,11 @@ final class SlackService: ObservableObject {
         let obsidianPath: String
         let generation: Int
         let startedAt: Date
-        /// Reasoning effort + permission mode this turn ran under, surfaced as a
-        /// faint provenance line on the root (2.3).
+        /// Reasoning effort, permission mode, and engine model this turn ran
+        /// under, surfaced as a faint provenance line on the root (2.3).
         let effort: String
         let permissionMode: String
+        let model: String
         /// Last time ANY stream event arrived — the watchdog's silence clock.
         var lastEventAt: Date
         var toolCount: Int = 0
@@ -330,7 +335,8 @@ final class SlackService: ObservableObject {
 
         init(channelId: String, threadRootTs: String, rootTs: String?, request: String,
              projectName: String, cwd: String, obsidianPath: String, generation: Int,
-             startedAt: Date, effort: String, permissionMode: String) {
+             startedAt: Date, effort: String, permissionMode: String,
+             model: String = SlackService.slackModel) {
             self.channelId = channelId
             self.threadRootTs = threadRootTs
             self.rootTs = rootTs
@@ -342,6 +348,7 @@ final class SlackService: ObservableObject {
             self.startedAt = startedAt
             self.effort = effort
             self.permissionMode = permissionMode
+            self.model = model
             self.lastEventAt = startedAt
         }
     }
@@ -493,8 +500,12 @@ final class SlackService: ObservableObject {
     /// dropped tap can't wedge a channel forever (E4).
     private static let parkedPromptTimeout: TimeInterval = 1800
 
-    /// Model used for Slack-driven turns.
-    private static let slackModel = "sonnet"
+    /// Default model for Slack-driven turns; per-channel override via
+    /// `/claude-model` / `!model` (the dial mirrors `/claude-effort`).
+    static let slackModel = "sonnet"
+
+    /// Model aliases the dial accepts; a full `claude-…` id also passes.
+    private static let modelChoices = ["sonnet", "opus", "haiku", "fable"]
 
     init(projectService: ProjectService, vaultProjects: VaultProjectService,
          usageService: UsageService) {
@@ -908,6 +919,7 @@ final class SlackService: ObservableObject {
             s.effort = d.effort
             s.followup = d.followup
             s.maxTurns = d.maxTurns
+            s.model = d.model
         }
         return s
     }
@@ -987,6 +999,10 @@ final class SlackService: ObservableObject {
             return ClaudeCLIClient.effortLevels.contains(e) ? e : Self.defaultEffort
         }()
         let turnMode = state.permissionMode
+        let turnModel: String = {
+            guard let m = state.model, !m.isEmpty else { return Self.slackModel }
+            return m
+        }()
         let turnCap = existing.flatMap { turnCapOverride[$0.key] } ?? state.maxTurns ?? Self.defaultMaxTurns
         // Generation supersedes the prior one for the SAME conversation (1 for a new).
         let generation = (existing.map { channelGeneration[$0.key] ?? 0 } ?? 0) + 1
@@ -994,7 +1010,7 @@ final class SlackService: ObservableObject {
         let turn = InFlightTurn(channelId: channelId, threadRootTs: responseThreadTs ?? "",
                                 rootTs: nil, request: text, projectName: projectName, cwd: cwd,
                                 obsidianPath: obsidianPath, generation: generation, startedAt: startedAt,
-                                effort: turnEffort, permissionMode: turnMode)
+                                effort: turnEffort, permissionMode: turnMode, model: turnModel)
 
         // CHECKPOINT (1.7): snapshot the working tree before the agent edits it.
         let checkpoint = await GitCheckpointService.make(cwd: cwd)
@@ -1070,6 +1086,7 @@ final class SlackService: ObservableObject {
                 message: isFresh ? freshOutgoing : text,
                 permissionMode: state.permissionMode,
                 effort: turnEffort,
+                model: turnModel,
                 sessionId: state.sessionId,
                 cwd: cwd,
                 maxTurns: turnCap
@@ -1086,6 +1103,7 @@ final class SlackService: ObservableObject {
                     message: freshOutgoing,
                     permissionMode: state.permissionMode,
                     effort: turnEffort,
+                    model: turnModel,
                     sessionId: nil,
                     cwd: cwd,
                     maxTurns: turnCap
@@ -1301,6 +1319,7 @@ final class SlackService: ObservableObject {
         let provenance: String? = {
             guard let k = convKey, let t = inFlightTurns[k] else { return nil }
             return Self.provenanceLine(project: t.projectName, mode: t.permissionMode, effort: t.effort,
+                                       model: t.model,
                                        dirtyAtStart: t.checkpoint?.dirtyAtStart ?? false)
         }()
         // The single turn message keeps Show details / Show reasoning on the
@@ -1540,6 +1559,7 @@ final class SlackService: ObservableObject {
 
         let provenance = Self.provenanceLine(project: turn.projectName,
                                              mode: turn.permissionMode, effort: turn.effort,
+                                             model: turn.model,
                                              dirtyAtStart: turn.checkpoint?.dirtyAtStart ?? false)
         let blocks = rootBlocks(state: .failed, request: request, statusLine: statusLine,
                                 body: body, buttons: buttons, provenance: provenance)
@@ -1624,6 +1644,7 @@ final class SlackService: ObservableObject {
             SlackBlocks.context("> \(SlackBlocks.truncate(Self.singleLine(turn.request), 280))"),
             SlackBlocks.context(Self.provenanceLine(project: turn.projectName,
                                                     mode: turn.permissionMode, effort: turn.effort,
+                                                    model: turn.model,
                                                     dirtyAtStart: turn.checkpoint?.dirtyAtStart ?? false))
         ]
         // One-message turn: the activity trail is folded INTO this root tile as a
@@ -1669,8 +1690,9 @@ final class SlackService: ObservableObject {
     /// dirty-tree caveat folds in here too — the one-message turn model owns
     /// ALL turn metadata; it must never post as a separate thread message.
     private static func provenanceLine(project: String, mode: String, effort: String,
+                                       model: String = SlackService.slackModel,
                                        dirtyAtStart: Bool = false) -> String {
-        var line = "_via Slack · \(project) · \(mode) · effort=\(effort)_"
+        var line = "_via Slack · \(project) · \(mode) · effort=\(effort) · \(model)_"
         if dirtyAtStart {
             line += "\n_:information_source: tree had uncommitted changes pre-turn — Undo restores that snapshot, not a clean tree_"
         }
@@ -2490,7 +2512,8 @@ final class SlackService: ObservableObject {
     /// Returns the final assistant text, per-tool counts, and the (new) session
     /// id. Repeatable, so the empty-resume retry can call it twice.
     private func runEngine(conv: Conversation, message: String, permissionMode: String,
-                           effort: String, sessionId: String?, cwd: String,
+                           effort: String, model: String = SlackService.slackModel,
+                           sessionId: String?, cwd: String,
                            maxTurns: Int? = nil) async throws
         -> (result: CLIResultEvent, text: String, tools: [String: Int]) {
         let key = conv.key
@@ -2516,7 +2539,7 @@ final class SlackService: ObservableObject {
         var toolCounts: [String: Int] = [:]
         let result = try await client.send(
             message: message,
-            model: Self.slackModel,
+            model: model,
             permissionMode: permissionMode,
             effort: effort,
             systemPrompt: supervisedSystemPrompt,
@@ -2796,6 +2819,7 @@ final class SlackService: ObservableObject {
                      (kind == .plan ? "plan ready" : "needs a decision")
         let provenance = Self.provenanceLine(project: turn.projectName,
                                              mode: turn.permissionMode, effort: turn.effort,
+                                             model: turn.model,
                                              dirtyAtStart: turn.checkpoint?.dirtyAtStart ?? false)
         let blocks = rootBlocks(state: .needsYou, request: turn.request,
                                 statusLine: status, body: ":point_down: Answer in the thread.",
@@ -4203,6 +4227,8 @@ final class SlackService: ObservableObject {
             await setMode(arg: text, channelId: channelId, responseUrl: responseUrl)
         case "/claude-effort":
             await setEffort(arg: text, channelId: channelId, responseUrl: responseUrl)
+        case "/claude-model":
+            await setModel(arg: text, channelId: channelId, responseUrl: responseUrl)
         case "/claude-followup":
             await setFollowup(arg: text, channelId: channelId, responseUrl: responseUrl)
         case "/claude-budget":
@@ -4302,6 +4328,7 @@ final class SlackService: ObservableObject {
         lines.append("*Config*")
         lines.append("• Mode: *\(mode)* — \(Self.modeLabel(mode))")
         lines.append("• Effort: *\(effort)* — \(Self.effortLabel(effort))")
+        lines.append("• Model: *\(cfg.model ?? Self.slackModel)* — `/claude-model` or `!model` to change")
         lines.append("• Follow-up: *\(followup)*")
         lines.append("• Turn budget: *\(turns)* turns / run")
         if let resolved {
@@ -4366,7 +4393,8 @@ final class SlackService: ObservableObject {
         *Slash commands* (act on this channel's most-recent thread)
         • `/claude-new` — start a fresh session for the current thread
         • `/claude-mode <plan|default|skip>` — permission tier
-        • `/claude-effort <low|medium|high|xhigh|max>` — reasoning dial
+        • `/claude-effort <low|medium|high|xhigh|max>` — reasoning dial (also `!effort`)
+        • `/claude-model <sonnet|opus|haiku|fable>` — engine model (also `!model`; no arg shows current)
         • `/claude-budget <turns>` — per-turn turn cap (no dollars; tokens bill the subscription)
         • `/claude-stop` — kill the live turn (same as the Stop button)
         • `/claude-status` — config + live turn + usage-window headroom
@@ -4628,6 +4656,38 @@ final class SlackService: ObservableObject {
         SlackFileLog.log("claude-effort: \(channelId) -> \(level)")
         await respond(channel: channelId, responseUrl: responseUrl,
                       text: "Reasoning effort set to *\(level)* — \(Self.effortLabel(level)). Applies to the current and new threads.")
+    }
+
+    /// `/claude-model <sonnet|opus|haiku|claude-…>` + `!model` — per-channel
+    /// engine model, mirroring the effort dial. Sonnet is the default; Opus is
+    /// heavier (draws the shared usage window down faster); Haiku is fast and
+    /// cheap. No argument reports the current setting.
+    private func setModel(arg: String, channelId: String, responseUrl: String?) async {
+        let choice = arg.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !choice.isEmpty else {
+            let cur = effectiveConfig(channelId).model ?? Self.slackModel
+            await respond(channel: channelId, responseUrl: responseUrl,
+                          text: "Model is *\(cur)*. Change it: `/claude-model <sonnet|opus|haiku|fable>` (or a full `claude-…` id).",
+                          ephemeral: true)
+            return
+        }
+        guard Self.modelChoices.contains(choice) || choice.hasPrefix("claude-") else {
+            await respond(channel: channelId, responseUrl: responseUrl,
+                          text: "Usage: `/claude-model <sonnet|opus|haiku|fable>` (or a full `claude-…` id).",
+                          ephemeral: true)
+            return
+        }
+        applyConfig(channelId) { $0.model = choice }
+        SlackFileLog.log("claude-model: \(channelId) -> \(choice)")
+        let note: String
+        switch choice {
+        case "fable": note = " Top tier — heaviest on the shared usage window."
+        case "opus": note = " Heavier — it draws the shared usage window down faster."
+        case "haiku": note = " Fast and cheap — good for quick asks."
+        default: note = ""
+        }
+        await respond(channel: channelId, responseUrl: responseUrl,
+                      text: "Model set to *\(choice)* for this channel (current + new threads).\(note)")
     }
 
     /// `/claude-followup` — retained for compatibility. Mid-turn messages now
@@ -4905,6 +4965,10 @@ final class SlackService: ObservableObject {
                 await addTriage(title: arg, body: nil, channelId: channelId, user: user,
                                 projectArg: nil)
             }
+        case "model":
+            await setModel(arg: arg, channelId: channelId, responseUrl: nil)
+        case "effort":
+            await setEffort(arg: arg, channelId: channelId, responseUrl: nil)
         case "digest":
             await postMorningDigest(force: true)
         case "help":
@@ -4925,7 +4989,7 @@ final class SlackService: ObservableObject {
         return await resolvedContext(channelId: channelId)
     }
 
-    private static let bangHelp = "PM verbs: `!tasks [project]` task card · `!brief [project]` briefing · `!add <task>` capture to ## Triage (DM form: `!add <project>: <task>`) · `!digest` morning digest now · `!help`. Start a message without `!` to talk to Claude — in a project channel that drives the project's session; in this DM it's a generic session."
+    private static let bangHelp = "PM verbs: `!tasks [project]` task card · `!brief [project]` briefing · `!add <task>` capture to ## Triage (DM form: `!add <project>: <task>`) · `!digest` morning digest now. Dials: `!model <sonnet|opus|haiku|fable>` · `!effort <low|medium|high|xhigh|max>` (no arg shows current) · `!help`. Start a message without `!` to talk to Claude — in a project channel that drives the project's session; in this DM it's a generic session."
 
     // MARK: - DM: the generic (no-project) surface
 

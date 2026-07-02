@@ -99,10 +99,31 @@ struct SupervisorRequest {
             return toolInput["notebook_path"] as? String ?? ""
         case "WebFetch", "WebSearch":
             return (toolInput["url"] as? String) ?? (toolInput["query"] as? String) ?? ""
+        case "Skill":
+            // Render the invocation the way the CLI shows it, never raw JSON.
+            let name = toolInput["skill"] as? String ?? ""
+            let args = toolInput["args"] as? String ?? ""
+            let joined = name.isEmpty ? args : (args.isEmpty ? "/\(name)" : "/\(name) \(args)")
+            return joined.isEmpty ? "(no arguments)" : joined
         default:
-            if let data = try? JSONSerialization.data(withJSONObject: toolInput, options: [.sortedKeys]),
-               let s = String(data: data, encoding: .utf8) { return s }
-            return ""
+            // Unknown tools: readable `key: value` lines, NEVER a JSON
+            // re-encode — JSONSerialization escapes every "/" (`https:\/\/…`)
+            // and the raw dump reads as a mangle. Long string values get
+            // their own paragraph; nested values fall back to compact JSON
+            // with the slash-escapes undone.
+            let lines = toolInput.keys.sorted().compactMap { key -> String? in
+                let value = toolInput[key]
+                if let s = value as? String {
+                    return s.count > 80 ? "\(key):\n\(s)" : "\(key): \(s)"
+                }
+                if let n = value as? NSNumber { return "\(key): \(n)" }
+                guard let value,
+                      let data = try? JSONSerialization.data(withJSONObject: value,
+                                                             options: [.sortedKeys, .fragmentsAllowed]),
+                      let s = String(data: data, encoding: .utf8) else { return nil }
+                return "\(key): \(s.replacingOccurrences(of: "\\/", with: "/"))"
+            }
+            return lines.joined(separator: "\n")
         }
     }
 

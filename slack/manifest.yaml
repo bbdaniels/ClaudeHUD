@@ -52,6 +52,9 @@ features:
     - command: /claude-effort
       description: Set reasoning effort (low|medium|high|xhigh|max)
       should_escape: false
+    - command: /claude-model
+      description: Set the engine model (sonnet|opus|haiku|fable)
+      should_escape: false
     - command: /claude-followup
       description: Default for a mid-turn message (queue|steer|ask)
       should_escape: false
