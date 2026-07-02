@@ -264,21 +264,54 @@ enum SupervisorCards {
         ]
     }
 
-    /// 3.2 — the risk-tiered permission card. The gated action is shown verbatim
-    /// (size-capped); the verbs are the anti-fatigue levers.
+    /// The excerpt budget on the approval card; anything longer earns the
+    /// "Show full action" popout (mirrors the reasoning-modal pattern).
+    static let approvalExcerptLimit = 260
+
+    /// 3.2 — the risk-tiered permission card, redesigned for readability: a
+    /// human headline naming the ask, a short excerpt to decide at a glance,
+    /// ONE faint meta line (why gated · where), and the complete action behind
+    /// a "Show full action" modal. The verbs stay the anti-fatigue levers.
     static func approvalCard(promptId: String, toolName: String,
                              preview: String, cwd: String, reason: String?) -> [[String: Any]] {
         var blocks: [[String: Any]] = []
-        blocks.append(SlackBlocks.section(":lock:  *Approval needed*"))
-        if let reason, !reason.isEmpty {
-            blocks.append(SlackBlocks.context("Why gated: \(reason)"))
+
+        // Headline: the ask, in words.
+        let headline: String
+        switch toolName {
+        case "Bash":              headline = "run a *command*"
+        case "Edit", "MultiEdit": headline = "edit a *file*"
+        case "Write":             headline = "write a *file*"
+        case "NotebookEdit":      headline = "edit a *notebook*"
+        case "WebFetch":          headline = "fetch a *page*"
+        case "WebSearch":         headline = "search the *web*"
+        case "Skill":
+            let name = preview.hasPrefix("/")
+                ? String(preview.dropFirst().prefix(while: { !$0.isWhitespace }))
+                : ""
+            headline = name.isEmpty ? "run a *skill*" : "run the *\(name)* skill"
+        default:                  headline = "use *\(toolName)*"
         }
-        let label = toolName == "Bash" ? "Run in terminal:" : "\(toolName):"
-        let shown = SlackBlocks.truncate(preview, 1500)
-        blocks.append(SlackBlocks.section("\(label)\n```\n\(shown)\n```"))
-        if !cwd.isEmpty {
-            blocks.append(SlackBlocks.context("Working dir: `\(cwd)`"))
+        blocks.append(SlackBlocks.section(":lock:  *Approval needed* — Claude wants to \(headline)"))
+
+        // Excerpt: one glanceable block. Commands and paths read as code;
+        // prose (skill args, queries) reads as a quote.
+        let flat = preview.replacingOccurrences(of: "\n", with: "  ")
+            .trimmingCharacters(in: .whitespaces)
+        let excerpt = SlackBlocks.truncate(flat, approvalExcerptLimit)
+        if !excerpt.isEmpty {
+            let codeish = ["Bash", "Edit", "Write", "MultiEdit", "NotebookEdit"].contains(toolName)
+            blocks.append(SlackBlocks.section(codeish ? "`\(excerpt)`" : "> \(excerpt)"))
         }
+
+        // One faint meta line: why gated · where.
+        var meta: [String] = []
+        if let reason, !reason.isEmpty { meta.append(reason) }
+        if !cwd.isEmpty { meta.append("in `\(cwd)`") }
+        if !meta.isEmpty {
+            blocks.append(SlackBlocks.context(meta.joined(separator: "  ·  ")))
+        }
+
         // "Approve & always allow X here" — X is the tool name (the sanctioned
         // writer of a settings rule). Hidden for tools where an always-rule makes
         // no sense (network/destructive stay one-shot).
@@ -289,11 +322,23 @@ enum SupervisorCards {
         if toolName == "Bash" || toolName == "Edit" || toolName == "Write" || toolName == "MultiEdit" {
             buttons.append(SlackBlocks.button(text: "Approve & always allow \(toolName) here",
                                               actionId: SlackAction.approveAlways, value: promptId))
+        } else if toolName == "Skill" {
+            // Scoped: the rule written is Skill(<name>), never all skills.
+            let name = preview.hasPrefix("/")
+                ? String(preview.dropFirst().prefix(while: { !$0.isWhitespace }))
+                : ""
+            let label = name.isEmpty ? "this skill" : "/\(name)"
+            buttons.append(SlackBlocks.button(text: "Approve & always allow \(label) here",
+                                              actionId: SlackAction.approveAlways, value: promptId))
         }
         buttons.append(SlackBlocks.button(text: ":no_entry: Deny",
                                           actionId: SlackAction.approveDeny, value: promptId, style: "danger"))
         buttons.append(SlackBlocks.button(text: ":pencil2: Deny with note…",
                                           actionId: SlackAction.approveDenyNote, value: promptId))
+        if preview.count > approvalExcerptLimit {
+            buttons.append(SlackBlocks.button(text: ":mag: Show full action",
+                                              actionId: SlackAction.approveDetails, value: promptId))
+        }
         blocks.append(SlackBlocks.actions(buttons))
         return blocks
     }

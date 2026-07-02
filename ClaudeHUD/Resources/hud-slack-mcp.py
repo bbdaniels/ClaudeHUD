@@ -174,6 +174,11 @@ def classify(tool_name, tool_input):
     if tool_name in GATE_TOOLS:
         return ("gate", "consequential action")
 
+    # Skills run whole tool sequences (browser drives, multi-file edits), so
+    # they stay gated — with honest copy, not "unrecognized action".
+    if tool_name == "Skill":
+        return ("gate", "skill invocation — runs a tool sequence")
+
     # Our own MCP tools are always allowed (ask_human, approve).
     if tool_name.startswith("mcp__hud__"):
         return ("allow", None)

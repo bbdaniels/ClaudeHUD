@@ -992,15 +992,20 @@ final class SlackService: ObservableObject {
         }
         let isFresh = state.sessionId == nil
 
-        // Dials for this turn, read directly off the (possibly seeded) state so the
-        // key need not exist yet.
+        // Dials for this turn: the conversation's own setting wins, else the
+        // CHANNEL default (so a dial set between turns — or before an app
+        // restart — reaches EXISTING threads too, not just new ones), else the
+        // global default.
+        let channelDefault = channelDefaults[channelId]
         let turnEffort: String = {
-            let e = state.effort ?? Self.defaultEffort
+            let e = state.effort ?? channelDefault?.effort ?? Self.defaultEffort
             return ClaudeCLIClient.effortLevels.contains(e) ? e : Self.defaultEffort
         }()
         let turnMode = state.permissionMode
         let turnModel: String = {
-            guard let m = state.model, !m.isEmpty else { return Self.slackModel }
+            guard let m = state.model ?? channelDefault?.model, !m.isEmpty else {
+                return Self.slackModel
+            }
             return m
         }()
         let turnCap = existing.flatMap { turnCapOverride[$0.key] } ?? state.maxTurns ?? Self.defaultMaxTurns
@@ -1990,6 +1995,8 @@ final class SlackService: ObservableObject {
             await resolveApproval(promptId: actionValue, behavior: .deny(nil))
         case SlackAction.approveDenyNote:
             await openDenyNoteModal(promptId: actionValue, triggerId: triggerId)
+        case SlackAction.approveDetails:
+            await showApprovalDetails(promptId: actionValue, triggerId: triggerId)
         // 3.3 — ExitPlanMode gate.
         case SlackAction.planApprove:
             await resolveApproval(promptId: actionValue, behavior: .allow)
@@ -3118,9 +3125,18 @@ final class SlackService: ObservableObject {
                 ? ":white_check_mark: Plan approved — executing."
                 : ":white_check_mark: Approved."
         case .allowAlways:
-            writeAlwaysAllowRule(cwd: prompt.request.cwd, toolName: prompt.request.toolName)
+            // A Skill rule scopes to the SPECIFIC skill (`Skill(gstack)`), so
+            // always-allowing gstack never unfetters other skills.
+            let rule: String
+            if prompt.request.toolName == "Skill",
+               let skill = prompt.request.toolInput["skill"] as? String, !skill.isEmpty {
+                rule = "Skill(\(skill))"
+            } else {
+                rule = prompt.request.toolName
+            }
+            writeAlwaysAllowRule(cwd: prompt.request.cwd, toolName: rule)
             decision = SupervisorDecision.allow()
-            note = ":white_check_mark: Approved — and always allow `\(prompt.request.toolName)` here."
+            note = ":white_check_mark: Approved — and always allow `\(rule)` here."
         case .deny(let msg):
             decision = SupervisorDecision.deny(msg ?? "Denied by the operator.")
             note = msg == nil ? ":no_entry: Denied." : ":no_entry: Denied with a note — the agent will adjust."
@@ -4411,6 +4427,11 @@ final class SlackService: ObservableObject {
         • `!digest` — post the cross-project morning digest now
         • 📥/📌 reaction on any message — capture it to ## Triage
 
+        *Permissions*
+        • `!perms [project]` — mode, supervision, and this project's always-allow rules
+        • `!allow <rule>` — add an always-allow rule (e.g. `!allow Skill(gstack)`, `!allow Bash(git *)`)
+        • Approval cards offer "Approve & always allow" for Bash/Edit/Write and (scoped) for skills
+
         *DM the app* for a generic session (no project): plain messages run in a scratch workspace; PM verbs there take the project by name (`!tasks claudehud`, `!add claudehud: fix the header`).
         """
         let blocks: [[String: Any]] = [
@@ -4969,6 +4990,10 @@ final class SlackService: ObservableObject {
             await setModel(arg: arg, channelId: channelId, responseUrl: nil)
         case "effort":
             await setEffort(arg: arg, channelId: channelId, responseUrl: nil)
+        case "perms", "permissions":
+            await permsCard(channelId: channelId, user: user, projectArg: projectArg)
+        case "allow":
+            await allowRule(arg: arg, channelId: channelId, user: user)
         case "digest":
             await postMorningDigest(force: true)
         case "help":
@@ -4989,7 +5014,7 @@ final class SlackService: ObservableObject {
         return await resolvedContext(channelId: channelId)
     }
 
-    private static let bangHelp = "PM verbs: `!tasks [project]` task card · `!brief [project]` briefing · `!add <task>` capture to ## Triage (DM form: `!add <project>: <task>`) · `!digest` morning digest now. Dials: `!model <sonnet|opus|haiku|fable>` · `!effort <low|medium|high|xhigh|max>` (no arg shows current) · `!help`. Start a message without `!` to talk to Claude — in a project channel that drives the project's session; in this DM it's a generic session."
+    private static let bangHelp = "PM verbs: `!tasks [project]` task card · `!brief [project]` briefing · `!add <task>` capture to ## Triage (DM form: `!add <project>: <task>`) · `!digest` morning digest now. Dials: `!model <sonnet|opus|haiku|fable>` · `!effort <low|medium|high|xhigh|max>` (no arg shows current) · `!perms` view permissions · `!allow <rule>` always-allow (e.g. `!allow Skill(gstack)`) · `!help`. Start a message without `!` to talk to Claude — in a project channel that drives the project's session; in this DM it's a generic session."
 
     // MARK: - DM: the generic (no-project) surface
 
@@ -5484,6 +5509,93 @@ final class SlackService: ObservableObject {
         digestState.lastPostedDay = today
         saveDigestState()
         SlackFileLog.log("digest posted: \(lines.count) projects -> \(dm)")
+    }
+
+    /// `!perms` — the channel project's live permission surface: mode,
+    /// supervision, and the project's `.claude/settings.local.json` allow
+    /// rules (the file Approve-always writes). Read-only view; `!allow <rule>`
+    /// appends via the same sanctioned writer.
+    private func permsCard(channelId: String, user: String, projectArg: String?) async {
+        guard let resolved = await resolvedPMContext(channelId: channelId, projectArg: projectArg) else {
+            await postEphemeral(channel: channelId, user: user,
+                                text: "No project matched — in a DM use `!perms <project>`.")
+            return
+        }
+        let cfg = effectiveConfig(channelId)
+        var lines = ["*Permissions — \(resolved.name)*"]
+        lines.append("• Mode: *\(cfg.permissionMode)* · supervision: *\(supervisedMode ? "on" : "off")* — reads and in-project edits auto-allow; Bash, network, and skills gate on a card")
+        let path = "\(resolved.cwd)/.claude/settings.local.json"
+        var rules: [String] = []
+        if let data = FileManager.default.contents(atPath: path),
+           let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+           let perms = json["permissions"] as? [String: Any],
+           let allow = perms["allow"] as? [String] {
+            rules = allow
+        }
+        if rules.isEmpty {
+            lines.append("• Always-allow rules: _none_ — a card's \"Approve & always allow\" button or `!allow <rule>` adds one")
+        } else {
+            lines.append("• Always-allow rules (`.claude/settings.local.json`):")
+            lines.append(contentsOf: rules.map { "        `\($0)`" })
+        }
+        await postMessage(channel: channelId, text: "Permissions — \(resolved.name)", blocks: [
+            SlackBlocks.section(lines.joined(separator: "\n")),
+            SlackBlocks.context("`!allow Skill(gstack)` · `!allow Bash(git *)` — rules auto-allow BEFORE the approval gate · remove rules by editing the file")
+        ])
+    }
+
+    /// `!allow <rule>` — append one allow rule to the channel project's
+    /// settings.local.json via the sanctioned writer. Takes a rule shape only
+    /// (`Tool` or `Tool(specifier)`); never inferred.
+    private func allowRule(arg: String, channelId: String, user: String) async {
+        let rule = arg.trimmingCharacters(in: .whitespaces)
+        guard rule.range(of: #"^[A-Za-z_][A-Za-z0-9_]*(\(.+\))?$"#, options: .regularExpression) != nil else {
+            await postEphemeral(channel: channelId, user: user,
+                                text: "Usage: `!allow <Tool>` or `!allow <Tool(specifier)>` — e.g. `!allow Skill(gstack)`, `!allow Bash(git *)`. View with `!perms`.")
+            return
+        }
+        guard let resolved = await resolvedContext(channelId: channelId) else {
+            await postEphemeral(channel: channelId, user: user,
+                                text: "No project bound to this channel — `!allow` works in project channels.")
+            return
+        }
+        writeAlwaysAllowRule(cwd: resolved.cwd, toolName: rule)
+        SlackFileLog.log("allow rule: \(rule) -> \(resolved.name)")
+        await postMessage(channel: channelId,
+                          text: ":white_check_mark: Allow rule `\(rule)` added for *\(resolved.name)* — applies from the next turn. `!perms` shows the list.")
+    }
+
+    /// 🔍 Show full action — the approval card's popout (the reasoning-modal
+    /// pattern): the card carries a short excerpt; the complete gated action
+    /// opens here, chunked into code blocks.
+    private func showApprovalDetails(promptId: String, triggerId: String) async {
+        guard let prompt = parkedPrompts[promptId] else {
+            SlackFileLog.log("approve-details: prompt \(promptId) gone")
+            return
+        }
+        guard !triggerId.isEmpty else { return }
+        let req = prompt.request
+        var blocks: [[String: Any]] = [
+            SlackBlocks.section("*\(req.toolName)* — the full gated action:")
+        ]
+        var rest = req.actionPreview
+        var used = 0
+        while !rest.isEmpty, used < 20 {
+            let chunk = String(rest.prefix(2800))
+            rest = String(rest.dropFirst(chunk.count))
+            blocks.append(SlackBlocks.section("```\n\(chunk)\n```"))
+            used += 1
+        }
+        if !req.cwd.isEmpty {
+            blocks.append(SlackBlocks.context("working dir `\(req.cwd)`"))
+        }
+        let view: [String: Any] = [
+            "type": "modal",
+            "title": ["type": "plain_text", "text": "Gated action"],
+            "close": ["type": "plain_text", "text": "Close"],
+            "blocks": blocks
+        ]
+        await openModal(triggerId: triggerId, view: view)
     }
 
     /// The operator's DM channel, resolved once and cached: in this solo
