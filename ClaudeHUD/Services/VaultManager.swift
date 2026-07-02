@@ -278,6 +278,25 @@ class VaultManager: ObservableObject {
         guard let filePath = item.obsidianFilePath,
               let lineNumber = item.obsidianLineNumber else { return }
 
+        // An item sourced from a project's Tasks.md completes via the sanctioned
+        // Active→Completed move (date stamp + `updated:` bump) when it is a
+        // top-level task bullet. The old in-place `[x]` insert marooned the task
+        // in `## Active`: never swept to `## Completed`, invisible to the
+        // briefing's "Recently done", `updated:` never bumped. Nested detail
+        // bullets (indented) are not standalone tasks and keep the in-place
+        // toggle below.
+        if filePath.hasSuffix("/Tasks.md"),
+           let probe = try? String(contentsOf: URL(fileURLWithPath: filePath), encoding: .utf8) {
+            let probeLines = probe.components(separatedBy: "\n")
+            if lineNumber < probeLines.count, probeLines[lineNumber].hasPrefix("- "),
+               case .moved = Self.completeActiveTask(taskFile: filePath,
+                                                     expectedTitle: nil,
+                                                     lineHint: lineNumber,
+                                                     provenance: nil) {
+                return
+            }
+        }
+
         // 1. Toggle in the daily note (or whichever file the item came from)
         let url = URL(fileURLWithPath: filePath)
         guard let content = try? String(contentsOf: url, encoding: .utf8) else { return }
@@ -472,6 +491,216 @@ class VaultManager: ObservableObject {
 
         let newContent = keptLines.joined(separator: "\n")
         try? newContent.write(toFile: filePath, atomically: true, encoding: .utf8)
+    }
+
+    // MARK: - Sanctioned Tasks.md machine writes (shared by Today tab + Slack)
+
+    /// Outcome of the sanctioned Active→Completed move.
+    enum TaskCompletion {
+        case moved(String)      // the completed task's title
+        case notFound           // no matching top-level bullet in ## Active
+        case ambiguous(Int)     // several matches — never guess
+        case failed(String)     // I/O error
+    }
+
+    /// Parsed title of a TOP-LEVEL `- ` bullet line (checkbox marker stripped),
+    /// via the shared `splitBullet` so the Slack task card, the Today tab, and
+    /// this writer all agree on what a task's title is. Nil for anything else
+    /// (indented detail, headings, prose).
+    static func bulletTitle(_ line: String) -> String? {
+        guard line.hasPrefix("- ") else { return nil }
+        var inner = String(line.dropFirst(2))
+        for marker in ["[ ] ", "[x] ", "[X] "] where inner.hasPrefix(marker) {
+            inner = String(inner.dropFirst(marker.count))
+            break
+        }
+        let title = VaultProjectService.splitBullet(inner).title
+        return title.isEmpty ? nil : title
+    }
+
+    /// Two titles agree when equal, or when they share the full prefix of the
+    /// shorter one (≥16 chars) — covers `**bold**` titles that wrap across
+    /// source lines and card values truncated for Block Kit. Short strings
+    /// never prefix-match, so this is not a fuzzy search.
+    private static func titlesAgree(_ a: String, _ b: String) -> Bool {
+        if a == b { return true }
+        let n = min(a.count, b.count)
+        guard n >= 16 else { return false }
+        return a.hasPrefix(String(b.prefix(n))) || b.hasPrefix(String(a.prefix(n)))
+    }
+
+    /// The sanctioned Active→Completed move for ONE task, shared by the Today
+    /// tab's checkbox and the Slack task card. Finds the task's top-level `- `
+    /// bullet inside `## Active` (by source line when the caller has one, else
+    /// by parsed title — never a fuzzy guess), moves the bullet AND its
+    /// indented continuation/detail block to the top of `## Completed`, marks
+    /// it `[x]` with today's date (plus provenance, when given), and bumps the
+    /// frontmatter `updated:`. Matches the email-ingest completion format so
+    /// the cleaner's "Recently done" picks it up.
+    static func completeActiveTask(taskFile: String, expectedTitle: String?,
+                                   lineHint: Int?, provenance: String?) -> TaskCompletion {
+        guard taskFile.hasSuffix("/Tasks.md") else { return .failed("not a Tasks.md") }
+        guard let content = try? String(contentsOfFile: taskFile, encoding: .utf8) else {
+            return .failed("unreadable Tasks.md")
+        }
+        var lines = content.components(separatedBy: "\n")
+
+        // ## Active bounds.
+        var activeStart: Int?
+        var activeEnd = lines.count
+        for (idx, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if activeStart == nil {
+                if trimmed.hasPrefix("## Active") { activeStart = idx }
+            } else if trimmed.hasPrefix("## ") {
+                activeEnd = idx
+                break
+            }
+        }
+        guard let aStart = activeStart else { return .notFound }
+
+        // Locate the task's opening bullet: trust a line hint whose parsed
+        // title agrees with the caller's, else search by title.
+        var target: Int?
+        if let hint = lineHint, hint > aStart, hint < activeEnd, hint < lines.count,
+           let hintTitle = Self.bulletTitle(lines[hint]),
+           expectedTitle == nil || titlesAgree(hintTitle, expectedTitle ?? "") {
+            target = hint
+        } else if let expected = expectedTitle {
+            let hits = (aStart + 1..<activeEnd).filter { idx in
+                guard let t = Self.bulletTitle(lines[idx]) else { return false }
+                return titlesAgree(t, expected)
+            }
+            if hits.count == 1 { target = hits[0] }
+            else if hits.count > 1 { return .ambiguous(hits.count) }
+        }
+        guard let idx = target else { return .notFound }
+        let movedTitle = Self.bulletTitle(lines[idx]) ?? expectedTitle ?? ""
+
+        // The bullet's block: itself plus any following indented continuation
+        // or nested-detail lines (blank lines included only when more indented
+        // content follows).
+        var lastContent = idx
+        var scan = idx + 1
+        while scan < activeEnd {
+            let line = lines[scan]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { scan += 1; continue }
+            guard line.hasPrefix(" ") || line.hasPrefix("\t") else { break }
+            lastContent = scan
+            scan += 1
+        }
+        let blockEnd = lastContent + 1
+
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        let today = fmt.string(from: Date())
+
+        var block = Array(lines[idx..<blockEnd])
+        var head = Self.markBulletChecked(block[0])
+        while head.hasSuffix(" ") { head.removeLast() }
+        head += " (\(today))"
+        if let provenance, !provenance.isEmpty { head += " ↳ \(provenance)" }
+        block[0] = head
+
+        lines.removeSubrange(idx..<blockEnd)
+
+        if let completedIdx = lines.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces).hasPrefix("## Completed")
+        }) {
+            lines.insert(contentsOf: block, at: completedIdx + 1)
+        } else {
+            if let last = lines.last, !last.trimmingCharacters(in: .whitespaces).isEmpty {
+                lines.append("")
+            }
+            lines.append("## Completed")
+            lines.append(contentsOf: block)
+        }
+
+        for (i, line) in lines.enumerated() where line.hasPrefix("updated:") {
+            lines[i] = "updated: \(today)"
+            break
+        }
+
+        do {
+            try lines.joined(separator: "\n").write(toFile: taskFile, atomically: true, encoding: .utf8)
+            return .moved(movedTitle)
+        } catch {
+            return .failed(error.localizedDescription)
+        }
+    }
+
+    /// Append one item to `## Triage` — the schema's sanctioned machine-intake
+    /// section (unreviewed; the human promotes items into `## Active`). Creates
+    /// the section before `## Completed` when absent. Entry format matches the
+    /// email-ingest job: `- [ ] **<title>**: <summary> ↳ <provenance>`. Does
+    /// NOT bump `updated:` (intake is not project activity).
+    @discardableResult
+    static func appendTriageItem(taskFile: String, title: String, body: String?,
+                                 provenance: String) -> Bool {
+        guard let content = try? String(contentsOfFile: taskFile, encoding: .utf8) else { return false }
+        var lines = content.components(separatedBy: "\n")
+
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanTitle.isEmpty else { return false }
+        let summary = (body ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ")
+        var entry = "- [ ] **\(cleanTitle)**"
+        if !summary.isEmpty { entry += ": \(summary)" }
+        entry += " ↳ \(provenance)"
+
+        var triageIdx = lines.firstIndex {
+            $0.trimmingCharacters(in: .whitespaces).hasPrefix("## Triage")
+        }
+        if triageIdx == nil {
+            var insertAt = lines.firstIndex {
+                $0.trimmingCharacters(in: .whitespaces).hasPrefix("## Completed")
+            } ?? lines.count
+            if insertAt > 0, !lines[insertAt - 1].trimmingCharacters(in: .whitespaces).isEmpty {
+                lines.insert("", at: insertAt)
+                insertAt += 1
+            }
+            lines.insert("## Triage", at: insertAt)
+            lines.insert("", at: insertAt + 1)
+            triageIdx = insertAt
+        }
+        guard let tIdx = triageIdx else { return false }
+
+        // Append at the END of the Triage section (after the last entry).
+        var insertAt = lines.count
+        for i in (tIdx + 1)..<lines.count
+        where lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("## ") {
+            insertAt = i
+            break
+        }
+        while insertAt > tIdx + 1,
+              lines[insertAt - 1].trimmingCharacters(in: .whitespaces).isEmpty {
+            insertAt -= 1
+        }
+        lines.insert(entry, at: insertAt)
+
+        do {
+            try lines.joined(separator: "\n").write(toFile: taskFile, atomically: true, encoding: .utf8)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Count of unchecked items in `## Triage` (0 when the section is absent).
+    static func triageCount(taskFile: String) -> Int {
+        guard let content = try? String(contentsOfFile: taskFile, encoding: .utf8) else { return 0 }
+        let lines = content.components(separatedBy: "\n")
+        guard let tIdx = lines.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces).hasPrefix("## Triage")
+        }) else { return 0 }
+        var count = 0
+        for i in (tIdx + 1)..<lines.count {
+            let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("## ") { break }
+            if trimmed.hasPrefix("- [ ]") { count += 1 }
+        }
+        return count
     }
 
     /// Extract the actionable tasks from a project's task file as `TodoItem`s
