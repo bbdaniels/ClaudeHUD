@@ -1054,15 +1054,13 @@ final class SlackService: ObservableObject {
         }
 
         // Persist the checkpoint under the root ts (its Show-diff/Undo button key).
+        // The dirty-tree caveat renders as part of the root tile's provenance
+        // line (one-message turn model) — never as a separate thread message.
         if let cp = checkpoint, cp.isCapturable, let rootTs {
             checkpoints[rootTs] = cp
             saveCheckpoints()
             if cp.dirtyAtStart {
                 SlackFileLog.log("checkpoint: \(key) tree was dirty before turn")
-                await postMessage(
-                    channel: channelId,
-                    text: ":information_source: Working tree had uncommitted changes before this turn — Undo restores to this pre-turn snapshot, not a clean tree.",
-                    threadTs: rootTs)
             }
         }
 
@@ -1302,7 +1300,8 @@ final class SlackService: ObservableObject {
         // too, read from the still-live in-flight record (2.3 "surface it").
         let provenance: String? = {
             guard let k = convKey, let t = inFlightTurns[k] else { return nil }
-            return Self.provenanceLine(project: t.projectName, mode: t.permissionMode, effort: t.effort)
+            return Self.provenanceLine(project: t.projectName, mode: t.permissionMode, effort: t.effort,
+                                       dirtyAtStart: t.checkpoint?.dirtyAtStart ?? false)
         }()
         // The single turn message keeps Show details / Show reasoning on the
         // terminal card (the trail was retired to `trailsByRoot` just before this).
@@ -1540,7 +1539,8 @@ final class SlackService: ObservableObject {
         buttons += trailButtons
 
         let provenance = Self.provenanceLine(project: turn.projectName,
-                                             mode: turn.permissionMode, effort: turn.effort)
+                                             mode: turn.permissionMode, effort: turn.effort,
+                                             dirtyAtStart: turn.checkpoint?.dirtyAtStart ?? false)
         let blocks = rootBlocks(state: .failed, request: request, statusLine: statusLine,
                                 body: body, buttons: buttons, provenance: provenance)
         let fallback = ":x: Failed · \(statusLine)"
@@ -1623,7 +1623,8 @@ final class SlackService: ObservableObject {
             SlackBlocks.section(head),
             SlackBlocks.context("> \(SlackBlocks.truncate(Self.singleLine(turn.request), 280))"),
             SlackBlocks.context(Self.provenanceLine(project: turn.projectName,
-                                                    mode: turn.permissionMode, effort: turn.effort))
+                                                    mode: turn.permissionMode, effort: turn.effort,
+                                                    dirtyAtStart: turn.checkpoint?.dirtyAtStart ?? false))
         ]
         // One-message turn: the activity trail is folded INTO this root tile as a
         // single counts-only line (NO inline action list, NO inline thinking) plus
@@ -1664,9 +1665,16 @@ final class SlackService: ObservableObject {
 
     /// Faint provenance/context line carried on a turn's root: where it came
     /// from and the dials it ran under, so `effort` is visible on every turn
-    /// (2.3 "surface it"; the fuller provenance stamp is Phase 6).
-    private static func provenanceLine(project: String, mode: String, effort: String) -> String {
-        "_via Slack · \(project) · \(mode) · effort=\(effort)_"
+    /// (2.3 "surface it"; the fuller provenance stamp is Phase 6). The
+    /// dirty-tree caveat folds in here too — the one-message turn model owns
+    /// ALL turn metadata; it must never post as a separate thread message.
+    private static func provenanceLine(project: String, mode: String, effort: String,
+                                       dirtyAtStart: Bool = false) -> String {
+        var line = "_via Slack · \(project) · \(mode) · effort=\(effort)_"
+        if dirtyAtStart {
+            line += "\n_:information_source: tree had uncommitted changes pre-turn — Undo restores that snapshot, not a clean tree_"
+        }
+        return line
     }
 
     /// Start the single long-lived heartbeat loop (idempotent). Every 5s it
@@ -2787,7 +2795,8 @@ final class SlackService: ObservableObject {
         let status = kind == .approve ? "approval needed" :
                      (kind == .plan ? "plan ready" : "needs a decision")
         let provenance = Self.provenanceLine(project: turn.projectName,
-                                             mode: turn.permissionMode, effort: turn.effort)
+                                             mode: turn.permissionMode, effort: turn.effort,
+                                             dirtyAtStart: turn.checkpoint?.dirtyAtStart ?? false)
         let blocks = rootBlocks(state: .needsYou, request: turn.request,
                                 statusLine: status, body: ":point_down: Answer in the thread.",
                                 buttons: [], provenance: provenance)
