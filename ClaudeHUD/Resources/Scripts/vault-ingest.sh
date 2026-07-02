@@ -1,6 +1,6 @@
 #!/bin/bash
 # === Managed by ClaudeHUD ============================================
-# script-version: 1.9.0
+# script-version: 1.10.0
 # source: ClaudeHUD/Resources/Scripts/vault-ingest.sh
 # To edit, fork in the ClaudeHUD repo and rebuild. The installer
 # detects local edits to the installed copy and refuses to clobber
@@ -228,6 +228,13 @@ import sys, json
 MACH = ("You select the single most relevant skill", "# Session Ingest",
         "<!-- === Managed by ClaudeHUD", "Reply with exactly",
         "Return ONLY this JSON object")
+# Human-driven RELAY sessions run as SDK processes (entrypoint "sdk-cli")
+# yet are a person's real work: the ClaudeHUD Slack relay stamps its
+# context preamble onto the first user message. Match that marker BEFORE
+# the entrypoint exit, or every Slack-driven session is dropped
+# unrecorded (no digest, no Sessions.md row). Mirror:
+# SessionHistoryService.classifyHead.
+REAL = ("[ClaudeHUD Slack session.",)
 # A promptSource:"sdk" record alone does NOT condemn: real interactive
 # sessions can carry an injected selector prompt as their first user
 # record yet hold a person's typed work later. Skip sdk records, treat
@@ -242,9 +249,16 @@ try:
             try: j = json.loads(line)
             except Exception: continue
             if j.get("type") != "user": continue
+            c = (j.get("message") or {}).get("content")
+            txt = c if isinstance(c, str) else ""
+            if not txt and isinstance(c, list):
+                for part in c:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        txt = str(part.get("text") or ""); break
+            if txt.strip().startswith(REAL):
+                sys.exit(1)                      # real (human-driven relay)
             if j.get("entrypoint") == "sdk-cli":
                 sys.exit(0)                      # machine (definitive)
-            c = (j.get("message") or {}).get("content")
             if j.get("promptSource") == "sdk":
                 saw_sdk = True; continue         # injected selector — skip
             if not isinstance(c, str): continue  # tool results etc.

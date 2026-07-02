@@ -1,6 +1,6 @@
 <!--
 === Managed by ClaudeHUD ============================================
-script-version: 1.2.0
+script-version: 1.3.0
 source: ClaudeHUD/Resources/Scripts/vault-ingest-prompt.md
 To edit, fork in the ClaudeHUD repo and rebuild. The installer
 detects local edits to the installed copy and refuses to clobber
@@ -41,6 +41,11 @@ script does all file writes. You have read-only tools by design.
    smoke probe ("Reply with exactly…", "Return ONLY this JSON object…"),
    another automation's `claude -p` run — output `NO_DURABLE_CONTENT`.
    These are not the user's sessions; digesting one pollutes the log.
+   **EXCEPTION — relay sessions ARE the user's sessions:** a first user
+   message beginning `[ClaudeHUD Slack session.` is the ClaudeHUD Slack
+   relay driving a real session for the user; the person's own request
+   follows "User message:" inside it. Treat such a transcript as a normal
+   human session and judge durability on its actual content.
 3. Otherwise emit ONLY this, between the markers, nothing before/after:
 
 ```

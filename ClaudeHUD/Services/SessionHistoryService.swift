@@ -456,6 +456,18 @@ class SessionHistoryService: ObservableObject {
             guard let content = extractMessageContent(from: json),
                   let role = messageRole(from: json), role == "user" else { continue }
 
+            // Human-driven RELAY sessions run as SDK processes (entrypoint
+            // "sdk-cli") yet are a person's real work: the ClaudeHUD Slack
+            // relay stamps its context preamble onto the first user message.
+            // Match the marker BEFORE the sdk-cli drop or every Slack session
+            // vanishes from history. Title = the user's own text after the
+            // preamble. Mirror: vault-ingest.sh::is_machine_transcript REAL.
+            if content.hasPrefix("[ClaudeHUD Slack session.") {
+                let body = content.range(of: "User message: ")
+                    .map { String(content[$0.upperBound...]) } ?? content
+                let title = body.trimmingCharacters(in: .whitespacesAndNewlines)
+                return .normal(title.isEmpty ? "Slack session" : String(title.prefix(100)))
+            }
             if json["entrypoint"] as? String == "sdk-cli" { return .machine }
             if json["promptSource"] as? String == "sdk" { sawSdk = true; continue }
 
