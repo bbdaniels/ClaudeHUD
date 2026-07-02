@@ -127,6 +127,14 @@ enum SlackAction {
     static let retryWithChanges  = "hud:retry_with_changes"
     static let retryChangesModal = "hud:modal:retry_with_changes"
 
+    // PM verbs (task card + Triage capture). The Done button's `value` is
+    // "<line>\u{0001}<title>" — the task's source line in Tasks.md plus its
+    // parsed title, so the host-side completion can verify the card isn't
+    // stale before writing.
+    static let taskDone    = "hud:task:done"
+    static let taskAdd     = "hud:task:add"      // opens the add-task modal
+    static let taskRefresh = "hud:task:refresh"  // re-render the tapped card
+
     // view_submission (modal callback_ids) — Phase 3 / 1.4 register handlers
     // against these; declared now so the dispatch scaffold is complete.
     static let resumeWithChangesModal = "hud:modal:resume_with_changes"
@@ -135,6 +143,7 @@ enum SlackAction {
     static let denyNoteModal          = "hud:modal:deny_note"   // 3.2 deny-with-note
     static let editPlanModal          = "hud:modal:edit_plan"   // 3.3 edit-plan steering
     static let detailsModal           = "hud:modal:details"
+    static let taskAddModal           = "hud:modal:task_add"    // PM add-to-Triage form
 }
 
 // MARK: - Block Kit builders (Plan §1.2)
@@ -175,6 +184,13 @@ enum SlackBlocks {
 
     static func actions(_ buttons: [[String: Any]]) -> [String: Any] {
         ["type": "actions", "elements": buttons]
+    }
+
+    /// A section with a right-aligned accessory button (the task-card row).
+    static func sectionWithButton(_ mrkdwn: String, button: [String: Any]) -> [String: Any] {
+        ["type": "section",
+         "text": ["type": "mrkdwn", "text": truncate(mrkdwn, sectionLimit)],
+         "accessory": button]
     }
 
     /// Truncate to `max` chars with a trailing ellipsis (never overruns Slack's

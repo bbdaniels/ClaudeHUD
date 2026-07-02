@@ -58,6 +58,12 @@ features:
     - command: /claude-sync
       description: Reconcile vault projects with Slack channels
       should_escape: false
+    - command: /claude-tasks
+      description: Interactive task card (Done buttons, add to Triage)
+      should_escape: false
+    - command: /claude-brief
+      description: Post this project's briefing (Now / Next / Recently done)
+      should_escape: false
 oauth_config:
   scopes:
     bot:
@@ -85,6 +91,9 @@ settings:
       - message.groups
       - message.im
       - channel_created
+      # Enables 📥/📌 reaction → capture-to-Triage. Covered by the already-
+      # granted reactions:read scope, so saving this needs NO app reinstall.
+      - reaction_added
   interactivity:
     is_enabled: true
   socket_mode_enabled: true

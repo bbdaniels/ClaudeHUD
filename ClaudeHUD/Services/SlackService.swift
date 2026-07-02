@@ -565,6 +565,9 @@ final class SlackService: ObservableObject {
             // has a matching public channel the bot has joined. Never destructive.
             let summary = await self.syncChannels()
             SlackFileLog.log("startup sync: \(summary.projects) projects, \(summary.created) channels created")
+
+            // PM ambient layer: the once-daily cross-project morning digest DM.
+            self.startDigestLoop()
         }
     }
 
@@ -653,6 +656,8 @@ final class SlackService: ObservableObject {
             handleMessageEvent(event)
         case "channel_created":
             handleChannelCreated(event)
+        case "reaction_added":
+            handleReactionAdded(event)
         default:
             break
         }
@@ -806,6 +811,17 @@ final class SlackService: ObservableObject {
         }
         SlackFileLog.log("rx message in #\(name) (\(channel))")
         if !user.isEmpty { operatorUserId[channel] = user }
+
+        // PM bang-verbs: a message beginning with `!` is a host-side command
+        // (task card, briefing, Triage capture) — a vault read/write, never an
+        // engine turn. These work today in every bound channel; the slash twins
+        // (`/claude-tasks`, `/claude-brief`) additionally need a one-time
+        // manifest save on api.slack.com.
+        if text.trimmingCharacters(in: .whitespaces).hasPrefix("!") {
+            await handleBangCommand(text: text, channelId: channel, user: user,
+                                    threadTs: inboundThreadTs)
+            return
+        }
 
         // PER-THREAD ROUTING. A reply in a thread continues THAT thread's session;
         // a top-level message starts a NEW conversation in its own thread. Only a
@@ -1946,6 +1962,17 @@ final class SlackService: ObservableObject {
         case SlackAction.planReject:
             await resolveApproval(promptId: actionValue,
                                   behavior: .deny("Plan rejected — please re-plan with a different approach."))
+        // PM verbs — task-card interactions (host-side vault writes, no engine).
+        case SlackAction.taskDone:
+            let userId = (payload["user"] as? [String: Any])?["id"] as? String ?? ""
+            await onTaskDone(channelId: channelId, messageTs: messageTs,
+                             value: action["value"] as? String ?? "", user: userId)
+        case SlackAction.taskAdd:
+            await openTaskAddModal(channelId: channelId, triggerId: triggerId)
+        case SlackAction.taskRefresh:
+            if let messageTs {
+                await tasksCard(channelId: channelId, responseUrl: nil, updateTs: messageTs)
+            }
         default:
             SlackFileLog.log("block_action: unknown action_id \(actionId)")
         }
@@ -1988,6 +2015,14 @@ final class SlackService: ObservableObject {
         // question's pick(s) live under block_id `askq:<qi>`, element action_id `sel`.
         case SlackAction.answerFormModal:
             await submitAnswerForm(promptId: view?["private_metadata"] as? String ?? "", view: view)
+        // PM — add-to-Triage form. private_metadata = channel id.
+        case SlackAction.taskAddModal:
+            let channelId = view?["private_metadata"] as? String ?? ""
+            let title = Self.modalInputValue(view, blockId: "title", actionId: "text")
+            let note = Self.modalInputValue(view, blockId: "note", actionId: "text")
+            let userId = (payload["user"] as? [String: Any])?["id"] as? String ?? ""
+            await addTriage(title: title, body: note.isEmpty ? nil : note,
+                            channelId: channelId, user: userId)
         // 3.2 — deny-with-note (deny carries steering). private_metadata = promptId.
         case SlackAction.denyNoteModal:
             let promptId = view?["private_metadata"] as? String ?? ""
@@ -3433,6 +3468,13 @@ final class SlackService: ObservableObject {
         \(obsidianPath)/Technical Notes.md and \(obsidianPath)/Dashboard.md if they \
         exist. Stay within \(obsidianPath)/ and the working directory; do not wander \
         the rest of the vault. Read what's relevant, then address the user's message. \
+        Tasks.md is the authoritative task list — maintain it as you work: when your \
+        work completes one of its ## Active tasks, move that bullet (with its \
+        indented detail) to ## Completed with today's date appended in parentheses \
+        and set the frontmatter `updated:` to today; when you discover new work, \
+        append a `- **Title**: summary` bullet to ## Active. Never delete tasks, \
+        never touch ## Triage (unreviewed intake), never edit frontmatter keys other \
+        than `updated:`. \
         When you write Markdown into Obsidian vault notes, always put a BLANK LINE \
         before any table and keep each table row on a SINGLE line (never hard-wrap a \
         row) so the table renders correctly in Obsidian.]
@@ -4145,6 +4187,23 @@ final class SlackService: ObservableObject {
             await sessionLog(channelId: channelId, responseUrl: responseUrl)
         case "/claude-resume":
             await resumeSession(arg: text, channelId: channelId, responseUrl: responseUrl)
+        // PM verbs (need the manifest's slash entries saved on api.slack.com;
+        // the `!tasks` / `!brief` / `!add` bang forms work without that).
+        case "/claude-tasks":
+            if text.lowercased().hasPrefix("add ") {
+                await addTriage(title: String(text.dropFirst(4)), body: nil,
+                                channelId: channelId, user: payload["user_id"] as? String ?? "")
+            } else {
+                await tasksCard(channelId: channelId, responseUrl: responseUrl)
+            }
+        case "/claude-brief":
+            await briefCard(channelId: channelId, responseUrl: responseUrl)
+        case "/claude-search":
+            // Declared in the manifest since Phase 4 but never implemented —
+            // reply honestly instead of the old silent drop.
+            await respond(channel: channelId, responseUrl: responseUrl,
+                          text: "`/claude-search` isn't implemented yet — use `/claude-log` for recent turns, or the HUD's Sessions search.",
+                          ephemeral: true)
         default:
             SlackFileLog.log("slash unknown command \(command)")
         }
@@ -4277,6 +4336,13 @@ final class SlackService: ObservableObject {
         • `/claude-help` — this message
         • `/claude-skills` · `/claude-agents` — what this session loaded
         • `/claude-project <dir> [name]` — bind a project · `/claude-sync` — reconcile channels
+
+        *Project management* (host-side vault reads/writes — no engine turn, no tokens)
+        • `!tasks` (or `/claude-tasks`) — interactive task card: ✓ Done moves the task to ## Completed with today's date; ➕ Add captures to ## Triage
+        • `!brief` (or `/claude-brief`) — the project's briefing (Now / Next / Recently done)
+        • `!add <task>` — capture a task to this project's ## Triage
+        • `!digest` — post the cross-project morning digest now
+        • 📥/📌 reaction on any message — capture it to ## Triage (needs `reaction_added` in the app manifest)
         """
         let blocks: [[String: Any]] = [
             SlackBlocks.section(grammar),
@@ -4634,11 +4700,15 @@ final class SlackService: ObservableObject {
         let reply: String
         switch mode {
         case "plan":
-            reply = "Permission mode set to *plan* — read-only (no Edit/Write/Bash)."
+            reply = "Permission mode set to *plan* — read-only; a plan card must be approved before anything executes."
         case "default":
-            reply = "Permission mode set to *default* — Edit/Write allowed, Bash blocked."
+            reply = supervisedMode
+                ? "Permission mode set to *default* — reads and in-project edits run; Bash, network, and risky writes park an approval card."
+                : "Permission mode set to *default* — Edit/Write allowed, Bash blocked."
         default:
-            reply = ":warning: Permission mode set to *skip* — everything allowed, *including Bash*. Use with care."
+            reply = supervisedMode
+                ? ":warning: Permission mode set to *skip* — under supervision, gated tools (Bash, network) still park approval cards; the hard-deny floor stays."
+                : ":warning: Permission mode set to *skip* — everything allowed, *including Bash*. Use with care."
         }
         await respond(channel: channelId, responseUrl: responseUrl, text: reply)
     }
@@ -4732,6 +4802,478 @@ final class SlackService: ObservableObject {
         } else if !channel.isEmpty {
             await postMessage(channel: channel, text: text, blocks: blocks)
         }
+    }
+
+    // MARK: - PM verbs (Slack as project-management hub)
+    //
+    // Host-side vault reads/writes keyed off the channel's bound project — no
+    // engine turn, no tokens. Writes are limited to the two sanctioned
+    // machine paths (schema.md): the Active→Completed move
+    // (`VaultManager.completeActiveTask`) and the `## Triage` append
+    // (`VaultManager.appendTriageItem`). Everything else is a read.
+
+    /// PM verbs typed as `!command` in a bound channel. The bang prefix is
+    /// unambiguous (a real prompt never starts with `!`), so these work in
+    /// every channel today; the slash twins need a one-time manifest save.
+    private func handleBangCommand(text: String, channelId: String, user: String,
+                                   threadTs: String?) async {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        let parts = trimmed.dropFirst().split(separator: " ", maxSplits: 1)
+        let verb = parts.first.map { String($0).lowercased() } ?? ""
+        let arg = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespaces) : ""
+        SlackFileLog.log("bang !\(verb) channel=\(channelId)")
+        switch verb {
+        case "tasks", "task":
+            if arg.lowercased().hasPrefix("add ") {
+                await addTriage(title: String(arg.dropFirst(4)), body: nil,
+                                channelId: channelId, user: user)
+            } else {
+                await tasksCard(channelId: channelId, responseUrl: nil, threadTs: threadTs)
+            }
+        case "brief", "briefing":
+            await briefCard(channelId: channelId, responseUrl: nil, threadTs: threadTs)
+        case "add", "todo":
+            await addTriage(title: arg, body: nil, channelId: channelId, user: user)
+        case "digest":
+            await postMorningDigest(force: true)
+        case "help":
+            await postEphemeral(channel: channelId, user: user, text: Self.bangHelp)
+        default:
+            await postEphemeral(channel: channelId, user: user,
+                                text: "Unknown command `!\(verb)`. " + Self.bangHelp)
+        }
+    }
+
+    private static let bangHelp = "PM verbs: `!tasks` task card · `!brief` project briefing · `!add <task>` capture to ## Triage · `!digest` morning digest now · `!help`. Start a message without `!` to talk to Claude."
+
+    /// `/claude-tasks` + `!tasks` — the channel project's `Tasks.md ## Active`
+    /// as an interactive card: one row per actionable task with a ✓ Done
+    /// button (the sanctioned Active→Completed move: date-stamped, `updated:`
+    /// bumped, provenance `via Slack`), ➕ Add opening a Triage-capture modal,
+    /// and 🔄 Refresh. Posted as a regular message so taps `chat.update` it
+    /// in place (an ephemeral has no stable ts to update).
+    private func tasksCard(channelId: String, responseUrl: String?,
+                           threadTs: String? = nil, updateTs: String? = nil) async {
+        guard let resolved = await resolvedContext(channelId: channelId) else {
+            await respond(channel: channelId, responseUrl: responseUrl,
+                          text: "This channel isn't bound to a project yet. Run `/claude-project <absolute-dir> [name]`.",
+                          ephemeral: true)
+            return
+        }
+        let taskFile = (resolved.obsidianPath as NSString).appendingPathComponent("Tasks.md")
+        guard let content = try? String(contentsOfFile: taskFile, encoding: .utf8) else {
+            await respond(channel: channelId, responseUrl: responseUrl,
+                          text: "*\(resolved.name)* has no readable Tasks.md at `\(taskFile)`.",
+                          ephemeral: true)
+            return
+        }
+        let blocks = Self.taskCardBlocks(projectName: resolved.name,
+                                         taskFile: taskFile, content: content)
+        if let updateTs {
+            await chatUpdate(channel: channelId, ts: updateTs,
+                             text: "Tasks — \(resolved.name)", blocks: blocks)
+        } else {
+            let ts = await postMessage(channel: channelId, text: "Tasks — \(resolved.name)",
+                                       threadTs: threadTs, blocks: blocks)
+            SlackFileLog.log("tasks card posted ts=\(ts ?? "nil") project=\(resolved.name)")
+        }
+    }
+
+    /// Build the interactive task-card blocks from a Tasks.md body. A row is
+    /// rendered for every actionable (not-done) task the ✓ button can target:
+    /// flat top-level tasks, and the children of `###` heading groups (each a
+    /// top-level `- [ ]` bullet in the source). Rows cap at 10 — Slack's
+    /// 50-block ceiling and phone ergonomics; the rest folds into a count.
+    static func taskCardBlocks(projectName: String, taskFile: String,
+                               content: String) -> [[String: Any]] {
+        let tasks = VaultProjectService.parseActiveTasks(from: content)
+        var blocks: [[String: Any]] = [
+            SlackBlocks.section(":ballot_box_with_check: *Tasks — \(projectName)*")
+        ]
+        let rowCap = 10
+        var rendered = 0
+        var skipped = 0
+
+        func doneButton(title: String, line: Int) -> [String: Any] {
+            SlackBlocks.button(text: "✓ Done", actionId: SlackAction.taskDone,
+                               value: "\(line)\u{0001}\(String(title.prefix(300)))")
+        }
+        func addRow(title: String, detail: String, line: Int) {
+            let label = detail.isEmpty
+                ? "☐ *\(SlackBlocks.truncate(title, 200))*"
+                : "☐ *\(SlackBlocks.truncate(title, 200))*  \(SlackBlocks.truncate(detail, 160))"
+            blocks.append(SlackBlocks.sectionWithButton(label,
+                                                        button: doneButton(title: title, line: line)))
+            rendered += 1
+        }
+
+        for task in tasks where !task.isDone {
+            if task.isHeading {
+                let open = task.subBullets.filter { !$0.isDone && $0.line >= 0 }
+                guard !open.isEmpty else { continue }
+                if rendered >= rowCap { skipped += open.count; continue }
+                blocks.append(SlackBlocks.context("*\(SlackBlocks.truncate(task.title, 140))*"))
+                for child in open {
+                    if rendered >= rowCap { skipped += 1; continue }
+                    let split = VaultProjectService.splitBullet(child.text)
+                    addRow(title: split.title, detail: split.body, line: child.line)
+                }
+            } else if let line = task.line {
+                if rendered >= rowCap { skipped += 1; continue }
+                addRow(title: task.title, detail: "", line: line)
+            }
+        }
+
+        if rendered == 0 {
+            blocks.append(SlackBlocks.section("_No open tasks in ## Active._"))
+        }
+        if skipped > 0 {
+            blocks.append(SlackBlocks.context("+\(skipped) more in Tasks.md"))
+        }
+        blocks.append(SlackBlocks.actions([
+            SlackBlocks.button(text: "➕ Add task", actionId: SlackAction.taskAdd),
+            SlackBlocks.button(text: "🔄 Refresh", actionId: SlackAction.taskRefresh)
+        ]))
+        let triage = VaultManager.triageCount(taskFile: taskFile)
+        blocks.append(SlackBlocks.context(
+            "\(rendered + skipped) open · \(triage) in triage · ✓ moves to ## Completed with today's date"))
+        return blocks
+    }
+
+    /// ✓ Done tap: the sanctioned Active→Completed move, then re-render the
+    /// card in place and confirm in its thread. `value` = "<line>␁<title>"
+    /// from render time; the primitive verifies the line still matches before
+    /// writing (a stale card falls back to title search, then refuses).
+    private func onTaskDone(channelId: String, messageTs: String?, value: String,
+                            user: String) async {
+        guard let resolved = await resolvedContext(channelId: channelId) else { return }
+        let taskFile = (resolved.obsidianPath as NSString).appendingPathComponent("Tasks.md")
+        let parts = value.split(separator: "\u{0001}", maxSplits: 1).map(String.init)
+        let lineHint = parts.first.flatMap(Int.init)
+        let title = parts.count > 1 ? parts[1] : ""
+
+        let result = VaultManager.completeActiveTask(taskFile: taskFile,
+                                                     expectedTitle: title.isEmpty ? nil : title,
+                                                     lineHint: lineHint,
+                                                     provenance: "via Slack")
+        switch result {
+        case .moved(let moved):
+            SlackFileLog.log("task done: \(moved.prefix(60)) (\(resolved.name))")
+            if let messageTs {
+                await tasksCard(channelId: channelId, responseUrl: nil, updateTs: messageTs)
+            }
+            await postMessage(channel: channelId,
+                              text: ":white_check_mark: *\(SlackBlocks.truncate(moved, 140))* → ## Completed",
+                              threadTs: messageTs)
+        case .notFound:
+            await postEphemeral(channel: channelId, user: user,
+                                text: "Couldn't find that task in ## Active anymore — Tasks.md changed since this card rendered. Tap 🔄 Refresh.")
+            if let messageTs {
+                await tasksCard(channelId: channelId, responseUrl: nil, updateTs: messageTs)
+            }
+        case .ambiguous(let n):
+            await postEphemeral(channel: channelId, user: user,
+                                text: "\(n) Active tasks share that title — not guessing. Complete it in Tasks.md directly.")
+        case .failed(let why):
+            await postEphemeral(channel: channelId, user: user,
+                                text: "Couldn't update Tasks.md: \(why)")
+        }
+    }
+
+    /// ➕ Add task → a small staged modal (title + optional detail) writing to
+    /// `## Triage` on submit. Triage, not Active: machine intake is quarantined
+    /// until the human promotes it (schema.md §Email ingestion — same contract).
+    private func openTaskAddModal(channelId: String, triggerId: String) async {
+        guard !triggerId.isEmpty else { return }
+        let view: [String: Any] = [
+            "type": "modal",
+            "callback_id": SlackAction.taskAddModal,
+            "private_metadata": channelId,
+            "title": ["type": "plain_text", "text": "Add task"],
+            "submit": ["type": "plain_text", "text": "Add to Triage"],
+            "close": ["type": "plain_text", "text": "Cancel"],
+            "blocks": [
+                ["type": "input", "block_id": "title",
+                 "label": ["type": "plain_text", "text": "Task"],
+                 "element": ["type": "plain_text_input", "action_id": "text",
+                             "placeholder": ["type": "plain_text",
+                                             "text": "Short imperative title"]] as [String: Any]],
+                ["type": "input", "block_id": "note", "optional": true,
+                 "label": ["type": "plain_text", "text": "Detail (optional)"],
+                 "element": ["type": "plain_text_input", "action_id": "text",
+                             "multiline": true] as [String: Any]]
+            ]
+        ]
+        await openModal(triggerId: triggerId, view: view)
+    }
+
+    /// Append a task to the channel project's `## Triage` with Slack provenance.
+    private func addTriage(title: String, body: String?, channelId: String,
+                           user: String) async {
+        let cleanTitle = title.trimmingCharacters(in: .whitespaces)
+        guard !cleanTitle.isEmpty else {
+            await postEphemeral(channel: channelId, user: user, text: "Usage: `!add <task>`")
+            return
+        }
+        guard let resolved = await resolvedContext(channelId: channelId) else {
+            await postEphemeral(channel: channelId, user: user,
+                                text: "This channel isn't bound to a project yet.")
+            return
+        }
+        let taskFile = (resolved.obsidianPath as NSString).appendingPathComponent("Tasks.md")
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        let provenance = "via Slack, \(fmt.string(from: Date()))"
+        if VaultManager.appendTriageItem(taskFile: taskFile, title: cleanTitle,
+                                         body: body, provenance: provenance) {
+            SlackFileLog.log("triage add: \(cleanTitle.prefix(60)) -> \(resolved.name)")
+            await postEphemeral(channel: channelId, user: user,
+                                text: ":inbox_tray: Added to *\(resolved.name)* ## Triage — promote it to ## Active when reviewed.")
+        } else {
+            await postEphemeral(channel: channelId, user: user,
+                                text: "Couldn't write to `\(taskFile)`.")
+        }
+    }
+
+    /// `/claude-brief` + `!brief` — the project's cleaner-written briefing
+    /// (`Dashboard.md` `<!-- gen:briefing -->`: Now / Next / Recently done /
+    /// Later) as a card with freshness + counts. Read-only; the content is at
+    /// most one cleaner cycle (~24h) old.
+    private func briefCard(channelId: String, responseUrl: String?,
+                           threadTs: String? = nil) async {
+        guard let resolved = await resolvedContext(channelId: channelId) else {
+            await respond(channel: channelId, responseUrl: responseUrl,
+                          text: "This channel isn't bound to a project yet. Run `/claude-project <absolute-dir> [name]`.",
+                          ephemeral: true)
+            return
+        }
+        let dashboardPath = (resolved.obsidianPath as NSString).appendingPathComponent("Dashboard.md")
+        let taskFile = (resolved.obsidianPath as NSString).appendingPathComponent("Tasks.md")
+        let briefing = Self.extractBriefing(dashboardPath: dashboardPath)
+            ?? "_No briefing block yet — the overnight cleaner writes one for active projects._"
+
+        var meta: [String] = []
+        if let p = vaultProjects.projects.first(where: { $0.folder.path == resolved.obsidianPath }) {
+            meta.append("status \(p.status)")
+            if !p.updatedRaw.isEmpty { meta.append("updated \(p.updatedRaw)") }
+        }
+        let content = (try? String(contentsOfFile: taskFile, encoding: .utf8)) ?? ""
+        meta.append("\(Self.openTaskCount(content: content)) active · \(VaultManager.triageCount(taskFile: taskFile)) triage")
+
+        let blocks: [[String: Any]] = [
+            SlackBlocks.section(":compass: *\(resolved.name)*"),
+            SlackBlocks.section(Self.toSlackMrkdwn(briefing)),
+            SlackBlocks.context(meta.joined(separator: " · "))
+        ]
+        await postMessage(channel: channelId, text: "Briefing — \(resolved.name)",
+                          threadTs: threadTs, blocks: blocks)
+    }
+
+    /// The delimited `<!-- gen:briefing -->` block body from a Dashboard.md.
+    static func extractBriefing(dashboardPath: String) -> String? {
+        guard let content = try? String(contentsOfFile: dashboardPath, encoding: .utf8),
+              let start = content.range(of: "<!-- gen:briefing -->"),
+              let end = content.range(of: "<!-- /gen:briefing -->",
+                                      range: start.upperBound..<content.endIndex) else { return nil }
+        let block = String(content[start.upperBound..<end.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return block.isEmpty ? nil : block
+    }
+
+    /// Count of actionable (not-done) tasks in an `## Active` body — flat tasks
+    /// plus heading-group children, matching what the task card renders.
+    static func openTaskCount(content: String) -> Int {
+        VaultProjectService.parseActiveTasks(from: content).reduce(0) { acc, task in
+            guard !task.isDone else { return acc }
+            return acc + (task.isHeading
+                          ? task.subBullets.filter { !$0.isDone }.count
+                          : 1)
+        }
+    }
+
+    // MARK: - PM capture via emoji reaction
+
+    /// 📥/📌 on any message in a bound channel captures it into the project's
+    /// `## Triage` with a permalink. Ships DORMANT: `reactions:read` is already
+    /// granted but `reaction_added` still needs adding to the app manifest's
+    /// event subscriptions (a save on api.slack.com — no reinstall, the scope
+    /// is held); the moment it is, this handler goes live.
+    private func handleReactionAdded(_ event: [String: Any]) {
+        let reaction = event["reaction"] as? String ?? ""
+        guard reaction == "inbox_tray" || reaction == "pushpin" else { return }
+        let user = event["user"] as? String ?? ""
+        if !user.isEmpty, user == botUserId { return }
+        guard let item = event["item"] as? [String: Any],
+              let channel = item["channel"] as? String,
+              let ts = item["ts"] as? String else { return }
+        Task { await self.captureMessageToTriage(channelId: channel, messageTs: ts, user: user) }
+    }
+
+    private func captureMessageToTriage(channelId: String, messageTs: String,
+                                        user: String) async {
+        guard let name = await channelName(for: channelId),
+              let resolved = resolveProject(forChannelName: name) else { return }
+        let json = await slackForm(method: "conversations.history",
+                                   form: ["channel": channelId, "latest": messageTs,
+                                          "inclusive": "true", "limit": "1"])
+        let text = ((json?["messages"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
+        guard !text.isEmpty else {
+            await postEphemeral(channel: channelId, user: user,
+                                text: "Couldn't read that message to capture it.")
+            return
+        }
+        let oneLine = text.replacingOccurrences(of: "\n", with: " ")
+        let title = String(oneLine.prefix(140))
+        let overflow = oneLine.count > 140 ? String(oneLine.prefix(500).dropFirst(140)) : ""
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        var provenance = "via Slack reaction, \(fmt.string(from: Date()))"
+        if let permalink = await messagePermalink(channelId: channelId, messageTs: messageTs) {
+            provenance += " · \(permalink)"
+        }
+        let taskFile = (resolved.obsidianPath as NSString).appendingPathComponent("Tasks.md")
+        if VaultManager.appendTriageItem(taskFile: taskFile, title: title,
+                                         body: overflow.isEmpty ? nil : "…\(overflow)",
+                                         provenance: provenance) {
+            SlackFileLog.log("reaction capture -> \(resolved.name) triage")
+            await postEphemeral(channel: channelId, user: user,
+                                text: ":inbox_tray: Captured to *\(resolved.name)* ## Triage.")
+        }
+    }
+
+    private func messagePermalink(channelId: String, messageTs: String) async -> String? {
+        let json = await slackForm(method: "chat.getPermalink",
+                                   form: ["channel": channelId, "message_ts": messageTs])
+        guard json?["ok"] as? Bool == true else { return nil }
+        return json?["permalink"] as? String
+    }
+
+    // MARK: - PM ambient layer: morning digest
+
+    /// Persisted digest bookkeeping: the day last posted (so a relaunch never
+    /// double-posts) and the cached DM channel.
+    private struct DigestState: Codable {
+        var lastPostedDay: String = ""
+        var dmChannelId: String? = nil
+    }
+    private var digestState = DigestState()
+    private static var digestFileURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/ClaudeHUD/slack-digest.json")
+    }
+    private func loadDigestState() {
+        if let data = try? Data(contentsOf: Self.digestFileURL),
+           let s = try? JSONDecoder().decode(DigestState.self, from: data) {
+            digestState = s
+        }
+    }
+    private func saveDigestState() {
+        Self.writeJSON(digestState, to: Self.digestFileURL, label: "saveDigestState")
+    }
+
+    /// Fire the once-daily digest on the first 5-min tick at/after the
+    /// configured local time (default 07:45, keys `slack.digestHour` /
+    /// `slack.digestMinute`). Laptop-sleep-safe: a missed window posts on the
+    /// first tick after wake, once. Disable with
+    /// `defaults write com.claudehud slack.digestEnabled -bool NO`.
+    private func startDigestLoop() {
+        loadDigestState()
+        Task { [weak self] in
+            while true {
+                guard let self else { return }
+                await self.maybePostMorningDigest()
+                try? await Task.sleep(nanoseconds: 5 * 60 * 1_000_000_000)
+            }
+        }
+    }
+
+    private func maybePostMorningDigest() async {
+        let ud = UserDefaults.standard
+        if ud.object(forKey: "slack.digestEnabled") != nil,
+           !ud.bool(forKey: "slack.digestEnabled") { return }
+        let hour = ud.object(forKey: "slack.digestHour") as? Int ?? 7
+        let minute = ud.object(forKey: "slack.digestMinute") as? Int ?? 45
+
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        let today = fmt.string(from: Date())
+        guard digestState.lastPostedDay != today else { return }
+        let comps = Calendar.current.dateComponents([.hour, .minute], from: Date())
+        let nowMinutes = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
+        guard nowMinutes >= hour * 60 + minute else { return }
+        await postMorningDigest(force: false)
+    }
+
+    /// One cross-project morning digest, DM'd to the operator: per active
+    /// project (newest `updated:` first, cap 12) the briefing's "Now" line +
+    /// open/triage counts, plus any turns parked on you right now. The Slack
+    /// analog of Claude Tag's ambient layer, sourced entirely from what the
+    /// cleaner and the vault already wrote — no model call.
+    func postMorningDigest(force: Bool) async {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        let today = fmt.string(from: Date())
+        if !force, digestState.lastPostedDay == today { return }
+        guard let dm = await ensureDMChannel() else {
+            SlackFileLog.log("digest: no DM channel (users.list/conversations.open failed)")
+            return
+        }
+
+        let active = vaultProjects.projects.filter { $0.isActive }
+        var lines: [String] = []
+        for project in active.sorted(by: { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }).prefix(12) {
+            let taskFile = project.tasksPath.path
+            let content = (try? String(contentsOfFile: taskFile, encoding: .utf8)) ?? ""
+            let open = Self.openTaskCount(content: content)
+            let triage = VaultManager.triageCount(taskFile: taskFile)
+            var line = "*\(project.name)* · \(open) open"
+            if triage > 0 { line += " · \(triage) triage" }
+            if let briefing = Self.extractBriefing(dashboardPath: project.dashboardPath.path),
+               let nowLine = briefing.components(separatedBy: "\n")
+                   .first(where: { $0.hasPrefix("**Now**") }) {
+                var t = nowLine.replacingOccurrences(of: "**Now**", with: "")
+                t = t.trimmingCharacters(in: CharacterSet(charactersIn: " \t—–-:"))
+                if !t.isEmpty { line += "\n        _\(SlackBlocks.truncate(t, 180))_" }
+            }
+            lines.append(line)
+        }
+
+        var header = ":sunrise: *Morning digest · \(today)*"
+        let parked = parkedPrompts.count
+        if parked > 0 {
+            header += "\n:raising_hand: \(parked) question\(parked == 1 ? "" : "s") waiting on you"
+        }
+        let blocks: [[String: Any]] = [
+            SlackBlocks.section(header),
+            SlackBlocks.section(SlackBlocks.truncate(lines.joined(separator: "\n"),
+                                                     SlackBlocks.sectionLimit)),
+            SlackBlocks.context("\(active.count) active projects · `!tasks` in a project channel for the card · `!brief` for its briefing · `!digest` reposts this")
+        ]
+        await postMessage(channel: dm, text: "Morning digest \(today)", blocks: blocks)
+        digestState.lastPostedDay = today
+        saveDigestState()
+        SlackFileLog.log("digest posted: \(lines.count) projects -> \(dm)")
+    }
+
+    /// The operator's DM channel, resolved once and cached: in this solo
+    /// workspace the human is the only non-bot, non-deleted member.
+    private func ensureDMChannel() async -> String? {
+        if let dm = digestState.dmChannelId { return dm }
+        guard let json = await slackForm(method: "users.list", form: ["limit": "200"]),
+              json["ok"] as? Bool == true,
+              let members = json["members"] as? [[String: Any]] else { return nil }
+        let human = members.first {
+            ($0["is_bot"] as? Bool) != true &&
+            ($0["deleted"] as? Bool) != true &&
+            ($0["id"] as? String) != "USLACKBOT"
+        }
+        guard let userId = human?["id"] as? String else { return nil }
+        guard let open = await slackForm(method: "conversations.open", form: ["users": userId]),
+              open["ok"] as? Bool == true,
+              let channel = (open["channel"] as? [String: Any])?["id"] as? String else { return nil }
+        digestState.dmChannelId = channel
+        saveDigestState()
+        return channel
     }
 
     // MARK: - Helpers
