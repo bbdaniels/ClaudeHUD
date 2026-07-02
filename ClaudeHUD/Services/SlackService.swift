@@ -4872,6 +4872,7 @@ final class SlackService: ObservableObject {
         if let updateTs {
             await chatUpdate(channel: channelId, ts: updateTs,
                              text: "Tasks — \(resolved.name)", blocks: blocks)
+            SlackFileLog.log("tasks card updated ts=\(updateTs) project=\(resolved.name)")
         } else {
             let ts = await postMessage(channel: channelId, text: "Tasks — \(resolved.name)",
                                        threadTs: threadTs, blocks: blocks)
@@ -4895,8 +4896,11 @@ final class SlackService: ObservableObject {
         var skipped = 0
 
         func doneButton(title: String, line: Int) -> [String: Any] {
+            // Printable separator: Slack strips control chars from button
+            // values (a \u{0001} separator arrives fused). Line is digits-only,
+            // so the FIRST `|` is always the boundary.
             SlackBlocks.button(text: "✓ Done", actionId: SlackAction.taskDone,
-                               value: "\(line)\u{0001}\(String(title.prefix(300)))")
+                               value: "\(line)|\(String(title.prefix(300)))")
         }
         func addRow(title: String, detail: String, line: Int) {
             let label = detail.isEmpty
@@ -4946,11 +4950,16 @@ final class SlackService: ObservableObject {
     /// writing (a stale card falls back to title search, then refuses).
     private func onTaskDone(channelId: String, messageTs: String?, value: String,
                             user: String) async {
-        guard let resolved = await resolvedContext(channelId: channelId) else { return }
+        guard let resolved = await resolvedContext(channelId: channelId) else {
+            SlackFileLog.log("task done: channel \(channelId) unresolved")
+            return
+        }
         let taskFile = (resolved.obsidianPath as NSString).appendingPathComponent("Tasks.md")
-        let parts = value.split(separator: "\u{0001}", maxSplits: 1).map(String.init)
-        let lineHint = parts.first.flatMap(Int.init)
-        let title = parts.count > 1 ? parts[1] : ""
+        // Split on the FIRST `|` only — the line part is digits-only; the
+        // title may itself contain pipes.
+        let sepIdx = value.firstIndex(of: "|")
+        let lineHint = sepIdx.flatMap { Int(value[value.startIndex..<$0]) }
+        let title = sepIdx.map { String(value[value.index(after: $0)...]) } ?? ""
 
         let result = VaultManager.completeActiveTask(taskFile: taskFile,
                                                      expectedTitle: title.isEmpty ? nil : title,

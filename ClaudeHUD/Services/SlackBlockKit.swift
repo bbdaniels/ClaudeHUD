@@ -128,9 +128,12 @@ enum SlackAction {
     static let retryChangesModal = "hud:modal:retry_with_changes"
 
     // PM verbs (task card + Triage capture). The Done button's `value` is
-    // "<line>\u{0001}<title>" — the task's source line in Tasks.md plus its
-    // parsed title, so the host-side completion can verify the card isn't
-    // stale before writing.
+    // "<line>|<title>" — the task's source line in Tasks.md plus its parsed
+    // title, so the host-side completion can verify the card isn't stale
+    // before writing. The separator is a printable `|` split on FIRST
+    // occurrence (the line part is digits-only, so a `|` inside the title is
+    // harmless) — Slack SILENTLY STRIPS control characters from button
+    // values, so a \u{0001}-style separator never round-trips.
     static let taskDone    = "hud:task:done"
     static let taskAdd     = "hud:task:add"      // opens the add-task modal
     static let taskRefresh = "hud:task:refresh"  // re-render the tapped card
