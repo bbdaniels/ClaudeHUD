@@ -687,6 +687,121 @@ class VaultManager: ObservableObject {
         }
     }
 
+    // MARK: - New project scaffold
+
+    enum CreateProjectError: LocalizedError {
+        case emptyName
+        case invalidName
+        case alreadyExists(String)
+        case noVault
+        case writeFailed(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .emptyName:            return "Enter a project name."
+            case .invalidName:          return "Name can't contain “/” or “:”, or start with a dot."
+            case .alreadyExists(let n): return "A project folder named “\(n)” already exists."
+            case .noVault:              return "No Obsidian vault is configured."
+            case .writeFailed(let m):   return "Couldn't write the project files: \(m)"
+            }
+        }
+    }
+
+    /// Create a new vault project folder, scaffolded to schema conventions
+    /// (see Documents/Obsidian/schema.md §Vault structure / §Canonical project
+    /// model): `<vault>/<name>/` with `Tasks.md` (the human-owned source of
+    /// truth, `## Active`/`## Completed`, empty `cwds:` for the human to fill),
+    /// a minimal `Dashboard.md` carrying the `gen:briefing` block the cloud
+    /// cleaner regenerates, and a `Technical Notes.md` stub. Non-destructive:
+    /// refuses if the folder already exists (never overwrites). Returns the new
+    /// folder URL. Caller owns the follow-up (`VaultProjectService.refresh()`
+    /// to surface the row; the 15-min `obsidian-sync.sh` pushes the folder to
+    /// `origin/main`, so it's local until then).
+    static func createProject(vaultPath: URL, name rawName: String) -> Result<URL, CreateProjectError> {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return .failure(.emptyName) }
+        // Folder-name hygiene: no path separators, no leading dot (hidden /
+        // off-limits per schema), no colon (legacy HFS separator + confusing).
+        guard !name.contains("/"), !name.contains(":"), !name.hasPrefix(".") else {
+            return .failure(.invalidName)
+        }
+        let folder = vaultPath.appending(path: name)
+        if FileManager.default.fileExists(atPath: folder.path) {
+            return .failure(.alreadyExists(name))
+        }
+
+        let today: String = {
+            let f = DateFormatter()
+            f.calendar = Calendar(identifier: .iso8601)
+            f.locale = Locale(identifier: "en_US_POSIX")
+            f.timeZone = .current
+            f.dateFormat = "yyyy-MM-dd"
+            return f.string(from: Date())
+        }()
+
+        let tasks = """
+        ---
+        project: \(name)
+        status: active
+        updated: \(today)
+        cwds: []
+        migrated-from: []
+        aka: []
+        ---
+
+        # \(name) Tasks
+
+        ## Active
+
+        ## Completed
+        """
+
+        let dashboard = """
+        ---
+        project: \(name)
+        status: active
+        updated: \(today)
+        ---
+
+        # \(name)
+
+        <!-- gen:briefing -->
+        _No active work._
+        <!-- /gen:briefing -->
+
+        ## Tasks
+        [[Tasks]]
+
+        ## Key notes
+        - [[Technical Notes]]
+        """
+
+        let techNotes = """
+        ---
+        project: \(name)
+        updated: \(today)
+        ---
+
+        # \(name) Technical Notes
+
+        Implementation history and non-obvious decisions. Tasks live in
+        [[\(name)/Tasks]].
+        """
+
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+            try tasks.write(to: folder.appending(path: "Tasks.md"),
+                            atomically: true, encoding: .utf8)
+            try dashboard.write(to: folder.appending(path: "Dashboard.md"),
+                                atomically: true, encoding: .utf8)
+            try techNotes.write(to: folder.appending(path: "Technical Notes.md"),
+                                atomically: true, encoding: .utf8)
+            return .success(folder)
+        } catch {
+            return .failure(.writeFailed(error.localizedDescription))
+        }
+    }
+
     /// Count of unchecked items in `## Triage` (0 when the section is absent).
     static func triageCount(taskFile: String) -> Int {
         guard let content = try? String(contentsOfFile: taskFile, encoding: .utf8) else { return 0 }

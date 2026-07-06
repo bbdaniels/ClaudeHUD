@@ -29,6 +29,7 @@ struct VaultTabView: View {
     @State private var expandedProjects: Set<URL> = []
     @State private var collapsedSections: Set<String> = []
     @State private var searchText = ""
+    @State private var showNewProject = false
     /// folder name → most-recent session timestamp for that project (resolved
     /// via the canonical cwds: resolver). Drives "real activity" recency so a
     /// project that's busy in sessions but whose `updated:` went stale still
@@ -116,6 +117,22 @@ struct VaultTabView: View {
             }
             folderLatestSession = map
         }
+        .sheet(isPresented: $showNewProject) {
+            NewProjectSheet(
+                vaultPath: vaultPath,
+                existingNames: Set(projectService.projects.map { $0.name.lowercased() })
+            ) { folder in
+                projectService.refresh()
+                // Expand the freshly-created project so it's visible immediately
+                // (refresh rebuilt the Project values; match by folder name to
+                // get the reloaded URL that keys `expandedProjects`).
+                if let created = projectService.projects.first(where: {
+                    $0.name == folder.lastPathComponent
+                }) {
+                    expandedProjects = [created.folder]
+                }
+            }
+        }
     }
 
     private var vaultPath: URL? {
@@ -184,6 +201,13 @@ struct VaultTabView: View {
                 .buttonStyle(.borderless)
                 .hudTip("Clear search")
             }
+            Button(action: { showNewProject = true }) {
+                Image(systemName: "folder.badge.plus")
+                    .font(.system(size: 12 * scale, weight: .semibold))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .hudTip("New project")
             Button(action: { projectService.refresh() }) {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 11 * scale, weight: .semibold))
@@ -371,43 +395,50 @@ private struct ProjectRowView: View {
         .onHover { slackHovering = $0 }
     }
 
+    /// The directory a launch targets: the project's first glob-free `cwds:`
+    /// path, or the home directory (`~`) when the project has none yet. A
+    /// new / notes-only project (empty `cwds:`) still launches — into `~` —
+    /// until the human sets a real `cwds:` (user directive 2026-07-06). So the
+    /// controls are ALWAYS shown, not gated on a resolvable cwd.
+    private var launchCwd: String { project.primaryCwd ?? NSHomeDirectory() }
+    private var hasCwd: Bool { project.primaryCwd != nil }
+
     /// WORK launcher controls surfaced on the collapsed row (after the timestamp):
     /// Safe/Unsafe, effort, and Launch — so a project can be configured + started
-    /// WITHOUT expanding it. Shown only when the project has a launchable cwd
-    /// (`primaryCwd`: a bare, glob-free absolute path). The two toggles persist to
-    /// the same per-project UserDefaults keys the expanded WORK section + Session
-    /// History use, so all three surfaces stay in sync.
+    /// WITHOUT expanding it. Always shown; a project with no `cwds:` launches
+    /// into `~` (see `launchCwd`). The two toggles persist to the same
+    /// per-project UserDefaults keys the expanded WORK section + Session History
+    /// use, so all three surfaces stay in sync.
     @ViewBuilder private var launchControls: some View {
-        if let cwd = project.primaryCwd {
-            Button {
-                unsafeMode.toggle()
-                UserDefaults.standard.set(unsafeMode, forKey: defaultsKey)
-            } label: {
-                Image(systemName: unsafeMode ? "lock.open.fill" : "lock.fill")
-                    .font(.system(size: 11 * scale))
-                    .foregroundColor(unsafeMode ? .red : .green)
-            }
-            .buttonStyle(.plain)
-            .help(unsafeMode ? "Unsafe mode (click to toggle)" : "Safe mode (click to toggle)")
-
-            Button { cycleEffort() } label: {
-                Image(systemName: effortIcon)
-                    .font(.system(size: 11 * scale))
-                    .foregroundColor(effortColor)
-            }
-            .buttonStyle(.plain)
-            .help("Effort: \(effort) (click to cycle)")
-
-            Button { launch(cwd: cwd) } label: {
-                Image(systemName: launched ? "checkmark.circle.fill" : "pencil.and.outline")
-                    .font(.system(size: 11 * scale, weight: .semibold))
-                    .foregroundColor(launched ? .green
-                                     : .secondary.opacity(launchHovering ? 0.95 : 0.45))
-            }
-            .buttonStyle(.plain)
-            .help("New session — loads project context from the Obsidian wiki")
-            .onHover { launchHovering = $0 }
+        Button {
+            unsafeMode.toggle()
+            UserDefaults.standard.set(unsafeMode, forKey: defaultsKey)
+        } label: {
+            Image(systemName: unsafeMode ? "lock.open.fill" : "lock.fill")
+                .font(.system(size: 11 * scale))
+                .foregroundColor(unsafeMode ? .red : .green)
         }
+        .buttonStyle(.plain)
+        .help(unsafeMode ? "Unsafe mode (click to toggle)" : "Safe mode (click to toggle)")
+
+        Button { cycleEffort() } label: {
+            Image(systemName: effortIcon)
+                .font(.system(size: 11 * scale))
+                .foregroundColor(effortColor)
+        }
+        .buttonStyle(.plain)
+        .help("Effort: \(effort) (click to cycle)")
+
+        Button { launch(cwd: launchCwd) } label: {
+            Image(systemName: launched ? "checkmark.circle.fill" : "pencil.and.outline")
+                .font(.system(size: 11 * scale, weight: .semibold))
+                .foregroundColor(launched ? .green
+                                 : .secondary.opacity(launchHovering ? 0.95 : 0.45))
+        }
+        .buttonStyle(.plain)
+        .help(hasCwd ? "New session — loads project context from the Obsidian wiki"
+                     : "New session in ~ (no cwds: set yet) — loads project context from the wiki")
+        .onHover { launchHovering = $0 }
     }
 
     private var defaultsKey: String { "history.unsafe.\(project.primaryCwd ?? project.name)" }
@@ -1533,27 +1564,19 @@ private struct WorkSubsection: View {
                 Text(feedback)
                     .font(.custom("Fira Sans", size: 11 * scale))
                     .foregroundColor(.green)
-            } else if let cwd = project.primaryCwd {
-                Button(action: { launch(cwd: cwd) }) {
+            } else {
+                // Always launchable: a project with no `cwds:` launches into
+                // `~` (user directive 2026-07-06) rather than showing a
+                // greyed-out "can't launch" mark; the tooltip says which.
+                Button(action: { launch(cwd: launchCwd) }) {
                     Image(systemName: "pencil.and.outline")
                         .font(.system(size: 11 * scale, weight: .semibold))
                         .foregroundColor(.white)
                 }
                 .buttonStyle(.borderless)
-                .hudTip("New session — loads project context from the Obsidian wiki")
-            } else {
-                // No launchable cwd: greyed + struck, same idiom as the
-                // Session-History "no prior sessions" / GitHub "no remote" mark.
-                ZStack {
-                    Image(systemName: "pencil.and.outline")
-                        .font(.system(size: 11 * scale, weight: .semibold))
-                        .foregroundColor(.secondary.opacity(0.35))
-                    Rectangle()
-                        .frame(width: 14 * scale, height: 1.5 * scale)
-                        .rotationEffect(.degrees(-45))
-                        .foregroundColor(.secondary.opacity(0.7))
-                }
-                .hudTip("No working directory in cwds: — can't launch")
+                .hudTip(project.primaryCwd != nil
+                        ? "New session — loads project context from the Obsidian wiki"
+                        : "New session in ~ (no cwds: set yet) — loads project context from the wiki")
             }
         }
     }
@@ -1592,6 +1615,10 @@ private struct WorkSubsection: View {
         if a.rawState == "blocked" { return .orange }
         return .secondary.opacity(0.6)
     }
+
+    /// Launch target: the project's first glob-free `cwds:` path, or `~` when
+    /// it has none yet (new / notes-only project — user directive 2026-07-06).
+    private var launchCwd: String { project.primaryCwd ?? NSHomeDirectory() }
 
     private func launch(cwd: String) {
         let auto = performMagicLaunch(
@@ -1728,4 +1755,80 @@ private func shortClockTime(_ date: Date) -> String {
     let fmt = DateFormatter()
     fmt.dateFormat = "h:mma"
     return fmt.string(from: date).lowercased()
+}
+
+/// Minimal "new project" sheet reached from the Projects-tab header "+".
+/// Collects only a folder name and scaffolds a schema-correct project folder
+/// (`Tasks.md` + `Dashboard.md` + `Technical Notes.md`) via
+/// `VaultManager.createProject`. The working directory (`cwds:`) is left empty
+/// for the human to fill in Obsidian — per the vault's canonical project model,
+/// `cwds:` is human-owned and never machine-written.
+private struct NewProjectSheet: View {
+    let vaultPath: URL?
+    /// Lowercased existing folder names — for a friendly pre-check before the
+    /// filesystem-level collision guard in `createProject`.
+    let existingNames: Set<String>
+    /// Called with the freshly-written project folder URL on success.
+    let onCreate: (URL) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var errorText: String?
+
+    private var trimmed: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("New Project")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 5) {
+                TextField("Project name", text: $name)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(create)
+                Text("Creates a vault folder with Tasks, Dashboard, and Technical Notes. Set the working directory (cwds:) later in Obsidian.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let errorText {
+                Text(errorText)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Create", action: create)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(trimmed.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 360)
+    }
+
+    private func create() {
+        errorText = nil
+        guard !trimmed.isEmpty else { return }
+        guard let vaultPath else {
+            errorText = VaultManager.CreateProjectError.noVault.errorDescription
+            return
+        }
+        if existingNames.contains(trimmed.lowercased()) {
+            errorText = VaultManager.CreateProjectError.alreadyExists(trimmed).errorDescription
+            return
+        }
+        switch VaultManager.createProject(vaultPath: vaultPath, name: trimmed) {
+        case .success(let folder):
+            onCreate(folder)
+            dismiss()
+        case .failure(let err):
+            errorText = err.errorDescription
+        }
+    }
 }
