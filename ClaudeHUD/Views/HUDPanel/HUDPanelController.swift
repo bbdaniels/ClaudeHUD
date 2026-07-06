@@ -34,7 +34,20 @@ class HUDPanelController {
         // appeared, regardless of the host view or .hudWindow.
         panel.allowsToolTipsWhenApplicationIsInactive = true
         panel.isReleasedWhenClosed = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        // Space-following. This is a menubar-SUMMONED panel, not a persistent
+        // overlay, so the right model is "come to the desktop I'm on when I
+        // call it," i.e. `.moveToActiveSpace` — it relocates the window to the
+        // active Space whenever the app activates, which `show()` triggers via
+        // NSApp.activate(...). `.canJoinAllSpaces` (the old value) is passive
+        // omnipresence — it's meant to keep the window live on ALL Spaces at
+        // once, but for a `.level = .normal` toggled panel it did not hold: the
+        // window stayed pinned to its origin Space and never appeared on a
+        // second regular desktop. `.moveToActiveSpace` has a concrete trigger
+        // (activation) and doesn't change stacking, so the panel can still go
+        // behind other windows. Pairs with the isOnActiveSpace check in
+        // toggle() below. (canJoinAllSpaces and moveToActiveSpace are mutually
+        // exclusive — you get one.)
+        panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         panel.isOpaque = true
         panel.backgroundColor = NSColor.windowBackgroundColor
         panel.titlebarAppearsTransparent = true
@@ -106,7 +119,14 @@ class HUDPanelController {
     }
 
     func toggle() {
-        if panel?.isVisible == true {
+        // `isVisible` is global (true if the panel is on-screen on ANY Space),
+        // so a bare isVisible check would HIDE the panel when you summon it
+        // from a different desktop than the one it's open on — the opposite of
+        // "bring it here." Only treat the toggle as a hide when the panel is
+        // actually on the desktop you're looking at; otherwise show() (which
+        // activates the app and, via .moveToActiveSpace, pulls the panel to the
+        // current Space).
+        if let panel, panel.isVisible, panel.isOnActiveSpace {
             hide()
         } else {
             show()
