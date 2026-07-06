@@ -105,6 +105,7 @@ enum SlackAction {
     static let approveAlways     = "hud:approve:always"   // allow + write a settings rule
     static let approveDeny       = "hud:approve:deny"
     static let approveDenyNote   = "hud:approve:deny_note" // deny-with-steering → modal
+    static let approveDetails    = "hud:approve:details"   // full gated action → modal
     // 3.3 — ExitPlanMode gate.
     static let planApprove   = "hud:plan:approve"
     static let planEdit      = "hud:plan:edit"        // → modal, injected as deny-with-steering
