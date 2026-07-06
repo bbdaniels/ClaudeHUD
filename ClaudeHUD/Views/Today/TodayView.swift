@@ -1,11 +1,15 @@
 import SwiftUI
 import AppKit
 
+// The Today pane is deliberately thin: the tasks actually due today
+// (Apple Reminders due today/overdue + any checkboxes in today's daily
+// note) sit at the top, and the daily note itself is the main body. The
+// LLM day-summary, the calendar event list, and the sprawling
+// all-projects `## Active` scan were removed — the full project task
+// lists live on the Projects tab; calendar lives in Calendar.app.
+
 struct TodayView: View {
-    @EnvironmentObject var calendarService: CalendarService
-    @EnvironmentObject var briefingService: BriefingService
     @EnvironmentObject var vaultManager: VaultManager
-    @EnvironmentObject var projectService: ProjectService
     @EnvironmentObject var remindersService: RemindersService
     @Environment(\.fontScale) private var scale
     @State private var dayOffset = 0
@@ -22,750 +26,70 @@ struct TodayView: View {
         return fmt.string(from: date)
     }
 
-    private var dayShape: String {
-        if timeEvents.isEmpty { return "" }
-        let total = timeEvents.count
-        if total <= 2 { return "light" }
-        if total >= 5 { return "packed" }
-        return "\(total) events"
-    }
-
-    private var timeEvents: [CalendarEvent] {
-        calendarService.todayEvents.filter { !$0.isAllDay }
-    }
-
-    private var allDayEvents: [CalendarEvent] {
-        calendarService.todayEvents.filter { $0.isAllDay }
-    }
-
     var body: some View {
         VStack(spacing: 0) {
-            if !calendarService.accessGranted {
-                Spacer()
-                Image(systemName: "calendar.badge.exclamationmark")
-                    .font(.system(size: 28))
-                    .foregroundColor(.secondary.opacity(0.5))
-                Text("Calendar access required")
-                    .font(.smallFont(scale))
-                    .foregroundColor(.secondary)
-                    .padding(.top, 6)
-                Text("Grant access in System Settings → Privacy → Calendars")
-                    .font(.captionFont(scale))
-                    .foregroundColor(.secondary.opacity(0.6))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 4)
-                Spacer()
-            } else if calendarService.todayEvents.isEmpty {
-                // Date nav bar (fixed, dark) — same as events case
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Button(action: { dayOffset -= 1 }) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 9 * scale, weight: .semibold))
-                            .foregroundColor(.secondary.opacity(0.5))
-                    }
-                    .buttonStyle(.borderless)
+            dateNav
 
-                    Text(headerString(for: selectedDate))
-                        .font(.smallFont(scale))
-                        .foregroundColor(.primary)
+            Divider().opacity(0.3)
 
-                    Button(action: { dayOffset += 1 }) {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 9 * scale, weight: .semibold))
-                            .foregroundColor(.secondary.opacity(0.5))
-                    }
-                    .buttonStyle(.borderless)
+            ScrollView {
+                // Top: what's actually due today — reminders due today or
+                // overdue, plus any checkboxes in today's daily note.
+                WhatsNextView(date: selectedDate, isToday: isToday)
 
-                    if !isToday {
-                        Button(action: { dayOffset = 0 }) {
-                            HStack(spacing: 3) {
-                                Image(systemName: "arrow.uturn.backward")
-                                    .font(.system(size: 9 * scale))
-                                Text("today")
-                                    .font(.captionFont(scale).weight(.medium))
-                            }
-                            .foregroundColor(.blue)
-                        }
-                        .buttonStyle(.borderless)
-                    }
-
-                    Spacer()
-
-                    CalendarFilterMenu()
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
-                .background(Color(.textBackgroundColor).opacity(0.3))
-
-                Divider().opacity(0.3)
-
-                ScrollView {
-                    WhatsNextView(date: selectedDate, isToday: isToday)
-
-                    if remindersService.todos.isEmpty {
-                        VStack(spacing: 6) {
-                            Image(systemName: "calendar")
-                                .font(.system(size: 28))
-                                .foregroundColor(.secondary.opacity(0.5))
-                            Text(isToday ? "No events today" : "No events")
-                                .font(.smallFont(scale))
-                                .foregroundColor(.secondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 40)
-                    }
-
-                    // Daily note section absorbs the work the old Notes
-                    // tab carried. Quick-capture for today, last-N-lines
-                    // preview, open-in-floating-window for full edit.
-                    Divider().opacity(0.3).padding(.top, 8)
-                    DailyNoteSection(date: selectedDate)
-                }
-            } else {
-                // Date nav bar (fixed, dark)
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Button(action: { dayOffset -= 1 }) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 9 * scale, weight: .semibold))
-                            .foregroundColor(.secondary.opacity(0.5))
-                    }
-                    .buttonStyle(.borderless)
-
-                    Text(headerString(for: selectedDate))
-                        .font(.smallFont(scale))
-                        .foregroundColor(.primary)
-
-                    Button(action: { dayOffset += 1 }) {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 9 * scale, weight: .semibold))
-                            .foregroundColor(.secondary.opacity(0.5))
-                    }
-                    .buttonStyle(.borderless)
-
-                    if !isToday {
-                        Button(action: { dayOffset = 0 }) {
-                            HStack(spacing: 3) {
-                                Image(systemName: "arrow.uturn.backward")
-                                    .font(.system(size: 9 * scale))
-                                Text("today")
-                                    .font(.captionFont(scale).weight(.medium))
-                            }
-                            .foregroundColor(.blue)
-                        }
-                        .buttonStyle(.borderless)
-                    }
-
-                    Spacer()
-
-                    Text(dayShape)
-                        .font(.captionFont(scale))
-                        .foregroundColor(.secondary.opacity(0.5))
-
-                    CalendarFilterMenu()
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
-                .background(Color(.textBackgroundColor).opacity(0.3))
-
-                Divider().opacity(0.3)
-
-                ScrollView {
-                    // "Your Day" summary
-                    DaySummaryView(date: selectedDate)
-                        .padding(.horizontal, 14)
-                        .padding(.top, 10)
-                        .padding(.bottom, 6)
-
-                    Divider().opacity(0.3)
-
-                    WhatsNextView(date: selectedDate, isToday: isToday)
-
-                    LazyVStack(spacing: 0) {
-                        // All-day events
-                        if !allDayEvents.isEmpty {
-                            ForEach(allDayEvents) { event in
-                                AllDayEventRow(event: event)
-                            }
-                            Divider().opacity(0.3).padding(.vertical, 4)
-                        }
-
-                        // Timed events
-                        ForEach(timeEvents) { event in
-                            EventRow(event: event)
-                            Divider().opacity(0.3)
-                        }
-                    }
-                    .padding(.horizontal, 10)
-
-                    // Daily note section absorbs the work the old Notes
-                    // tab carried. Quick-capture for today, last-N-lines
-                    // preview, open-in-floating-window for full edit.
-                    Divider().opacity(0.3).padding(.top, 8)
-                    DailyNoteSection(date: selectedDate)
-                }
+                // The daily note is the main body of the pane.
+                DailyNoteSection(date: selectedDate)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: dayOffset) {
             let date = selectedDate
-            calendarService.loadEvents(for: date)
             remindersService.loadReminders(for: date)
             vaultManager.ensureDailyNote(for: date)
+        }
+    }
 
-            // Today is owned by `BriefingService.startAutoRefresh`
-            // (wired in `AppState.setup`): pre-warms at launch, refreshes
-            // on calendar/todos state change. Calling generateDaySummary
-            // here for today races the subscriber's cache key (their
-            // todo counts can drift if reminders fire mid-tab-open),
-            // causing spurious cache misses → spinner flashes → LLM
-            // calls. So: skip on today. For yesterday/tomorrow (day
-            // navigation), lazy-generate via the same code path.
-            if !Calendar.current.isDateInToday(date) {
-                let obsidianTodos = vaultManager.scanTodos(for: date, includeRecent: false)
-                let allTodos = remindersService.todos + obsidianTodos
-                briefingService.generateDaySummary(
-                    events: calendarService.todayEvents,
-                    date: date,
-                    todos: allTodos
-                )
-                briefingService.preloadAll(
-                    events: calendarService.todayEvents,
-                    vaultPath: vaultManager.currentVault?.path,
-                    projects: projectService.projects
-                )
+    /// Slim date navigator — prev/next day + a reset-to-today button. The
+    /// calendar event list and its filter menu were removed; the nav stays
+    /// so yesterday's/tomorrow's daily note and tasks remain reachable.
+    private var dateNav: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Button(action: { dayOffset -= 1 }) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 9 * scale, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.5))
             }
-        }
-    }
-}
+            .buttonStyle(.borderless)
 
-// MARK: - Day Summary
+            Text(headerString(for: selectedDate))
+                .font(.smallFont(scale))
+                .foregroundColor(.primary)
 
-private struct DaySummaryView: View {
-    let date: Date
-    @EnvironmentObject var briefingService: BriefingService
-    @Environment(\.fontScale) private var scale
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // LLM-generated summary
-            if let daySummary = briefingService.daySummary {
-                if let text = daySummary.text {
-                    Text(text)
-                        .font(.custom("Fira Sans", size: 12 * scale))
-                        .foregroundColor(.secondary.opacity(0.85))
-                        .lineSpacing(3)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
-                } else if daySummary.isLoading {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text("Reading your day...")
-                            .font(.captionFont(scale))
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.vertical, 2)
-                }
+            Button(action: { dayOffset += 1 }) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9 * scale, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.5))
             }
-        }
-    }
+            .buttonStyle(.borderless)
 
-}
-
-// MARK: - All Day Event Row
-
-private struct AllDayEventRow: View {
-    let event: CalendarEvent
-    @Environment(\.fontScale) private var scale
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(Color(hex: event.calendarColor))
-                .frame(width: 6, height: 6)
-            Text(event.title)
-                .font(.captionFont(scale))
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-            Spacer()
-            Text("all day")
-                .font(.captionFont(scale))
-                .foregroundColor(.secondary.opacity(0.5))
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-    }
-}
-
-// MARK: - Event Row (expandable)
-
-struct EventRow: View {
-    let event: CalendarEvent
-    @State private var expanded = false
-    @Environment(\.fontScale) private var scale
-
-    private var isPast: Bool { event.endDate < Date() }
-    private var isNow: Bool { event.startDate <= Date() && event.endDate > Date() }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Compact row
-            HStack(spacing: 8) {
-                // Time
-                Text(compactTimeRange())
-                    .font(.custom("Fira Code", size: 10.5 * scale).weight(.medium))
-                    .foregroundColor(isNow ? .green : isPast ? .secondary.opacity(0.4) : .secondary)
-                    .frame(width: 72, alignment: .trailing)
-
-                // Color dot
-                Circle()
-                    .fill(Color(hex: event.calendarColor))
-                    .frame(width: 7, height: 7)
-
-                // Title + location
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(event.title)
-                        .font(.smallFont(scale))
-                        .foregroundColor(isPast ? .secondary.opacity(0.5) : .primary)
-                        .lineLimit(1)
-
-                    if let location = compactLocation() {
-                        Text(location)
-                            .font(.captionFont(scale))
-                            .foregroundColor(.secondary.opacity(0.6))
-                            .lineLimit(1)
-                    }
-                }
-
-                Spacer()
-
-                // Expand indicator (if has attendees or details)
-                if !event.attendees.isEmpty || event.zoomLink != nil {
-                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9 * scale, weight: .semibold))
-                        .foregroundColor(.secondary.opacity(0.4))
-                }
-            }
-            .padding(.vertical, 8)
-            .padding(.horizontal, 4)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                if !event.attendees.isEmpty || event.zoomLink != nil || event.notes != nil {
-                    withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
-                }
-            }
-
-            // Expanded detail
-            if expanded {
-                EventDetailView(event: event)
-                    .padding(.leading, 66)
-                    .padding(.trailing, 4)
-                    .padding(.bottom, 8)
-            }
-        }
-        .opacity(isPast ? 0.6 : 1.0)
-    }
-
-    /// Format like "3–4p" or "3:30–4p" or "9a–12p"
-    private func compactTimeRange() -> String {
-        func short(_ date: Date) -> (h: Int, m: Int, pm: Bool) {
-            let cal = Calendar.current
-            let h = cal.component(.hour, from: date)
-            let m = cal.component(.minute, from: date)
-            return (h > 12 ? h - 12 : (h == 0 ? 12 : h), m, h >= 12)
-        }
-
-        let s = short(event.startDate)
-        let e = short(event.endDate)
-        let suf = { (pm: Bool) -> String in pm ? "p" : "a" }
-
-        let startMin = s.m > 0 ? ":\(String(format: "%02d", s.m))" : ""
-        let endMin = e.m > 0 ? ":\(String(format: "%02d", e.m))" : ""
-
-        // Omit start suffix if same as end
-        let startSuf = s.pm == e.pm ? "" : suf(s.pm)
-
-        return "\(s.h)\(startMin)\(startSuf)–\(e.h)\(endMin)\(suf(e.pm))"
-    }
-
-    private func compactLocation() -> String? {
-        if event.zoomLink != nil { return "Zoom" }
-        if let loc = event.location, !loc.isEmpty {
-            if loc.contains("zoom.us") { return "Zoom" }
-            if loc.contains("meet.google") { return "Google Meet" }
-            if loc.contains("teams.microsoft") { return "Teams" }
-            return String(loc.prefix(40))
-        }
-        return nil
-    }
-}
-
-// MARK: - Event Detail (expanded)
-
-struct EventDetailView: View {
-    let event: CalendarEvent
-    @EnvironmentObject var briefingService: BriefingService
-    @EnvironmentObject var vaultManager: VaultManager
-    @EnvironmentObject var projectService: ProjectService
-    @Environment(\.fontScale) private var scale
-
-    @State private var showPeople = false
-    @State private var showThreads = false
-    @State private var showNotes = false
-
-    private var briefing: EventBriefing? { briefingService.briefings[event.id] }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Zoom / meeting link
-            if let link = event.zoomLink {
-                Button(action: {
-                    if let url = URL(string: link) { NSWorkspace.shared.open(url) }
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "video.fill")
-                            .font(.system(size: 10 * scale))
-                        Text("Join meeting")
-                            .font(.captionFont(scale))
+            if !isToday {
+                Button(action: { dayOffset = 0 }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.uturn.backward")
+                            .font(.system(size: 9 * scale))
+                        Text("today")
+                            .font(.captionFont(scale).weight(.medium))
                     }
                     .foregroundColor(.blue)
                 }
                 .buttonStyle(.borderless)
             }
 
-            // Location (full, if not just a link)
-            if let loc = event.location, !loc.isEmpty,
-               !loc.contains("zoom.us"), !loc.contains("meet.google"), !loc.contains("teams.microsoft") {
-                HStack(alignment: .top, spacing: 4) {
-                    Image(systemName: "mappin")
-                        .font(.system(size: 10 * scale))
-                        .foregroundColor(.secondary)
-                        .frame(width: 14)
-                    Text(loc)
-                        .font(.captionFont(scale))
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            // Calendar name
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(Color(hex: event.calendarColor))
-                    .frame(width: 6, height: 6)
-                Text(event.calendarName)
-                    .font(.captionFont(scale))
-                    .foregroundColor(.secondary.opacity(0.5))
-            }
-
-            // INTEL SUMMARY
-            if let briefing = briefing {
-                if let summary = briefing.summary {
-                    Text(summary)
-                        .font(.custom("Fira Sans", size: 11.5 * scale))
-                        .foregroundColor(.secondary.opacity(0.8))
-                        .lineSpacing(3)
-                        .textSelection(.enabled)
-                        .padding(.top, 4)
-                } else if briefing.isLoading {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text("Preparing briefing...")
-                            .font(.captionFont(scale))
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.top, 4)
-                } else if briefing.emailThreads.isEmpty && briefing.relatedNotes.isEmpty {
-                    Text("No related intel found")
-                        .font(.captionFont(scale))
-                        .foregroundColor(.secondary.opacity(0.4))
-                        .padding(.top, 4)
-                }
-            }
-
-            // COLLAPSIBLE SECTIONS (available even while summary is loading)
-            if let briefing = briefing {
-                // People
-                if !event.attendees.isEmpty {
-                    CollapsibleSection(
-                        title: "People",
-                        icon: "person.2",
-                        color: .secondary,
-                        count: event.attendees.count,
-                        isExpanded: $showPeople
-                    ) {
-                        ForEach(event.attendees.filter { !ContactService.isCurrentUser($0) }) { person in
-                            HStack(spacing: 4) {
-                                Image(systemName: statusIcon(person.status))
-                                    .font(.system(size: 9 * scale))
-                                    .foregroundColor(statusColor(person.status))
-                                    .frame(width: 12)
-                                Text(ContactService.resolvedName(for: person))
-                                    .font(.captionFont(scale))
-                                    .foregroundColor(.primary)
-                                if let org = ContactService.resolvedOrg(for: person) {
-                                    Text("(\(org))")
-                                        .font(.custom("Fira Code", size: 9 * scale))
-                                        .foregroundColor(.secondary.opacity(0.5))
-                                }
-                                if person.status == "organizer" {
-                                    Text("organizer")
-                                        .font(.custom("Fira Code", size: 9 * scale))
-                                        .foregroundColor(.secondary.opacity(0.4))
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Email threads
-                if !briefing.emailThreads.isEmpty {
-                    CollapsibleSection(
-                        title: "Threads",
-                        icon: "envelope",
-                        color: .blue,
-                        count: briefing.emailThreads.count,
-                        isExpanded: $showThreads
-                    ) {
-                        ForEach(briefing.emailThreads) { thread in
-                            EmailThreadRow(thread: thread)
-                        }
-                    }
-                }
-
-                // Related notes
-                if !briefing.relatedNotes.isEmpty {
-                    CollapsibleSection(
-                        title: "Notes",
-                        icon: "doc.text",
-                        color: .orange,
-                        count: briefing.relatedNotes.count,
-                        isExpanded: $showNotes
-                    ) {
-                        ForEach(briefing.relatedNotes) { note in
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(note.name)
-                                    .font(.captionFont(scale))
-                                    .foregroundColor(.primary)
-                                    .lineLimit(1)
-                                if !note.preview.isEmpty {
-                                    Text(note.preview)
-                                        .font(.custom("Fira Sans", size: 10.5 * scale))
-                                        .foregroundColor(.secondary.opacity(0.5))
-                                        .lineLimit(1)
-                                }
-                            }
-                            .padding(.leading, 2)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                FloatingNoteWindowManager.shared.openWindow(
-                                    for: NoteFile(name: URL(fileURLWithPath: note.path).lastPathComponent,
-                                                  path: note.path,
-                                                  relativePath: note.name,
-                                                  isDirectory: false,
-                                                  modificationDate: nil,
-                                                  children: nil))
-                            }
-                        }
-                    }
-                }
-            }
+            Spacer()
         }
-        .onAppear {
-            briefingService.generateBriefing(
-                for: event,
-                vaultPath: vaultManager.currentVault?.path,
-                projects: projectService.projects
-            )
-        }
-    }
-
-    private func statusIcon(_ status: String) -> String {
-        switch status {
-        case "accepted", "organizer": return "checkmark.circle.fill"
-        case "declined": return "xmark.circle.fill"
-        case "tentative": return "questionmark.circle"
-        default: return "circle"
-        }
-    }
-
-    private func statusColor(_ status: String) -> Color {
-        switch status {
-        case "accepted", "organizer": return .green
-        case "declined": return .red
-        case "tentative": return .orange
-        default: return .secondary
-        }
-    }
-}
-
-// MARK: - Collapsible Section
-
-private struct CollapsibleSection<Content: View>: View {
-    let title: String
-    let icon: String
-    let color: Color
-    var count: Int? = nil
-    @Binding var isExpanded: Bool
-    @ViewBuilder let content: () -> Content
-    @Environment(\.fontScale) private var scale
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Button(action: { withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() } }) {
-                HStack(spacing: 4) {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9 * scale, weight: .semibold))
-                        .foregroundColor(.secondary.opacity(0.4))
-                        .frame(width: 10)
-                    Image(systemName: icon)
-                        .font(.system(size: 9 * scale))
-                        .foregroundColor(color)
-                    Text(title)
-                        .font(.captionFont(scale).weight(.semibold))
-                        .foregroundColor(.secondary.opacity(0.6))
-                    if let count {
-                        Text("\(count)")
-                            .font(.custom("Fira Code", size: 10 * scale))
-                            .foregroundColor(.secondary.opacity(0.6))
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
-                    }
-                    Spacer()
-                }
-            }
-            .buttonStyle(.plain)
-
-            if isExpanded {
-                content()
-                    .padding(.leading, 14)
-            }
-        }
-        .padding(.top, 4)
-    }
-}
-
-// MARK: - Email Thread Row (expandable)
-
-private struct EmailThreadRow: View {
-    let thread: EmailThread
-    @EnvironmentObject var briefingService: BriefingService
-    @State private var expanded = false
-    @State private var fullBody: String?
-    @Environment(\.fontScale) private var scale
-
-    private var displayBody: String {
-        fullBody ?? thread.snippet
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            // Header (always visible)
-            HStack(spacing: 4) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(thread.subject)
-                        .font(.captionFont(scale))
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                    HStack(spacing: 4) {
-                        Text(thread.participants)
-                            .font(.custom("Fira Sans", size: 10.5 * scale))
-                            .foregroundColor(.secondary.opacity(0.5))
-                            .lineLimit(1)
-                        if !thread.date.isEmpty {
-                            Text("·")
-                                .foregroundColor(.secondary.opacity(0.3))
-                            Text(thread.date)
-                                .font(.custom("Fira Sans", size: 10.5 * scale))
-                                .foregroundColor(.secondary.opacity(0.5))
-                        }
-                    }
-                }
-                Spacer()
-                Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9 * scale, weight: .semibold))
-                    .foregroundColor(.secondary.opacity(0.3))
-            }
-            .padding(.leading, 2)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
-                if expanded && fullBody == nil {
-                    Task {
-                        fullBody = await briefingService.fetchFullBody(messagePk: thread.messagePk)
-                    }
-                }
-            }
-
-            // Body (expanded)
-            if expanded {
-                if displayBody.isEmpty {
-                    Text("Loading...")
-                        .font(.custom("Fira Sans", size: 11 * scale))
-                        .foregroundColor(.secondary.opacity(0.4))
-                        .padding(.leading, 2)
-                        .padding(.top, 2)
-                } else {
-                    Text(displayBody)
-                        .font(.custom("Fira Sans", size: 11 * scale))
-                        .foregroundColor(.secondary.opacity(0.7))
-                        .lineSpacing(2)
-                        .padding(.leading, 2)
-                        .padding(.top, 2)
-                        .textSelection(.enabled)
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Calendar Filter Menu
-
-private struct CalendarFilterMenu: View {
-    @EnvironmentObject var calendarService: CalendarService
-    @Environment(\.fontScale) private var scale
-
-    private var hasExclusions: Bool { !calendarService.excludedCalendarIDs.isEmpty }
-
-    var body: some View {
-        Menu {
-            ForEach(calendarService.allCalendars, id: \.calendarIdentifier) { cal in
-                Button(action: { calendarService.toggleCalendar(cal) }) {
-                    HStack {
-                        Image(systemName: calendarService.isExcluded(cal) ? "circle" : "checkmark.circle.fill")
-                        Text(cal.title)
-                    }
-                }
-            }
-
-            if hasExclusions {
-                Divider()
-                Button("Show All") {
-                    calendarService.excludedCalendarIDs.removeAll()
-                }
-            }
-        } label: {
-            Image(systemName: "line.3.horizontal.decrease")
-                .font(.system(size: 10 * scale, weight: .medium))
-                .foregroundColor(hasExclusions ? .blue : .secondary.opacity(0.5))
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-    }
-}
-
-// MARK: - Color from Hex
-
-extension Color {
-    init(hex: String) {
-        let hex = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
-        var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
-        let r = Double((int >> 16) & 0xFF) / 255.0
-        let g = Double((int >> 8) & 0xFF) / 255.0
-        let b = Double(int & 0xFF) / 255.0
-        self.init(red: r, green: g, blue: b)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .background(Color(.textBackgroundColor).opacity(0.3))
     }
 }
 
@@ -786,6 +110,11 @@ private struct DailyNoteSection: View {
     @AppStorage("today.dailyNoteCollapsed") private var collapsed = false
     @State private var content: String? = nil
     @State private var capture: String = ""
+    /// Headings currently expanded. Empty = all collapsed (the chosen
+    /// default): the note opens as a compact list of its `###` headings and
+    /// you tap one to reveal its content. Not persisted — resets to
+    /// collapsed on each date change / reload (a fresh glance each time).
+    @State private var expandedHeadings: Set<String> = []
 
     private var dailyNotePath: String? {
         guard let vault = vaultManager.currentVault else { return nil }
@@ -810,8 +139,10 @@ private struct DailyNoteSection: View {
     /// doesn't leak as mid-sentence breaks). This is a light scan — full
     /// markdown (tables, images, math, nested lists) is still the floating
     /// window's job. The redundant H1 date heading is dropped (the section
-    /// header + date nav already show the date).
-    private static let previewLineCap = 40
+    /// header + date nav already show the date). The cap is generous so
+    /// the note reads as the pane's main content; only very long notes are
+    /// tailed.
+    private static let previewLineCap = 150
     private var previewRows: [DailyNotePreviewRow] {
         guard let content else { return [] }
         var lines = content.components(separatedBy: "\n")
@@ -859,13 +190,38 @@ private struct DailyNoteSection: View {
         return rows
     }
 
+    /// Group the flat preview rows into collapsible sections: each heading
+    /// owns the rows beneath it up to the next heading (flat, not nested).
+    /// Rows before the first heading are the always-visible preamble
+    /// (`heading == nil`), since they belong to no heading.
+    private var noteSections: [NoteSection] {
+        var sections: [NoteSection] = []
+        var current = NoteSection(id: "preamble", heading: nil, rows: [])
+        var idx = 0
+        for row in previewRows {
+            if case let .heading(text, level) = row {
+                if current.heading != nil || !current.rows.isEmpty {
+                    sections.append(current)
+                }
+                idx += 1
+                current = NoteSection(id: "sec-\(idx)", heading: (text, level), rows: [])
+            } else {
+                current.rows.append(row)
+            }
+        }
+        if current.heading != nil || !current.rows.isEmpty {
+            sections.append(current)
+        }
+        return sections
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             if !collapsed {
                 if isToday { captureField }
-                let rows = previewRows
-                if rows.isEmpty {
+                let sections = noteSections
+                if sections.isEmpty {
                     Text("No daily note yet for this date.")
                         .font(.captionFont(scale))
                         .foregroundColor(.secondary.opacity(0.7))
@@ -873,8 +229,30 @@ private struct DailyNoteSection: View {
                         .padding(.top, 6)
                 } else {
                     VStack(alignment: .leading, spacing: 3) {
-                        ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                            DailyNotePreviewRowView(row: row)
+                        ForEach(sections) { section in
+                            if let heading = section.heading {
+                                DailyNoteHeadingRow(
+                                    text: heading.text,
+                                    level: heading.level,
+                                    isExpanded: expandedHeadings.contains(section.id),
+                                    hasChildren: !section.rows.isEmpty,
+                                    onToggle: { toggleHeading(section.id) }
+                                )
+                                if expandedHeadings.contains(section.id) {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        ForEach(Array(section.rows.enumerated()), id: \.offset) { _, row in
+                                            DailyNotePreviewRowView(row: row)
+                                        }
+                                    }
+                                    .padding(.leading, 12)
+                                }
+                            } else {
+                                // Preamble — content before the first heading,
+                                // always shown (it belongs to no heading).
+                                ForEach(Array(section.rows.enumerated()), id: \.offset) { _, row in
+                                    DailyNotePreviewRowView(row: row)
+                                }
+                            }
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -959,6 +337,14 @@ private struct DailyNoteSection: View {
         content = try? String(contentsOfFile: path, encoding: .utf8)
     }
 
+    private func toggleHeading(_ id: String) {
+        if expandedHeadings.contains(id) {
+            expandedHeadings.remove(id)
+        } else {
+            expandedHeadings.insert(id)
+        }
+    }
+
     /// Append `- HH:MM <text>` to today's daily note. Creates the file
     /// if missing (rare — `vaultManager.ensureDailyNote` runs on the
     /// `.task(id: dayOffset)` earlier and would have populated it).
@@ -1023,6 +409,49 @@ private enum DailyNotePreviewRow {
     case heading(text: String, level: Int)
     case bullet(text: String, checked: Bool?, indent: Int)
     case prose(String)
+}
+
+/// A run of preview rows grouped under one heading (or the leading preamble
+/// when `heading == nil`). Sections are flat — a heading owns every row up to
+/// the next heading, with no deeper nesting (see `DailyNoteSection.noteSections`).
+private struct NoteSection: Identifiable {
+    let id: String
+    let heading: (text: String, level: Int)?
+    var rows: [DailyNotePreviewRow]
+}
+
+/// A collapsible heading row in the daily-note preview: chevron + styled
+/// heading, tap to reveal/hide the rows beneath it. A heading with no content
+/// shows no chevron (nothing to reveal) and does not respond to taps.
+private struct DailyNoteHeadingRow: View {
+    let text: String
+    let level: Int
+    let isExpanded: Bool
+    let hasChildren: Bool
+    let onToggle: () -> Void
+    @Environment(\.fontScale) private var scale
+
+    var body: some View {
+        Button(action: {
+            guard hasChildren else { return }
+            withAnimation(.easeInOut(duration: 0.15)) { onToggle() }
+        }) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 9 * scale, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(hasChildren ? 0.5 : 0))
+                    .frame(width: 10)
+                Text(prettifyMarkdownInline(text))
+                    .font(.custom("Fira Sans", size: (level <= 2 ? 12.5 : 11.5) * scale).weight(.semibold))
+                    .foregroundColor(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+            .padding(.top, 3)
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 private struct DailyNotePreviewRowView: View {

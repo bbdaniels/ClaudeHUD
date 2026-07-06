@@ -72,19 +72,12 @@ class AppState: ObservableObject {
         // names resolve against the full project set.
         slackService.start()
 
-        // Today tab pre-warm + state-change refresh. Hard rule: no LLM
-        // call on tab open (Documents/Obsidian/ClaudeHUD/Tasks.md
-        // §Today tab). `startAutoRefresh` subscribes to CalendarService
-        // and RemindersService publishers; the CombineLatest first
-        // emission acts as the launch pre-warm, subsequent emissions
-        // cover mid-day state drift. The Today tab itself reads only
-        // the cached `daySummary` / `briefings` outputs.
-        briefingService.startAutoRefresh(
-            calendarService: calendarService,
-            remindersService: remindersService,
-            vaultManager: vaultManager,
-            projectService: projectService
-        )
+        // The Today tab was slimmed to "tasks due today + daily note"
+        // (no LLM day-summary, no calendar list), so its BriefingService
+        // pre-warm was removed — nothing on that tab runs an LLM anymore.
+        // `BriefingService` stays instantiated and injected as an env
+        // object (re-enable pattern; still owns the dormant per-event
+        // briefing infra) but is no longer auto-refreshed at launch.
 
         // Unlock secrets vault — single Touch ID prompt for the whole session.
         // Services were initialized before secrets were available, so notify

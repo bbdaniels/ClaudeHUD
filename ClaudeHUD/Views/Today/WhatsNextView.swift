@@ -113,7 +113,11 @@ struct WhatsNextView: View {
             }
         }
         .task(id: "\(date.timeIntervalSince1970)") {
-            obsidianTodos = vaultManager.scanTodos(for: date, includeRecent: isToday)
+            // `includeRecent: false` → only this date's daily-note checkboxes,
+            // NOT the all-projects `## Active` scan. Combined with the
+            // date-loaded reminders above, this is the "due today" set. The
+            // full per-project task lists live on the Projects tab.
+            obsidianTodos = vaultManager.scanTodos(for: date, includeRecent: false)
         }
     }
 
@@ -130,7 +134,7 @@ struct WhatsNextView: View {
                 }
             case .obsidian:
                 vaultManager.toggleObsidianTodo(item)
-                obsidianTodos = vaultManager.scanTodos(for: date, includeRecent: isToday)
+                obsidianTodos = vaultManager.scanTodos(for: date, includeRecent: false)
             }
         }
     }
