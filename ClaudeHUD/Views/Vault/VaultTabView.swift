@@ -934,7 +934,7 @@ private struct NoteFileRow: View {
 /// Ingest queue, sync status, settings. **Removed from the Projects tab
 /// 2026-06-07** (the tab is now a clean project list matching Session
 /// History). Kept inert — same "instantiated-but-unused, re-enable later"
-/// pattern as `ProjectBriefingService` — in case it returns as a dedicated
+/// pattern — in case it returns as a dedicated
 /// Settings surface. The ingest/sync recovery actions it exposed remain
 /// available via the scripts (`obsidian-sync.sh`, `vault-ingest.sh`).
 /// Cleaner trigger (5b) was always deferred (needs GitHub PAT wiring).

@@ -66,9 +66,7 @@
 		4D672BFFE8C2EFF795EF880A /* CodableBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A867396AF8AC61AC9257B54 /* CodableBridge.swift */; };
 		4DCB84C52E8DB272B4CE8823 /* libspirv_cross.a in Resources */ = {isa = PBXBuildFile; fileRef = AD95C3150FE0A4C4CFEA09D0 /* libspirv_cross.a */; };
 		4DEA00856BE8FFB74E36A917 /* NoteContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9236DD5E1930C1B92335C9C5 /* NoteContentView.swift */; };
-		4E15F066AF2BD94F369A7C5A /* ProjectBriefingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14436D6E425311899CF64373 /* ProjectBriefingService.swift */; };
 		4E2226AC5A3DC32CE959BD4B /* Duration+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 175F7C7BD7CB64E6EE7CF176 /* Duration+Extension.swift */; };
-		5710CB25C0CEA83C5DA639BC /* BriefingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B895763A8BC8C627B83B2B8 /* BriefingService.swift */; };
 		576AF1C88AA95664EAB8C877 /* libghostty.a in Resources */ = {isa = PBXBuildFile; fileRef = F91B13F700ABABA2308C8AC6 /* libghostty.a */; };
 		57A682701F700A5BB95BC4CD /* NSAppearance+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BDA365BDD0D72FA935912CF /* NSAppearance+Extension.swift */; };
 		5B232678A7FD8C65C97CCB9E /* String+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FDACE9A04CEA02436D47AD7 /* String+Extension.swift */; };
@@ -198,7 +196,6 @@
 		0FCE081E0F6BEA9495AAB3E4 /* SlackBlockKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlackBlockKit.swift; sourceTree = "<group>"; };
 		116D192F995BA6063E058A7F /* Stubs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Stubs.swift; sourceTree = "<group>"; };
 		11FF9297DE2CD760A7CBB416 /* vault-ingest-prompt.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "vault-ingest-prompt.md"; sourceTree = "<group>"; };
-		14436D6E425311899CF64373 /* ProjectBriefingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectBriefingService.swift; sourceTree = "<group>"; };
 		1539677F5984A853CCCD2667 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = GhosttyKit.xcframework; path = ClaudeHUD/Vendor/Ghostty/GhosttyKit.xcframework; sourceTree = "<group>"; };
 		157365D3A14C1D2C45DE6A80 /* obsidian-sync.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "obsidian-sync.sh"; sourceTree = "<group>"; };
 		175F7C7BD7CB64E6EE7CF176 /* Duration+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Duration+Extension.swift"; sourceTree = "<group>"; };
@@ -239,7 +236,6 @@
 		488D9CECA1CC4818D8F00253 /* SocketModeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketModeClient.swift; sourceTree = "<group>"; };
 		48D9389B80C07D234779F5AF /* GhosttyWindowService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyWindowService.swift; sourceTree = "<group>"; };
 		4A6ED39AD22EDDA61258DC0F /* InputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputBar.swift; sourceTree = "<group>"; };
-		4B895763A8BC8C627B83B2B8 /* BriefingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BriefingService.swift; sourceTree = "<group>"; };
 		4CE87221F1993D02C27C5E1B /* ClaudeAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeAPIClient.swift; sourceTree = "<group>"; };
 		4CFD163F5056F20A18D23477 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		4E5CC94E94375F63C3B1C6D3 /* MCPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPClient.swift; sourceTree = "<group>"; };
@@ -385,7 +381,6 @@
 			isa = PBXGroup;
 			children = (
 				08C85940214C84CB1A4E170C /* AgentsService.swift */,
-				4B895763A8BC8C627B83B2B8 /* BriefingService.swift */,
 				E19D00F8370F4B9F6E48FE81 /* CalendarService.swift */,
 				4FE78438CDBB1B82E2CD3203 /* ClaudeWebFetcher.swift */,
 				B4DFFB6D6970128A8DD29E98 /* ContactService.swift */,
@@ -395,7 +390,6 @@
 				CE31FD7228157DC53CDE8B9E /* KeychainService.swift */,
 				DB043CB409497C537E66D2B6 /* LibraryService.swift */,
 				BF91CF6EF11224D0DA07ECB9 /* PermissionWatcherService.swift */,
-				14436D6E425311899CF64373 /* ProjectBriefingService.swift */,
 				53F0B873471D8150D4E80657 /* ProjectService.swift */,
 				2801C79D6EE1B4B43ED6B5A4 /* PushNotificationManager.swift */,
 				B9E97B3A1EBC63741CC858FC /* RemindersService.swift */,
@@ -875,7 +869,6 @@
 				A6CE6F13DE90FD2DB48C69A2 /* AppState.swift in Sources */,
 				A80A8A41B64E427C3BC9C507 /* Array+Extension.swift in Sources */,
 				0A909F682EA34DF6C6F6018F /* Backport.swift in Sources */,
-				5710CB25C0CEA83C5DA639BC /* BriefingService.swift in Sources */,
 				8BC3AFA5670E2BEE782691C7 /* CGS.swift in Sources */,
 				869D6B56DDA5181778D86A2B /* CalendarService.swift in Sources */,
 				6849853A4E6B85FB19E3A411 /* ChatView.swift in Sources */,
@@ -955,7 +948,6 @@
 				21EAD7B85DB7D4B4FCDE1D24 /* Optional+Extension.swift in Sources */,
 				F2846511D5CDD3512D19E178 /* PermissionRequest.swift in Sources */,
 				18C337C2013A07B85298D28F /* PermissionWatcherService.swift in Sources */,
-				4E15F066AF2BD94F369A7C5A /* ProjectBriefingService.swift in Sources */,
 				BEB2851E74A402D792BD5639 /* ProjectService.swift in Sources */,
 				5E6501CEBB9899408CB2A50E /* PushNotificationManager.swift in Sources */,
 				42864B88ABA61875B75A624B /* RemindersService.swift in Sources */,

@@ -96,7 +96,7 @@ enum FixedTab: String, CaseIterable {
     // Tab order is the enum declaration order. History first.
     //
     // Killed tabs kept inert in services (push notif, permission watcher,
-    // ProjectBriefingService, AgentsService standalone tab, obsidian
+    // AgentsService standalone tab, obsidian
     // Notes tab — Daily Notes are now in Today). Raw values stay so
     // hiddenTabs UserDefaults entries from older builds keep meaning.
     case history
@@ -332,14 +332,13 @@ struct HUDContentView: View {
                         // the panel root). Agents injected here because only the
                         // Projects/Library tabs use the live roster. (Recent
                         // activity reads pre-computed Session Log digests — no
-                        // ProjectBriefingService / LLM call at view time.)
+                        // LLM call at view time.)
                         .environmentObject(appState.agentsService)
                         // For the per-row "Open in Slack" action.
                         .environmentObject(appState.slackService)
                 case .today:
                     TodayView()
                         .environmentObject(calendarService)
-                        .environmentObject(appState.briefingService)
                         .environmentObject(vaultManager)
                         .environmentObject(appState.projectService)
                         .environmentObject(appState.remindersService)

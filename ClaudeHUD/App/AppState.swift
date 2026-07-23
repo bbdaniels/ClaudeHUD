@@ -15,9 +15,7 @@ class AppState: ObservableObject {
     let permissionWatcher = PermissionWatcherService()
     let vaultManager = VaultManager()
     let calendarService = CalendarService()
-    let briefingService = BriefingService()
     let projectService = ProjectService()
-    let projectBriefingService = ProjectBriefingService()
     let contactService = ContactService()
     let remindersService = RemindersService()
     let usageService = UsageService()
@@ -78,13 +76,6 @@ class AppState: ObservableObject {
         // tokens are absent. Started after vault projects are listed so channel
         // names resolve against the full project set.
         slackService.start()
-
-        // The Today tab was slimmed to "tasks due today + daily note"
-        // (no LLM day-summary, no calendar list), so its BriefingService
-        // pre-warm was removed — nothing on that tab runs an LLM anymore.
-        // `BriefingService` stays instantiated and injected as an env
-        // object (re-enable pattern; still owns the dormant per-event
-        // briefing infra) but is no longer auto-refreshed at launch.
 
         // Unlock secrets vault — single Touch ID prompt for the whole session.
         // Services were initialized before secrets were available, so notify
