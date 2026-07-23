@@ -95,13 +95,12 @@ class ProjectService: ObservableObject {
 
     // MARK: - Project Discovery
 
-    /// Vault folders that are never projects (shared infrastructure folders).
-    /// Exposed so other services (e.g. SlackService channel sync) apply the
-    /// same exclusion as project discovery.
+    /// Vault folders that are never projects (shared infrastructure folders),
+    /// excluded from project discovery.
     nonisolated static let excludedFolderNames: Set<String> = [
         "Templates", "Daily Notes", "Attachments", "Assets", "Archive",
         // `Claude/` is the claimless tooling-reference folder (schema.md):
-        // never a project / session-mapping target, so never a Slack channel.
+        // never a project / session-mapping target.
         "Claude"
     ]
 

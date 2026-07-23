@@ -280,9 +280,7 @@ private struct ProjectRowView: View {
     let effectiveDate: Date
     let onToggle: () -> Void
     @Environment(\.fontScale) private var scale
-    @EnvironmentObject private var slack: SlackService
     @EnvironmentObject private var terminalService: TerminalService
-    @State private var slackHovering = false
     @State private var launchHovering = false
     @State private var launched = false
     @State private var unsafeMode: Bool
@@ -341,7 +339,7 @@ private struct ProjectRowView: View {
 
     private var rowHeader: some View {
         // Not a Button: the row toggles via onTapGesture so the trailing
-        // "Open in Slack" Button wins the hit-test on its own bounds (a Button
+        // launch controls win the hit-test on their own bounds (a Button
         // nested inside the row's Button would otherwise be ambiguous).
         HStack(spacing: 6) {
             Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
@@ -367,28 +365,12 @@ private struct ProjectRowView: View {
                     .foregroundColor(.secondary.opacity(0.5))
             }
             launchControls
-            slackButton
         }
         // Match Session History's project-row rhythm: 8pt vertical
         // padding on the compact line, flush rows (VStack spacing 0).
         .padding(.vertical, 8)
         .contentShape(Rectangle())
         .onTapGesture { onToggle() }
-    }
-
-    /// Visible launcher icon at the trailing edge — opens (creating if needed)
-    /// this project's Slack channel and jumps to it, without toggling the row.
-    private var slackButton: some View {
-        Button {
-            slack.openInSlack(project: project)
-        } label: {
-            Image(systemName: "bubble.left.and.bubble.right")
-                .font(.system(size: 11 * scale, weight: .medium))
-                .foregroundColor(.secondary.opacity(slackHovering ? 0.95 : 0.45))
-        }
-        .buttonStyle(.plain)
-        .help("Open in Slack")
-        .onHover { slackHovering = $0 }
     }
 
     /// The directory a launch targets: the project's first glob-free `cwds:`

@@ -1,7 +1,11 @@
 import Foundation
 
-/// Tiny append-only file logger for the Slack integration, mirroring the
-/// os_log/Logger calls to a readable file at `~/Library/Logs/claudehud-slack.log`.
+/// Tiny append-only file logger, mirroring the os_log/Logger calls to a
+/// readable file at `~/Library/Logs/claudehud-slack.log`. Introduced for the
+/// (since-removed) Slack integration and kept because core code logs through
+/// it -- ClaudeCLIClient session lifecycle and KeychainService status. The
+/// type name and log path are retained to avoid churning those call sites and
+/// orphaning existing logs.
 ///
 /// Exists because the hardened-runtime app's unified-log output is not always
 /// readable in the dev/debug environment; a plain file is. Lines are
