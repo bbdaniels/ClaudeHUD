@@ -213,6 +213,7 @@ struct HUDContentView: View {
                     Text("Sonnet").tag("sonnet")
                     Text("Haiku").tag("haiku")
                     Text("Opus").tag("opus")
+                    Text("Fable").tag("fable")
                 }
                 .labelsHidden()
                 .fixedSize()

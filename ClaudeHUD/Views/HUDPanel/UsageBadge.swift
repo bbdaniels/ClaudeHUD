@@ -133,12 +133,7 @@ struct UsagePopover: View {
                     if let wd = u.sevenDay {
                         UsageRow(label: "Weekly (all)", window: wd)
                     }
-                    if let opus = u.sevenDayOpus {
-                        UsageRow(label: "Weekly (Opus)", window: opus)
-                    }
-                    if let sonnet = u.sevenDaySonnet {
-                        UsageRow(label: "Weekly (Sonnet)", window: sonnet)
-                    }
+                    perModelRows(u)
                     if let extra = u.extraUsage, extra.isEnabled {
                         Divider()
                         HStack {
@@ -177,6 +172,32 @@ struct UsagePopover: View {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    /// Per-model weekly rows. Prefer the new `limits` array (claude.ai moved
+    /// per-model usage there ~2026-07 as `weekly_scoped` entries — e.g. Fable);
+    /// fall back to the legacy flat `seven_day_<model>` fields for any account
+    /// still returning them.
+    @ViewBuilder
+    private func perModelRows(_ u: UsageResponse) -> some View {
+        let scoped = (u.limits ?? []).filter { $0.kind == "weekly_scoped" }
+        if !scoped.isEmpty {
+            ForEach(Array(scoped.enumerated()), id: \.offset) { item in
+                UsageRow(label: item.element.label,
+                         window: UsageWindow(utilization: item.element.percent ?? 0,
+                                             resetsAt: item.element.resetsAt))
+            }
+        } else {
+            if let opus = u.sevenDayOpus {
+                UsageRow(label: "Weekly (Opus)", window: opus)
+            }
+            if let sonnet = u.sevenDaySonnet {
+                UsageRow(label: "Weekly (Sonnet)", window: sonnet)
+            }
+            if let fable = u.sevenDayFable {
+                UsageRow(label: "Weekly (Fable)", window: fable)
+            }
+        }
     }
 }
 
