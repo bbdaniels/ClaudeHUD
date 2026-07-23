@@ -221,6 +221,29 @@ class TerminalService: ObservableObject {
         }
     }
 
+    /// Open a directory in Manuscriptor via `open -a`. ClaudeHUD hands over the
+    /// project's top-level directory; Manuscriptor browses the tree itself.
+    /// Falls back to plain `NSWorkspace.open` if Manuscriptor isn't installed
+    /// at the expected path.
+    @discardableResult
+    func openInManuscriptor(_ url: URL) -> Bool {
+        let manuscriptorPath = "/Applications/Manuscriptor.app"
+        guard FileManager.default.fileExists(atPath: manuscriptorPath) else {
+            NSWorkspace.shared.open(url)
+            return false
+        }
+        let open = Process()
+        open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        open.arguments = ["-a", manuscriptorPath, url.path]
+        do {
+            try open.run()
+            return true
+        } catch {
+            NSWorkspace.shared.open(url)
+            return false
+        }
+    }
+
     private func appleScriptEscape(_ s: String) -> String {
         s.replacingOccurrences(of: "\\", with: "\\\\")
          .replacingOccurrences(of: "\"", with: "\\\"")

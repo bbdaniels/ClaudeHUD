@@ -417,6 +417,19 @@ private struct ProjectRowView: View {
         .help(hasCwd ? "New session — loads project context from the Obsidian wiki"
                      : "New session in ~ (no cwds: set yet) — loads project context from the wiki")
         .onHover { launchHovering = $0 }
+
+        if let cwd = project.primaryCwd {
+            Button {
+                terminalService.openInManuscriptor(URL(fileURLWithPath: cwd))
+            } label: {
+                // TODO: swap for the Manuscriptor quill mark
+                Image(systemName: "signature")
+                    .font(.system(size: 11 * scale))
+                    .foregroundColor(.secondary.opacity(0.45))
+            }
+            .buttonStyle(.plain)
+            .help("Open in Manuscriptor")
+        }
     }
 
     private var defaultsKey: String { "history.unsafe.\(project.primaryCwd ?? project.name)" }
