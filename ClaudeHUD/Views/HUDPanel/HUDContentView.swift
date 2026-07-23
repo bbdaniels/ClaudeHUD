@@ -341,7 +341,6 @@ struct HUDContentView: View {
                         .environmentObject(calendarService)
                         .environmentObject(vaultManager)
                         .environmentObject(appState.projectService)
-                        .environmentObject(appState.remindersService)
                 case .library:
                     LibraryView()
                         .environmentObject(appState.libraryService)

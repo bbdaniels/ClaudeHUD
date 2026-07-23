@@ -17,7 +17,6 @@ class AppState: ObservableObject {
     let calendarService = CalendarService()
     let projectService = ProjectService()
     let contactService = ContactService()
-    let remindersService = RemindersService()
     let usageService = UsageService()
     let skillsService = SkillsService()
     let agentsService = AgentsService()

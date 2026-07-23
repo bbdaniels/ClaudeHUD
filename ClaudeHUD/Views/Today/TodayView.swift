@@ -1,16 +1,15 @@
 import SwiftUI
 import AppKit
 
-// The Today pane is deliberately thin: the tasks actually due today
-// (Apple Reminders due today/overdue + any checkboxes in today's daily
-// note) sit at the top, and the daily note itself is the main body. The
-// LLM day-summary, the calendar event list, and the sprawling
-// all-projects `## Active` scan were removed — the full project task
-// lists live on the Projects tab; calendar lives in Calendar.app.
+// The Today pane is deliberately thin: it shows ONLY the daily note, with
+// a slim date navigator so other days stay reachable. The tasks-due-today
+// section, the LLM day-summary, the calendar event list, and the
+// all-projects `## Active` scan were all removed over successive
+// simplifications — task lists live on the Projects tab, calendar lives in
+// Calendar.app.
 
 struct TodayView: View {
     @EnvironmentObject var vaultManager: VaultManager
-    @EnvironmentObject var remindersService: RemindersService
     @Environment(\.fontScale) private var scale
     @State private var dayOffset = 0
 
@@ -33,19 +32,13 @@ struct TodayView: View {
             Divider().opacity(0.3)
 
             ScrollView {
-                // Top: what's actually due today — reminders due today or
-                // overdue, plus any checkboxes in today's daily note.
-                WhatsNextView(date: selectedDate, isToday: isToday)
-
-                // The daily note is the main body of the pane.
+                // The daily note is the entire body of the pane.
                 DailyNoteSection(date: selectedDate)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: dayOffset) {
-            let date = selectedDate
-            remindersService.loadReminders(for: date)
-            vaultManager.ensureDailyNote(for: date)
+            vaultManager.ensureDailyNote(for: selectedDate)
         }
     }
 
