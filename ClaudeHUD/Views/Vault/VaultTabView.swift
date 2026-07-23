@@ -423,7 +423,7 @@ private struct ProjectRowView: View {
                 terminalService.openInManuscriptor(URL(fileURLWithPath: cwd))
             } label: {
                 // TODO: swap for the Manuscriptor quill mark
-                Image(systemName: "text.book.closed")
+                Image(systemName: "signature")
                     .font(.system(size: 11 * scale))
                     .foregroundColor(.secondary.opacity(0.45))
             }
