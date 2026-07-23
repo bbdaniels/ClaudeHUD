@@ -90,10 +90,13 @@ final class VaultIngestService: ObservableObject {
     private let pollInterval: TimeInterval = 30
 
     private let home = FileManager.default.homeDirectoryForCurrentUser
-    private var stateDir: URL { home.appending(path: ".claude/ingest-state") }
-    private var transcriptsDir: URL { home.appending(path: ".claude/projects") }
-    private var syncLog: URL { home.appending(path: "Library/Logs/obsidian-sync.log") }
-    private var pausedFlag: URL { stateDir.appending(path: "PAUSED") }
+    // nonisolated: read from the off-main scan in refresh(). They derive only
+    // from the immutable `home` let, so they're safe to touch outside the
+    // MainActor.
+    nonisolated private var stateDir: URL { home.appending(path: ".claude/ingest-state") }
+    nonisolated private var transcriptsDir: URL { home.appending(path: ".claude/projects") }
+    nonisolated private var syncLog: URL { home.appending(path: "Library/Logs/obsidian-sync.log") }
+    nonisolated private var pausedFlag: URL { stateDir.appending(path: "PAUSED") }
 
     // MARK: - Lifecycle
 
@@ -118,21 +121,38 @@ final class VaultIngestService: ObservableObject {
     // MARK: - One-shot refresh
 
     func refresh() {
-        let stateDirEntries = (try? FileManager.default.contentsOfDirectory(
-            at: stateDir, includingPropertiesForKeys: [.contentModificationDateKey]
-        )) ?? []
+        // Snapshot the one mutable config (vaultPath) on the main actor, then
+        // do ALL filesystem work off-main. Every scanner below is `nonisolated`
+        // and reads only immutable config, so summoning the HUD — and the 30s
+        // poll — never blocks the main thread on the ~7000-file transcripts
+        // walk + per-file head reads that used to run here synchronously.
+        // (This scan is read-only and idempotent, so overlapping runs from the
+        // timer + a cockpit action are harmless: last assignment wins and the
+        // next poll reconciles.)
+        let vaultPath = self.vaultPath
+        Task.detached(priority: .utility) { [weak self] in
+            guard let self else { return }
+            let stateDirEntries = (try? FileManager.default.contentsOfDirectory(
+                at: self.stateDir, includingPropertiesForKeys: [.contentModificationDateKey]
+            )) ?? []
 
-        let (doneKeys, doneCount) = classifyDoneMarkers(stateDirEntries)
-        let failed = classifyFailedMarkers(stateDirEntries)
-        let pending = scanPendingTranscripts(doneKeys: doneKeys)
-        let paused = FileManager.default.fileExists(atPath: pausedFlag.path)
-        var sessions = scanVaultSessionsLedgers()
-        mergeFailedMarkersIntoSessions(failed, into: &sessions)
+            let (doneKeys, doneCount) = self.classifyDoneMarkers(stateDirEntries)
+            let failed = self.classifyFailedMarkers(stateDirEntries)
+            let pending = self.scanPendingTranscripts(doneKeys: doneKeys)
+            let paused = FileManager.default.fileExists(atPath: self.pausedFlag.path)
+            var sessions = self.scanVaultSessionsLedgers(vaultPath: vaultPath)
+            self.mergeFailedMarkersIntoSessions(failed, into: &sessions)
+            let sync = self.parseSyncLog()
+            let queue = IngestQueue(pending: pending, failed: failed, paused: paused, doneLifetimeCount: doneCount)
+            let sessionsResult = sessions
 
-        self.sessionStatus = sessions
-        self.queue = IngestQueue(pending: pending, failed: failed, paused: paused, doneLifetimeCount: doneCount)
-        self.sync = parseSyncLog()
-        self.lastRefresh = Date()
+            await MainActor.run {
+                self.sessionStatus = sessionsResult
+                self.queue = queue
+                self.sync = sync
+                self.lastRefresh = Date()
+            }
+        }
     }
 
     // MARK: - Convenience accessors
@@ -148,7 +168,7 @@ final class VaultIngestService: ObservableObject {
 
     /// Returns the set of `<sid>.jsonl.<bytes>` keys with a `.done`
     /// marker, plus the total `.done` count.
-    private func classifyDoneMarkers(_ entries: [URL]) -> (Set<String>, Int) {
+    nonisolated private func classifyDoneMarkers(_ entries: [URL]) -> (Set<String>, Int) {
         var keys: Set<String> = []
         var count = 0
         for url in entries where url.pathExtension == "done" {
@@ -161,7 +181,7 @@ final class VaultIngestService: ObservableObject {
         return (keys, count)
     }
 
-    private func classifyFailedMarkers(_ entries: [URL]) -> [FailedMarker] {
+    nonisolated private func classifyFailedMarkers(_ entries: [URL]) -> [FailedMarker] {
         var out: [FailedMarker] = []
         for url in entries where url.pathExtension == "failed" {
             guard let parsed = parseMarkerName(url.lastPathComponent) else { continue }
@@ -174,7 +194,7 @@ final class VaultIngestService: ObservableObject {
     /// Parse `<sid>.jsonl.<bytes>.<done|failed>` → (sessionID, bytes).
     /// Returns nil on any unexpected shape so a stray file in the state
     /// dir cannot corrupt the view model.
-    private func parseMarkerName(_ name: String) -> (sessionID: String, bytes: Int)? {
+    nonisolated private func parseMarkerName(_ name: String) -> (sessionID: String, bytes: Int)? {
         var base = name
         for suffix in [".done", ".failed"] where base.hasSuffix(suffix) {
             base = String(base.dropLast(suffix.count))
@@ -197,7 +217,7 @@ final class VaultIngestService: ObservableObject {
     /// them) and skip the home-cwd dir (sessions launched from `~`,
     /// which the worker already excludes in its phase-1 filter — old
     /// pre-filter ones shouldn't show up in the queue forever).
-    private func scanPendingTranscripts(doneKeys: Set<String>) -> [PendingTranscript] {
+    nonisolated private func scanPendingTranscripts(doneKeys: Set<String>) -> [PendingTranscript] {
         let now = Date()
         let projectDirs = (try? FileManager.default.contentsOfDirectory(
             at: transcriptsDir, includingPropertiesForKeys: nil
@@ -280,7 +300,7 @@ final class VaultIngestService: ObservableObject {
 
     /// Walk `<vault>/*/Sessions.md` and build `session_id → SessionStatus`.
     /// No-op if no vault is configured.
-    private func scanVaultSessionsLedgers() -> [String: SessionStatus] {
+    nonisolated private func scanVaultSessionsLedgers(vaultPath: URL?) -> [String: SessionStatus] {
         guard let vault = vaultPath else { return [:] }
         var out: [String: SessionStatus] = [:]
         let folders = (try? FileManager.default.contentsOfDirectory(
@@ -300,7 +320,7 @@ final class VaultIngestService: ObservableObject {
     ///   `| <utc> | <session_id> | <cwd> | <transcript> | <status> | <notes> |`
     /// Skip frontmatter, header lines, the column header, and the `|---|` separator.
     /// Append-only convention: later rows overwrite earlier (latest wins).
-    private func parseSessionsTable(_ content: String, project: String, into out: inout [String: SessionStatus]) {
+    nonisolated private func parseSessionsTable(_ content: String, project: String, into out: inout [String: SessionStatus]) {
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let isoBasic = ISO8601DateFormatter()
@@ -343,7 +363,7 @@ final class VaultIngestService: ObservableObject {
     /// Bring `.failed` markers into the session map for IDs that have no
     /// ledger row yet. Ledger rows (with status `ingested`) take priority
     /// — a once-failed session that later succeeds shows as ingested.
-    private func mergeFailedMarkersIntoSessions(_ failed: [FailedMarker], into out: inout [String: SessionStatus]) {
+    nonisolated private func mergeFailedMarkersIntoSessions(_ failed: [FailedMarker], into out: inout [String: SessionStatus]) {
         for f in failed {
             if let existing = out[f.sessionID], existing.kind == .ingested { continue }
             out[f.sessionID] = SessionStatus(
@@ -361,7 +381,7 @@ final class VaultIngestService: ObservableObject {
     ///   `===== 2026-05-26T16:20:09Z sync start =====`
     ///   `===== 2026-05-26T16:20:13Z sync ok =====`
     /// Failure mode contains the literal `REBASE FAILED` or `FAILED after`.
-    private func parseSyncLog() -> SyncStatus {
+    nonisolated private func parseSyncLog() -> SyncStatus {
         guard let content = try? String(contentsOf: syncLog, encoding: .utf8) else {
             return SyncStatus()
         }
@@ -392,7 +412,7 @@ final class VaultIngestService: ObservableObject {
         return status
     }
 
-    private func extractSyncTimestamp(_ line: String, formatter: ISO8601DateFormatter) -> Date? {
+    nonisolated private func extractSyncTimestamp(_ line: String, formatter: ISO8601DateFormatter) -> Date? {
         let pattern = #"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"#
         guard let regex = try? NSRegularExpression(pattern: pattern),
               let match = regex.firstMatch(in: line, options: [], range: NSRange(line.startIndex..., in: line)),

@@ -69,8 +69,14 @@ class SessionHistoryService: ObservableObject {
         let q = query
 
         searchTask = Task { [weak self] in
-            // Concurrent search with progressive results
-            await withTaskGroup(of: (String, SessionSearchResult)?.self) { group in
+            // Collect matches OFF the main actor and publish them in ONE
+            // batch. Publishing per-match (a @Published mutation for every hit)
+            // made the Session-History view recompute projectGroups/sections
+            // and rebuild its non-lazy list once PER result — a re-render storm
+            // that was the search-typing lag. One assignment = one render.
+            let collected: [String: SessionSearchResult] = await withTaskGroup(
+                of: (String, SessionSearchResult)?.self
+            ) { group in
                 for session in sessions {
                     group.addTask {
                         // Phase 1: binary pre-filter — check raw bytes, no JSON parsing
@@ -84,18 +90,18 @@ class SessionHistoryService: ObservableObject {
                     }
                 }
 
-                // Stream results to UI as they arrive
+                var acc: [String: SessionSearchResult] = [:]
                 for await result in group {
-                    if Task.isCancelled { return }
+                    if Task.isCancelled { break }
                     guard let (id, searchResult) = result else { continue }
-                    await MainActor.run { [weak self] in
-                        self?.searchResults[id] = searchResult
-                    }
+                    acc[id] = searchResult
                 }
+                return acc
             }
 
             await MainActor.run { [weak self] in
                 guard let self, !Task.isCancelled else { return }
+                self.searchResults = collected
                 self.isSearching = false
             }
         }

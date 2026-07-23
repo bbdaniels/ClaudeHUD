@@ -899,8 +899,12 @@ struct SessionHistoryView: View {
         let startOfToday = cal.startOfDay(for: now)
         let startOfWeek = cal.date(byAdding: .day, value: -7, to: startOfToday)!
 
-        let starred = projectGroups.filter { starredPaths.contains($0.path) }
-        let unstarred = projectGroups.filter { !starredPaths.contains($0.path) }
+        // projectGroups is an uncached computed property (it filters + groups +
+        // sorts every session on each access); evaluate it once here rather
+        // than twice.
+        let groups = projectGroups
+        let starred = groups.filter { starredPaths.contains($0.path) }
+        let unstarred = groups.filter { !starredPaths.contains($0.path) }
 
         let today = unstarred.filter { $0.sessions.first!.timestamp >= startOfToday }
         let thisWeek = unstarred.filter {
