@@ -146,6 +146,24 @@ private struct DailyNoteSection: View {
            }) {
             lines = Array(lines[(close + 1)...])
         }
+        // Drop the cleaner-synced "## Open Items" section — an all-projects
+        // task sync that's redundant with the Projects tab and would otherwise
+        // bury the note's actual narrative. Today shows the daily *note*, not
+        // the task list. Removes the "## Open Items" H2 and everything under it
+        // up to the next H2 (or EOF); if there's no such section, nothing changes.
+        func isH2(_ s: String) -> Bool {
+            let t = s.trimmingCharacters(in: .whitespaces)
+            return t.hasPrefix("## ") && !t.hasPrefix("### ")
+        }
+        if let start = lines.firstIndex(where: { line in
+            guard isH2(line) else { return false }
+            let title = String(line.drop(while: { $0 == "#" || $0 == " " }))
+                .trimmingCharacters(in: .whitespaces)
+            return title.caseInsensitiveCompare("Open Items") == .orderedSame
+        }) {
+            let end = lines[(start + 1)...].firstIndex(where: isH2) ?? lines.endIndex
+            lines.removeSubrange(start..<end)
+        }
         if lines.count > Self.previewLineCap { lines = Array(lines.suffix(Self.previewLineCap)) }
 
         var rows: [DailyNotePreviewRow] = []
