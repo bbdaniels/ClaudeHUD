@@ -51,6 +51,13 @@ class AppState: ObservableObject {
 
         vaultManager.ensureDailyNote(for: Date())
 
+        // Reap stale background sessions. The daemon never flushes a terminal
+        // state when a worker dies abnormally, so `~/.claude/jobs` fills with
+        // sessions frozen at "blocked" that `claude agents` renders as
+        // awaiting input forever. Scan and delete run off-main; doing it here
+        // rather than only on Agents-tab open is what makes it automatic.
+        AgentsService.reapStaleAtLaunch()
+
         // Vault scripts: observation-only at launch (Phase 1 of the vault
         // tooling consolidation; see Documents/Obsidian/ClaudeHUD/Technical
         // Notes.md §Vault tooling architecture). Records per-file status so

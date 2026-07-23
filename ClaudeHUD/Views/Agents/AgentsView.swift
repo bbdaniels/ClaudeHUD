@@ -38,13 +38,21 @@ struct AgentsView: View {
                                  set: { if !$0 { pendingRemoval = nil } }),
             titleVisibility: .visible
         ) {
-            Button("Remove (deletes its worktree)", role: .destructive) {
+            Button(pendingRemoval?.worktreePath == nil ? "Remove" : "Remove (deletes its worktree)",
+                   role: .destructive) {
                 if let a = pendingRemoval { service.remove(a.id) }
                 pendingRemoval = nil
             }
             Button("Cancel", role: .cancel) { pendingRemoval = nil }
         } message: {
-            Text("`claude rm` removes the session and cleans up its git worktree, including uncommitted changes there. The transcript stays on disk.")
+            // Warn about the worktree only when there actually is one — most
+            // sessions have none, and a blanket warning trains the user to
+            // ignore it on the one that matters.
+            if let w = pendingRemoval?.worktreePath {
+                Text("`claude rm` removes the session and deletes its git worktree at \(w), including any uncommitted changes there. The transcript stays on disk.")
+            } else {
+                Text("`claude rm` removes the session record. The transcript stays on disk.")
+            }
         }
         .sheet(item: $logsAgent) { a in logsSheet(a) }
     }
@@ -87,6 +95,24 @@ struct AgentsView: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .help(dispatchDir.map { "Dispatch into \($0)" } ?? "Pick the project/folder the new agent runs in")
+
+            // Only shows when there is debris. The sweep also runs on its own
+            // when the tab opens (hourly at most) — this is the "now" button.
+            if !service.reapable.isEmpty {
+                Button {
+                    service.reapStale()
+                } label: {
+                    HStack(spacing: 2) {
+                        Image(systemName: "trash.slash")
+                            .font(.system(size: 10 * scale))
+                        Text("\(service.reapable.count)")
+                            .font(.system(size: 10 * scale))
+                    }
+                    .foregroundColor(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Delete \(service.reapable.count) stale session\(service.reapable.count == 1 ? "" : "s") — worker long gone, but still claiming to await input. Transcripts are kept.")
+            }
 
             Button(action: sendDispatch) {
                 Image(systemName: "paperplane.fill")

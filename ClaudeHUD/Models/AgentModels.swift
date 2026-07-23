@@ -35,6 +35,21 @@ enum AgentDisplayState: Equatable {
     /// deliberately when waiting on the user — that one is reliable.
     /// Schema is research-preview, so unknown tokens fall through to
     /// `.other` rather than being dropped.
+    /// The daemon's terminal `state` tokens, by outcome. Shared so the reaper
+    /// can ask "does this row still *claim* to be running?" without
+    /// re-deriving — `derive` collapses any dead worker to `.stopped`, which
+    /// would hide exactly the rows the reaper is looking for.
+    static let doneStates    = ["done", "completed", "complete", "success"]
+    static let failedStates  = ["failed", "error", "errored"]
+    static let stoppedStates = ["stopped", "killed", "cancelled", "canceled"]
+
+    /// True iff `state` is any terminal token — the session reported its own
+    /// ending, so its `state.json` is a finished record, not a stale snapshot.
+    static func isTerminal(state: String) -> Bool {
+        let s = state.lowercased()
+        return doneStates.contains(s) || failedStates.contains(s) || stoppedStates.contains(s)
+    }
+
     static func derive(state: String, tempo: String?, inFlightTasks: Int?,
                        detail: String, isAlive: Bool,
                        stateUpdatedAt: Date? = nil,
@@ -44,9 +59,9 @@ enum AgentDisplayState: Equatable {
         let d = detail.lowercased()
 
         // 1. Terminal states win — a finished session isn't "working".
-        if ["done", "completed", "complete", "success"].contains(s) { return .completed }
-        if ["failed", "error", "errored"].contains(s) { return .failed }
-        if ["stopped", "killed", "cancelled", "canceled"].contains(s) { return .stopped }
+        if doneStates.contains(s) { return .completed }
+        if failedStates.contains(s) { return .failed }
+        if stoppedStates.contains(s) { return .stopped }
 
         // 2. Liveness gate: roster.json is the daemon's authoritative process
         // list. If the worker is NOT in it, the process has exited — its
@@ -204,6 +219,12 @@ struct AgentSession: Identifiable, Equatable {
     /// turn, so its mtime is the only reliable "is this session actually
     /// moving right now" signal.
     let transcriptMtime: Date?
+    /// `state.json.worktreePath` when the session ran isolated in a git
+    /// worktree, and that worktree still exists on disk. `claude rm` deletes
+    /// the worktree along with the session — uncommitted work included — so
+    /// this is both a warning for the confirm dialog and a hard veto for the
+    /// reaper.
+    let worktreePath: String?
 
     /// Raw daemon-derived state (activity truth, ignores window-openness).
     var display: AgentDisplayState {
@@ -219,6 +240,42 @@ struct AgentSession: Identifiable, Equatable {
     var hasRecentTranscriptActivity: Bool {
         guard let m = transcriptMtime else { return false }
         return Date().timeIntervalSince(m) < 30
+    }
+
+    /// True iff this row is stale debris the reaper may delete.
+    ///
+    /// The daemon writes `state.json` event-driven and never flushes a
+    /// terminal state when a worker dies abnormally (window closed, machine
+    /// slept, `kill -9`, daemon restart), so the last snapshot stays frozen
+    /// at `blocked`/`working` forever. `claude agents` trusts that file with
+    /// no roster cross-check and renders such a row as "awaiting input"
+    /// indefinitely — 43 days, on the machine that surfaced this.
+    ///
+    /// Four conditions, all required:
+    ///   1. `rawState` still claims non-terminal — a session that reported
+    ///      `done`/`failed` is a finished record, not a lie, and stays.
+    ///   2. The worker is absent from the daemon roster, so it is provably
+    ///      gone rather than merely quiet.
+    ///   3. Older than `cutoff`. An exited session is still `respawn`-able,
+    ///      so a recent one is recoverable work, not debris.
+    ///   4. Not pinned, and owns no surviving worktree — `claude rm` deletes
+    ///      the worktree with its uncommitted changes.
+    func isStaleDebris(olderThan cutoff: Date) -> Bool {
+        Self.isStaleDebris(rawState: rawState, isAlive: isAlive, isPinned: isPinned,
+                           worktreePath: worktreePath,
+                           last: updatedAt ?? createdAt, olderThan: cutoff)
+    }
+
+    /// The same rule stated over just the fields it needs, so a disk-only
+    /// scan (no `ps`, no transcript reads, no name resolution) can apply the
+    /// exact rule the UI does. One copy of a delete predicate, not two.
+    static func isStaleDebris(rawState: String, isAlive: Bool, isPinned: Bool,
+                              worktreePath: String?, last: Date?,
+                              olderThan cutoff: Date) -> Bool {
+        guard !isAlive, !isPinned, worktreePath == nil else { return false }
+        guard !AgentDisplayState.isTerminal(state: rawState) else { return false }
+        guard let last else { return false }
+        return last < cutoff
     }
 
     /// Effective presentation bucket — what the dash groups and badges by.

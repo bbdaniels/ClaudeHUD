@@ -22,6 +22,9 @@ final class AgentsService: ObservableObject {
     @Published private(set) var lastRefresh: Date?
 
     private var pollTimer: DispatchSourceTimer?
+    /// Throttles the automatic sweep — `start()` fires on every tab
+    /// appearance, and reaping is a delete, not a read.
+    private var lastReapAt: Date?
 
     /// Process-tree-derived "is this short attached anywhere" map. Each
     /// `claude attach <short>` process is walked up to its terminal owner;
@@ -127,12 +130,14 @@ final class AgentsService: ObservableObject {
         return title.isEmpty ? nil : title
     }
 
-    static var claudeDir: URL {
+    // `nonisolated` so the off-main launch sweep can resolve these paths
+    // without hopping to the main actor; they read only immutable state.
+    nonisolated static var claudeDir: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude", isDirectory: true)
     }
-    private static var jobsDir: URL { claudeDir.appendingPathComponent("jobs", isDirectory: true) }
-    private static var rosterFile: URL { claudeDir.appendingPathComponent("daemon/roster.json") }
-    private static var pinsFile: URL { jobsDir.appendingPathComponent("pins.json") }
+    nonisolated private static var jobsDir: URL { claudeDir.appendingPathComponent("jobs", isDirectory: true) }
+    nonisolated private static var rosterFile: URL { claudeDir.appendingPathComponent("daemon/roster.json") }
+    nonisolated private static var pinsFile: URL { jobsDir.appendingPathComponent("pins.json") }
 
     init() {}
 
@@ -147,6 +152,12 @@ final class AgentsService: ObservableObject {
     /// open. Reload is cheap (a handful of small JSON files).
     func start() {
         reload()
+        // Sweep debris when the tab opens, at most hourly. Cheap (usually
+        // nothing to do) and keeps `claude agents` honest without the user
+        // having to remember a chore.
+        if lastReapAt.map({ Date().timeIntervalSince($0) > 3600 }) ?? true {
+            reapStale()
+        }
         guard pollTimer == nil else { return }
         let t = DispatchSource.makeTimerSource(queue: .main)
         t.schedule(deadline: .now() + 2, repeating: 2.0, leeway: .milliseconds(250))
@@ -164,11 +175,11 @@ final class AgentsService: ObservableObject {
 
     // MARK: - Read
 
-    func reload() {
-        let fm = FileManager.default
+    /// Daemon roster: the authoritative list of worker processes that are
+    /// actually running. Absence from it is what makes a `state.json` stale.
+    nonisolated static func readRoster() -> [String: (pid: Int?, cwd: String?)] {
         var alive: [String: (pid: Int?, cwd: String?)] = [:]
-
-        if let data = try? Data(contentsOf: Self.rosterFile),
+        if let data = try? Data(contentsOf: rosterFile),
            let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
            let workers = root["workers"] as? [String: Any] {
             for (short, raw) in workers {
@@ -176,12 +187,19 @@ final class AgentsService: ObservableObject {
                 alive[short] = (w?["pid"] as? Int, w?["cwd"] as? String)
             }
         }
+        return alive
+    }
 
-        let pins: Set<String> = {
-            guard let data = try? Data(contentsOf: Self.pinsFile),
-                  let arr = (try? JSONSerialization.jsonObject(with: data)) as? [String] else { return [] }
-            return Set(arr)
-        }()
+    nonisolated static func readPins() -> Set<String> {
+        guard let data = try? Data(contentsOf: pinsFile),
+              let arr = (try? JSONSerialization.jsonObject(with: data)) as? [String] else { return [] }
+        return Set(arr)
+    }
+
+    func reload() {
+        let fm = FileManager.default
+        let alive = Self.readRoster()
+        let pins = Self.readPins()
 
         var result: [AgentSession] = []
 
@@ -209,6 +227,14 @@ final class AgentsService: ObservableObject {
             let tempo = s["tempo"] as? String
             let inFlightTasks = ((s["inFlight"] as? [String: Any])?["tasks"] as? Int) ?? 0
             let transcriptPath = s["linkScanPath"] as? String
+            // Only a worktree that still exists counts: a path left behind in
+            // `state.json` after the worktree was removed must not veto the
+            // reaper forever.
+            let worktreePath: String? = {
+                guard let w = s["worktreePath"] as? String, !w.isEmpty,
+                      fm.fileExists(atPath: w) else { return nil }
+                return w
+            }()
             let transcriptMtime: Date? = {
                 guard let p = transcriptPath,
                       let attrs = try? fm.attributesOfItem(atPath: p),
@@ -242,7 +268,8 @@ final class AgentsService: ObservableObject {
                 isOpen: attach != nil,
                 attachedWindowTitle: attach?.windowTitle,
                 attachedGhosttyPid: attach?.ghosttyPid,
-                transcriptMtime: transcriptMtime
+                transcriptMtime: transcriptMtime,
+                worktreePath: worktreePath
             ))
         }
 
@@ -262,7 +289,7 @@ final class AgentsService: ObservableObject {
         self.lastError = result.isEmpty && jobDirs.isEmpty ? "No daemon jobs found in ~/.claude/jobs." : nil
     }
 
-    private static func parseDate(_ any: Any?) -> Date? {
+    nonisolated private static func parseDate(_ any: Any?) -> Date? {
         if let s = any as? String {
             let iso = ISO8601DateFormatter()
             iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -343,6 +370,119 @@ final class AgentsService: ObservableObject {
     func respawn(_ id: String) { run(["respawn", id], cwd: nil) }
     func remove(_ id: String)  { run(["rm", id], cwd: nil) }
 
+    // MARK: - Reap stale sessions
+
+    /// How long a dead-but-non-terminal session is kept before the reaper
+    /// treats it as debris. This is a retention grace, not a correctness bound:
+    /// `claude rm` leaves the transcript and the vault digest byte-identical
+    /// (verified 2026-07-22), so shortening it only discards `claude respawn`-
+    /// ability, never the work itself.
+    ///
+    /// Set to 2 days (2026-07-23). Investigating a "still a fair number of
+    /// uncleaned files" report showed the sessions that pile up here are not
+    /// throwaway launcher bootstraps — they are real work the user finished and
+    /// *closed* (3–12 real turns each). They read as "awaiting input" only
+    /// because the CLI daemon never flushes a terminal state on abnormal worker
+    /// death (the upstream root cause; `claude agents` also skips the roster
+    /// cross-check). Since these are finished-and-closed rather than in-flight,
+    /// a short grace keeps the view honest without discarding recoverable work.
+    /// Pin a session (`pins.json`) to exempt one you still mean to respawn.
+    /// See `AgentSession.isStaleDebris`.
+    nonisolated static let staleReapAge: TimeInterval = 2 * 24 * 60 * 60
+
+    /// Rows the reaper would delete right now.
+    var reapable: [AgentSession] {
+        let cutoff = Date().addingTimeInterval(-Self.staleReapAge)
+        return agents.filter { $0.isStaleDebris(olderThan: cutoff) }
+    }
+
+    /// Disk-only scan for stale ids, applying the same predicate as `reapable`
+    /// but reading just the four fields it needs. No `ps` spawn, no transcript
+    /// reads, no name resolution — cheap enough to run off-main at launch,
+    /// which is what makes the reaper autonomous rather than something that
+    /// only happens when you remember to open the Agents tab.
+    nonisolated static func staleDebrisIDs(olderThan cutoff: Date) -> [String] {
+        let fm = FileManager.default
+        let alive = readRoster()
+        let pins = readPins()
+        let dirs = (try? fm.contentsOfDirectory(at: jobsDir, includingPropertiesForKeys: nil,
+                                                options: [.skipsHiddenFiles])) ?? []
+        var doomed: [String] = []
+        for dir in dirs {
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { continue }
+            let id = dir.lastPathComponent
+            guard let data = try? Data(contentsOf: dir.appendingPathComponent("state.json")),
+                  let s = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { continue }
+            let worktree: String? = {
+                guard let w = s["worktreePath"] as? String, !w.isEmpty,
+                      fm.fileExists(atPath: w) else { return nil }
+                return w
+            }()
+            if AgentSession.isStaleDebris(rawState: (s["state"] as? String) ?? "unknown",
+                                          isAlive: alive[id] != nil,
+                                          isPinned: pins.contains(id),
+                                          worktreePath: worktree,
+                                          last: parseDate(s["updatedAt"]) ?? parseDate(s["createdAt"]),
+                                          olderThan: cutoff) {
+                doomed.append(id)
+            }
+        }
+        return doomed
+    }
+
+    /// Launch-time sweep: scan and delete entirely off the main actor. Called
+    /// from `AppState.setup()`, so debris is cleared even in a session where
+    /// the Agents tab is never opened.
+    nonisolated static func reapStaleAtLaunch() {
+        Task.detached(priority: .utility) {
+            let cutoff = Date().addingTimeInterval(-staleReapAge)
+            let doomed = staleDebrisIDs(olderThan: cutoff)
+            guard !doomed.isEmpty else { return }
+            logger.info("Launch sweep: reaping \(doomed.count) stale agent sessions")
+            let claude = resolveClaude()
+            for id in doomed {
+                _ = await runCapture(claude, ["rm", id], cwd: nil)
+            }
+        }
+    }
+
+    /// Delete every stale row via `claude rm` — the sanctioned verb, and the
+    /// only one that works on an already-exited session (`stop` refuses).
+    /// Verified 2026-07-22: `rm` removes `~/.claude/jobs/<id>/` but leaves the
+    /// transcript in `~/.claude/projects/` byte-identical, so vault ingest's
+    /// source data and the append-only `Sessions.md` ledger are untouched.
+    ///
+    /// Fixing this at the source would mean the daemon flushing a terminal
+    /// state when a worker dies — that is the CLI's to fix, not ours. We can
+    /// still stop the debris from accumulating, which also cleans up the
+    /// `claude agents` view, since the row goes with the directory.
+    /// Deletions run sequentially in one detached task — a `Process` per id
+    /// fired in parallel would mean dozens of concurrent `claude` launches on
+    /// the first sweep after a long backlog.
+    @discardableResult
+    func reapStale() -> Int {
+        let doomed = reapable.map(\.id)
+        guard !doomed.isEmpty else { return 0 }
+        logger.info("Reaping \(doomed.count) stale agent sessions (dead worker, non-terminal state, >7d)")
+        lastReapAt = Date()
+        let claude = Self.resolveClaude()
+        Task.detached {
+            var failures: [String] = []
+            for id in doomed {
+                let r = await Self.runCapture(claude, ["rm", id], cwd: nil)
+                if r.code != 0 { failures.append(id) }
+            }
+            await MainActor.run {
+                if !failures.isEmpty {
+                    self.lastError = "Reap: \(failures.count) of \(doomed.count) failed (\(failures.prefix(3).joined(separator: ", ")))"
+                }
+                self.reload()
+            }
+        }
+        return doomed.count
+    }
+
     /// Fetch recent output for the logs sheet.
     func fetchLogs(_ id: String) async -> String {
         await Self.runCapture(Self.resolveClaude(), ["logs", id], cwd: nil).output
@@ -362,7 +502,7 @@ final class AgentsService: ObservableObject {
         }
     }
 
-    private static func resolveClaude() -> String {
+    nonisolated private static func resolveClaude() -> String {
         let paths = [
             "\(NSHomeDirectory())/.local/bin/claude",
             "/usr/local/bin/claude",
