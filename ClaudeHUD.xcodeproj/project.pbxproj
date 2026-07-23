@@ -31,7 +31,6 @@
 		1403F8FFB78BB809C2F07F00 /* Double+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9012F2DE1D2C2B83F9820903 /* Double+Extension.swift */; };
 		15511D03E025EECEB9B6370D /* UndoManager+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1A5F5797AA1BA3C613A074 /* UndoManager+Extension.swift */; };
 		17F151583B2366E6C269ED98 /* OSColor+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB0EE7069BDD589857D6CD15 /* OSColor+Extension.swift */; };
-		18C337C2013A07B85298D28F /* PermissionWatcherService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF91CF6EF11224D0DA07ECB9 /* PermissionWatcherService.swift */; };
 		1A5B1E57FB663CDDA42D3A34 /* SlackFileLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFBE827B2A3EA0BF75B317EF /* SlackFileLog.swift */; };
 		1B9D94AD63BF74BBA5872C00 /* KeyboardLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0176894F6807DCA0A7B76E /* KeyboardLayout.swift */; };
 		1C0F632F6A32BA1CD374B977 /* NSApplication+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0FDCED3FEDB326A8DFA4ED4 /* NSApplication+Extension.swift */; };
@@ -71,7 +70,6 @@
 		5BF325072C380E00573361A0 /* SurfaceView_AppKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA39E7296DE03D9F229D703F /* SurfaceView_AppKit.swift */; };
 		5C2CB5128DB63A0C2E0D28A0 /* SurfaceProgressBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B92F1BC49C5A69618243DC8F /* SurfaceProgressBar.swift */; };
 		5DE96FC3E4C95A8BCFD6B8E8 /* NSImage+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B87051A2FE60BB08D085B5D /* NSImage+Extension.swift */; };
-		5E6501CEBB9899408CB2A50E /* PushNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2801C79D6EE1B4B43ED6B5A4 /* PushNotificationManager.swift */; };
 		5E8249E75BC7071A42BD394B /* MCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5CC94E94375F63C3B1C6D3 /* MCPClient.swift */; };
 		5F5595CBFA7B3C7816BDBD64 /* com.bbdaniels.vault-backfill.plist in Resources */ = {isa = PBXBuildFile; fileRef = 9F7E32B805364F1571248393 /* com.bbdaniels.vault-backfill.plist */; };
 		61A79D763A6AAFC36056A28C /* vault-email-ingest.sh in Resources */ = {isa = PBXBuildFile; fileRef = 0B247D259B3E01BF7ECD38BF /* vault-email-ingest.sh */; };
@@ -205,7 +203,6 @@
 		211DB459023617D0C32E6D55 /* ObjCExceptionCatcher.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ObjCExceptionCatcher.h; sourceTree = "<group>"; };
 		249A52B6A9AEA0717F65772E /* TabTitleEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabTitleEditor.swift; sourceTree = "<group>"; };
 		266D9E2A1D7C837357F1A963 /* Array+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array+Extension.swift"; sourceTree = "<group>"; };
-		2801C79D6EE1B4B43ED6B5A4 /* PushNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationManager.swift; sourceTree = "<group>"; };
 		29B305DC96DA6EAD0CD6B335 /* Ghostty.Shell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Shell.swift; sourceTree = "<group>"; };
 		2A867396AF8AC61AC9257B54 /* CodableBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodableBridge.swift; sourceTree = "<group>"; };
 		2B1929B5FE9420A892A67665 /* com.bbdaniels.vault-email-ingest.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "com.bbdaniels.vault-email-ingest.plist"; sourceTree = "<group>"; };
@@ -303,7 +300,6 @@
 		BBEE4757D18F462A43F672AB /* MCPConfigLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPConfigLoader.swift; sourceTree = "<group>"; };
 		BC2C8BB22D0C22A9B123A59E /* libz.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libz.a; sourceTree = "<group>"; };
 		BD87037F81301BEE1808859F /* AgentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsView.swift; sourceTree = "<group>"; };
-		BF91CF6EF11224D0DA07ECB9 /* PermissionWatcherService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionWatcherService.swift; sourceTree = "<group>"; };
 		C351829385CF609EED3E826E /* Dock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dock.swift; sourceTree = "<group>"; };
 		C53EC70F3DA9CDD0CC4EA24F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C6190261570E5783E8BC05CD /* SurfaceView+Transferable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceView+Transferable.swift"; sourceTree = "<group>"; };
@@ -377,9 +373,7 @@
 				D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */,
 				CE31FD7228157DC53CDE8B9E /* KeychainService.swift */,
 				DB043CB409497C537E66D2B6 /* LibraryService.swift */,
-				BF91CF6EF11224D0DA07ECB9 /* PermissionWatcherService.swift */,
 				53F0B873471D8150D4E80657 /* ProjectService.swift */,
-				2801C79D6EE1B4B43ED6B5A4 /* PushNotificationManager.swift */,
 				59E8596B647276D0A1586779 /* SecretsVault.swift */,
 				C97BB9EE58B0DBF8AA04FDE7 /* SessionHistoryService.swift */,
 				1C704E240AFCDBD31AC48951 /* SkillsService.swift */,
@@ -930,9 +924,7 @@
 				B28C401B5B93D1B0AE175BE3 /* ObsidianMarkdownView.swift in Sources */,
 				21EAD7B85DB7D4B4FCDE1D24 /* Optional+Extension.swift in Sources */,
 				F2846511D5CDD3512D19E178 /* PermissionRequest.swift in Sources */,
-				18C337C2013A07B85298D28F /* PermissionWatcherService.swift in Sources */,
 				BEB2851E74A402D792BD5639 /* ProjectService.swift in Sources */,
-				5E6501CEBB9899408CB2A50E /* PushNotificationManager.swift in Sources */,
 				716AF768A9028A0E83E447BD /* SSEMCPClient.swift in Sources */,
 				344F340CDF4EAE1B18B24EE1 /* SecretsVault.swift in Sources */,
 				85FAE3D9A1FB9C99E73D9A64 /* SessionHistoryService.swift in Sources */,

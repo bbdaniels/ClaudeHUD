@@ -188,13 +188,10 @@ enum FixedTab: String, CaseIterable {
 struct HUDContentView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var tabManager: TabManager
-    @EnvironmentObject var pushManager: PushNotificationManager
     @EnvironmentObject var terminalService: TerminalService
     @EnvironmentObject var sessionHistory: SessionHistoryService
-    @EnvironmentObject var permissionWatcher: PermissionWatcherService
     @EnvironmentObject var vaultManager: VaultManager
     @State private var showPermissionPopover = false
-    @State private var showPushPopover = false
     @State private var showTerminalPopover = false
     @State private var showInfoPopover = false
     @State private var activeFixedTab: FixedTab? = .history
@@ -259,26 +256,6 @@ struct HUDContentView: View {
                         .environmentObject(terminalService)
                 }
 
-                // DISABLED — notifications (push + permission watcher) are
-                // superseded by the daemon agent's handler. UI hidden; the
-                // PushPopover/PushNotificationManager/PermissionWatcher code is
-                // intentionally kept. Re-enable by uncommenting this block and
-                // restoring the AppState/ClaudeHUDApp wiring.
-                /*
-                Button(action: { showPushPopover.toggle() }) {
-                    Image(systemName: pushManager.isEnabled ? "bell.fill" : "bell.slash")
-                        .font(.smallFont(fontScale))
-                        .foregroundColor(pushManager.isEnabled ? .blue : .secondary)
-                }
-                .buttonStyle(.borderless)
-                .hudTip("Notifications")
-                .popover(isPresented: $showPushPopover) {
-                    PushPopover()
-                        .environmentObject(pushManager)
-                        .environmentObject(permissionWatcher)
-                }
-                */
-
                 Button(action: { showInfoPopover.toggle() }) {
                     Image(systemName: "info.circle")
                         .font(.smallFont(fontScale))
@@ -298,15 +275,6 @@ struct HUDContentView: View {
 
             Divider()
                 .opacity(0.5)
-
-            // DISABLED — permission approval is handled by the daemon agent's
-            // handler now. Banner hidden; PermissionBannerView/Watcher kept.
-            /*
-            if permissionWatcher.isEnabled && !permissionWatcher.pending.isEmpty {
-                PermissionBannerView()
-                    .environmentObject(permissionWatcher)
-            }
-            */
 
             // Main content
             if let fixedTab = activeFixedTab {
@@ -671,150 +639,6 @@ struct PermissionOption: View {
             }
         }
         .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Push Notification Popover
-
-struct PushPopover: View {
-    @EnvironmentObject var pushManager: PushNotificationManager
-    @EnvironmentObject var permissionWatcher: PermissionWatcherService
-    @State private var topicDraft: String = ""
-    @State private var testSent = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            // Enable toggle
-            HStack {
-                Image(systemName: "bell.fill")
-                    .foregroundColor(.blue)
-                Text("Notifications")
-                    .font(.custom("Fira Sans", size: 15).weight(.semibold))
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { pushManager.isEnabled },
-                    set: { val in Task { await pushManager.setEnabled(val) } }
-                ))
-                .labelsHidden()
-                .toggleStyle(.switch)
-            }
-
-            Divider()
-
-            // Desktop
-            HStack(spacing: 10) {
-                Image(systemName: "desktopcomputer")
-                    .frame(width: 18)
-                    .foregroundColor(.secondary)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Desktop")
-                        .font(.custom("Fira Sans", size: 13).weight(.medium))
-                    Text("macOS notification banner")
-                        .font(.custom("Fira Sans", size: 11))
-                        .foregroundColor(.secondary)
-                }
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { pushManager.desktopEnabled },
-                    set: { val in Task { await pushManager.setDesktopEnabled(val) } }
-                ))
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .disabled(!pushManager.isEnabled)
-            }
-
-            // Mobile (ntfy)
-            HStack(spacing: 10) {
-                Image(systemName: "iphone")
-                    .frame(width: 18)
-                    .foregroundColor(.secondary)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Mobile (ntfy.sh)")
-                        .font(.custom("Fira Sans", size: 13).weight(.medium))
-                    Text("Push to iPhone / Apple Watch")
-                        .font(.custom("Fira Sans", size: 11))
-                        .foregroundColor(.secondary)
-                }
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { pushManager.mobileEnabled },
-                    set: { val in Task { await pushManager.setMobileEnabled(val) } }
-                ))
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .disabled(!pushManager.isEnabled)
-            }
-
-            // Topic field (only when mobile enabled)
-            if pushManager.mobileEnabled && pushManager.isEnabled {
-                HStack(spacing: 6) {
-                    TextField("ntfy topic (e.g. claude-abc123)", text: $topicDraft)
-                        .font(.custom("Fira Code", size: 12))
-                        .textFieldStyle(.roundedBorder)
-                        .onAppear { topicDraft = pushManager.ntfyTopic }
-                        .onSubmit { Task { await pushManager.setNtfyTopic(topicDraft) } }
-                    Button("Set") {
-                        Task { await pushManager.setNtfyTopic(topicDraft) }
-                    }
-                    .font(.custom("Fira Sans", size: 12))
-                    .buttonStyle(.bordered)
-                }
-            }
-
-            Divider()
-
-            // Permission approvals (separate from notifications — installs
-            // a PermissionRequest hook and shows an inline approve/deny banner)
-            HStack(spacing: 10) {
-                Image(systemName: "shield")
-                    .frame(width: 18)
-                    .foregroundColor(.secondary)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Permission approvals")
-                        .font(.custom("Fira Sans", size: 13).weight(.medium))
-                    Text("Inline approve/deny banner in HUD")
-                        .font(.custom("Fira Sans", size: 11))
-                        .foregroundColor(.secondary)
-                }
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { permissionWatcher.isEnabled },
-                    set: { permissionWatcher.setEnabled($0) }
-                ))
-                .labelsHidden()
-                .toggleStyle(.switch)
-            }
-
-            Divider()
-
-            // Test button
-            HStack {
-                Button(action: {
-                    pushManager.sendTestNotification()
-                    testSent = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { testSent = false }
-                }) {
-                    Label(testSent ? "Sent!" : "Test notification", systemImage: testSent ? "checkmark" : "paperplane")
-                        .font(.custom("Fira Sans", size: 12))
-                }
-                .buttonStyle(.bordered)
-                .disabled(!pushManager.isEnabled || !pushManager.desktopEnabled)
-
-                Spacer()
-
-                if pushManager.scriptInstalled {
-                    Label("Hook installed", systemImage: "checkmark.circle.fill")
-                        .font(.custom("Fira Sans", size: 11))
-                        .foregroundColor(.green)
-                } else {
-                    Label("Not installed", systemImage: "xmark.circle")
-                        .font(.custom("Fira Sans", size: 11))
-                        .foregroundColor(.secondary)
-                }
-            }
-        }
-        .padding(14)
-        .frame(width: 290)
     }
 }
 
@@ -2120,64 +1944,5 @@ private struct ClaudeAICookieSection: View {
                 }
             }
         }
-    }
-}
-
-// MARK: - Permission Approval Banner
-
-struct PermissionBannerView: View {
-    @EnvironmentObject var permissionWatcher: PermissionWatcherService
-    @Environment(\.fontScale) private var scale
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ForEach(permissionWatcher.pending) { request in
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 12 * scale))
-                        .foregroundColor(.yellow)
-
-                    VStack(alignment: .leading, spacing: 1) {
-                        HStack(spacing: 4) {
-                            Text(request.toolName)
-                                .font(.custom("Fira Code", size: 11 * scale).weight(.semibold))
-                                .foregroundColor(.white)
-                            Text("· \(request.project)")
-                                .font(.custom("Fira Sans", size: 11 * scale))
-                                .foregroundColor(.secondary)
-                        }
-                        Text(request.summary)
-                            .font(.custom("Fira Code", size: 10 * scale))
-                            .foregroundColor(.secondary)
-                            .lineLimit(2)
-                    }
-
-                    Spacer()
-
-                    Button(action: { permissionWatcher.deny(request.id) }) {
-                        Text("Deny")
-                            .font(.custom("Fira Sans", size: 11 * scale).weight(.medium))
-                            .foregroundColor(.white.opacity(0.8))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.3)))
-                    }
-                    .buttonStyle(.borderless)
-
-                    Button(action: { permissionWatcher.approve(request.id) }) {
-                        Text("Allow")
-                            .font(.custom("Fira Sans", size: 11 * scale).weight(.semibold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(RoundedRectangle(cornerRadius: 4).fill(Color.green.opacity(0.7)))
-                    }
-                    .buttonStyle(.borderless)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-            }
-        }
-        .background(Color.orange.opacity(0.12))
     }
 }

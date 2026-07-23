@@ -9,10 +9,8 @@ class AppState: ObservableObject {
     let serverManager = MCPServerManager()
     let tabManager: TabManager
     let hotkeyService = HotkeyService()
-    let pushManager = PushNotificationManager()
     let terminalService = TerminalService()
     let sessionHistoryService = SessionHistoryService()
-    let permissionWatcher = PermissionWatcherService()
     let vaultManager = VaultManager()
     let projectService = ProjectService()
     let usageService = UsageService()
@@ -35,15 +33,6 @@ class AppState: ObservableObject {
     }
 
     func setup() async {
-        // Notification subsystems (push + permission watcher) are superseded
-        // by the daemon agent's handler. Force them off and tear down any
-        // Claude-hook registrations they previously wrote into
-        // ~/.claude/settings.json, so they neither fire nor compete with the
-        // daemon. Service code is intentionally kept for easy re-enable.
-        if pushManager.isEnabled { await pushManager.setEnabled(false) }
-        permissionWatcher.setEnabled(false)
-        permissionWatcher.setup()   // disabled-branch: idempotent hook cleanup
-
         vaultManager.ensureDailyNote(for: Date())
 
         // Reap stale background sessions. The daemon never flushes a terminal
