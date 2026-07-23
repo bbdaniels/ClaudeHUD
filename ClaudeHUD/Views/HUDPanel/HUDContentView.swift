@@ -193,7 +193,6 @@ struct HUDContentView: View {
     @EnvironmentObject var sessionHistory: SessionHistoryService
     @EnvironmentObject var permissionWatcher: PermissionWatcherService
     @EnvironmentObject var vaultManager: VaultManager
-    @EnvironmentObject var calendarService: CalendarService
     @State private var showPermissionPopover = false
     @State private var showPushPopover = false
     @State private var showTerminalPopover = false
@@ -338,9 +337,7 @@ struct HUDContentView: View {
                         .environmentObject(appState.slackService)
                 case .today:
                     TodayView()
-                        .environmentObject(calendarService)
                         .environmentObject(vaultManager)
-                        .environmentObject(appState.projectService)
                 case .library:
                     LibraryView()
                         .environmentObject(appState.libraryService)

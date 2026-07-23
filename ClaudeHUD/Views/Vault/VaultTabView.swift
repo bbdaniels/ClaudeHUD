@@ -328,10 +328,6 @@ private struct ProjectRowView: View {
                     // resolver. Owns its own "Work" label (controls share the
                     // header line). Tasks stay READ-ONLY in Projects (Phase 1).
                     WorkSubsection(project: project)
-                    // People / Meetings / Emails — harvested from the cross
-                    // ProjectService intel, bridged by folder name; self-hides
-                    // (incl. its leading divider) when there's nothing to show.
-                    ProjectIntelSubsection(project: project)
                     Divider().opacity(0.18)
                     SectionLabel("Notes")
                     NotesSubsection(project: project, vaultPath: vaultPath)
@@ -1654,107 +1650,6 @@ private struct WorkSubsection: View {
         default: return .secondary
         }
     }
-}
-
-// MARK: - Project intel subsection (Phase 1 harvest — People / Meetings / Emails)
-
-/// People, today's meetings, and recent emails for this project — harvested
-/// from the cross `ProjectService` aggregation engine, bridged by folder name
-/// (`ProjectService.Project.id == folder == VaultProjectService.Project.name`).
-/// `loadIntel` runs lazily on expand (Spark email DB + calendar). Renders
-/// nothing — including its own leading divider — when there's no intel, so an
-/// expanded row stays compact for projects with no people/mail/meetings.
-private struct ProjectIntelSubsection: View {
-    let project: VaultProjectService.Project
-    @EnvironmentObject var crossProjectService: ProjectService
-    @Environment(\.fontScale) private var scale
-    @State private var bridged: Project?
-
-    private var intel: ProjectIntel? { bridged.flatMap { crossProjectService.intel[$0.id] } }
-
-    var body: some View {
-        let people = intel?.people ?? []
-        let emails = intel?.emails ?? []
-        let events = bridged?.upcomingEvents ?? []
-        Group {
-            if people.isEmpty && emails.isEmpty && events.isEmpty {
-                EmptyView()
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    Divider().opacity(0.18)
-                    if !events.isEmpty {
-                        SectionLabel("Today")
-                        ForEach(events) { event in
-                            HStack(spacing: 6) {
-                                Text(event.title)
-                                    .font(.captionFont(scale))
-                                    .foregroundColor(.primary)
-                                    .lineLimit(1)
-                                Spacer()
-                                Text(shortClockTime(event.startDate))
-                                    .font(.custom("Fira Code", size: 9.5 * scale))
-                                    .foregroundColor(.secondary.opacity(0.5))
-                            }
-                        }
-                    }
-                    if !people.isEmpty {
-                        SectionLabel("People")
-                        ForEach(people.prefix(6)) { contact in
-                            HStack(spacing: 6) {
-                                Image(systemName: "person")
-                                    .font(.system(size: 8 * scale))
-                                    .foregroundColor(.secondary.opacity(0.5))
-                                    .frame(width: 12)
-                                Text(contact.name)
-                                    .font(.captionFont(scale))
-                                    .foregroundColor(.primary)
-                                    .lineLimit(1)
-                                if !contact.org.isEmpty {
-                                    Text("(\(contact.org))")
-                                        .font(.custom("Fira Code", size: 9 * scale))
-                                        .foregroundColor(.secondary.opacity(0.5))
-                                        .lineLimit(1)
-                                }
-                                Spacer()
-                            }
-                        }
-                    }
-                    if !emails.isEmpty {
-                        SectionLabel("Emails")
-                        ForEach(emails.prefix(4)) { email in
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(email.subject)
-                                    .font(.captionFont(scale))
-                                    .foregroundColor(.primary)
-                                    .lineLimit(1)
-                                HStack(spacing: 4) {
-                                    Text(email.from)
-                                        .font(.custom("Fira Sans", size: 10.5 * scale))
-                                        .foregroundColor(.secondary.opacity(0.5))
-                                        .lineLimit(1)
-                                    Text("·").foregroundColor(.secondary.opacity(0.3))
-                                    Text(email.date)
-                                        .font(.custom("Fira Sans", size: 10.5 * scale))
-                                        .foregroundColor(.secondary.opacity(0.5))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        .task(id: project.id) {
-            bridged = crossProjectService.projects.first { $0.name == project.name }
-            if let b = bridged { crossProjectService.loadIntel(for: b) }
-        }
-    }
-}
-
-/// Lowercase `h:mma` clock time for the meetings rows.
-private func shortClockTime(_ date: Date) -> String {
-    let fmt = DateFormatter()
-    fmt.dateFormat = "h:mma"
-    return fmt.string(from: date).lowercased()
 }
 
 /// Minimal "new project" sheet reached from the Projects-tab header "+".

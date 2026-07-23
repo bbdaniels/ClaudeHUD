@@ -20,7 +20,6 @@
 		0A4D8DD96DCA844462BAAE4B /* Tooltip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50E5626B4C84084B8B14BB91 /* Tooltip.swift */; };
 		0A909F682EA34DF6C6F6018F /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C02B9BB03438B656138520C /* Backport.swift */; };
 		0C6EFA26F155B9FEB15877AA /* TerminalTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FF9DA594E9870B247A558E0 /* TerminalTabView.swift */; };
-		0D0369B1284F0428139DD123 /* ContactService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4DFFB6D6970128A8DD29E98 /* ContactService.swift */; };
 		0E0F0D65C5A51959D63E6AB8 /* NSView+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 762A5D34E8673E4172E0C54A /* NSView+Extension.swift */; };
 		100D1AE5FEA20720849E25EE /* HUDContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A8692269C30DC7C435CE107 /* HUDContentView.swift */; };
 		102985329169DD56B4DB3908 /* GitCheckpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8E9E31744579BBB9B8385A9 /* GitCheckpoint.swift */; };
@@ -104,7 +103,6 @@
 		85D3B7318B938BAA19EB88FD /* MetalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BAE19BEC8B3EED3E2D70A4F /* MetalView.swift */; };
 		85F4F300BFAD687384973EEB /* EventModifiers+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = D777D5BC767658779B4DE8C7 /* EventModifiers+Extension.swift */; };
 		85FAE3D9A1FB9C99E73D9A64 /* SessionHistoryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97BB9EE58B0DBF8AA04FDE7 /* SessionHistoryService.swift */; };
-		869D6B56DDA5181778D86A2B /* CalendarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E19D00F8370F4B9F6E48FE81 /* CalendarService.swift */; };
 		8992F9EEB5269203DC7AFD21 /* VaultSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 644D06080D4C60BFCF2637FE /* VaultSettings.swift */; };
 		8BC3AFA5670E2BEE782691C7 /* CGS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 446CE71CD596514D14EAEBFA /* CGS.swift */; };
 		8C46A3A5A8F635DA6316E52D /* HUDPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39C7242E2783A2815CB305E2 /* HUDPanelController.swift */; };
@@ -154,7 +152,6 @@
 		D2DCCD7F974CD4FCC1DC76E1 /* AgentsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08C85940214C84CB1A4E170C /* AgentsService.swift */; };
 		D4AC79B81F3110DDD3AC51E0 /* libhighway.a in Resources */ = {isa = PBXBuildFile; fileRef = 1CB4B7FC630A7C1961E15A49 /* libhighway.a */; };
 		D831217733E887EEEEBCA50E /* VaultProjectService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64CADF92CE2A4ECE2EA81336 /* VaultProjectService.swift */; };
-		DBBB0A53164615486398A791 /* SparkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 826E910DE6159C463592C533 /* SparkService.swift */; };
 		DDA2946F96AD207B375C29BA /* UserDefaults+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED28053B6C8DF41BBA408158 /* UserDefaults+Extension.swift */; };
 		DE922D07FC082ECD825981AF /* Ghostty.Error.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2FEBBA9082ACBA24CFC6EF7 /* Ghostty.Error.swift */; };
 		DECD190055B1050264EE10F8 /* FullscreenMode+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 044F5F3A60EFFE583BAA83D7 /* FullscreenMode+Extension.swift */; };
@@ -273,7 +270,6 @@
 		7DC0E016BB2EFA248FF50C5D /* vault-email-ingest-prompt.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "vault-email-ingest-prompt.md"; sourceTree = "<group>"; };
 		7FF9DA594E9870B247A558E0 /* TerminalTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTabView.swift; sourceTree = "<group>"; };
 		80BD26429AC23FB4D918EFA3 /* Fullscreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Fullscreen.swift; sourceTree = "<group>"; };
-		826E910DE6159C463592C533 /* SparkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkService.swift; sourceTree = "<group>"; };
 		847F4ED0CF27EBE50725922D /* NSMenu+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSMenu+Extension.swift"; sourceTree = "<group>"; };
 		870109620D4F6E8D02744D6C /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
 		8A8692269C30DC7C435CE107 /* HUDContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUDContentView.swift; sourceTree = "<group>"; };
@@ -300,7 +296,6 @@
 		AFBE827B2A3EA0BF75B317EF /* SlackFileLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlackFileLog.swift; sourceTree = "<group>"; };
 		B280310DE38541F7B2CD6849 /* VaultTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultTabView.swift; sourceTree = "<group>"; };
 		B3122D5EA083D0825A7A6E8B /* TabGroupCloseCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabGroupCloseCoordinator.swift; sourceTree = "<group>"; };
-		B4DFFB6D6970128A8DD29E98 /* ContactService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactService.swift; sourceTree = "<group>"; };
 		B719C4EF453E3C5D3875C915 /* UUID+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UUID+Extension.swift"; sourceTree = "<group>"; };
 		B90D1CB58E36C134CC8B152C /* SurfaceGrabHandle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceGrabHandle.swift; sourceTree = "<group>"; };
 		B92F1BC49C5A69618243DC8F /* SurfaceProgressBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceProgressBar.swift; sourceTree = "<group>"; };
@@ -333,7 +328,6 @@
 		DD1DCA69E56114AB8A3952EF /* AppInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInfo.swift; sourceTree = "<group>"; };
 		DFA10783C0F1F95AE790BD1B /* ObjectIdentifier+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ObjectIdentifier+Extension.swift"; sourceTree = "<group>"; };
 		DFF0598B1720C80E2E205CDE /* SurfaceDragSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceDragSource.swift; sourceTree = "<group>"; };
-		E19D00F8370F4B9F6E48FE81 /* CalendarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarService.swift; sourceTree = "<group>"; };
 		E28D16F34D7E3F7F89E3EF73 /* PermissionRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionRequest.swift; sourceTree = "<group>"; };
 		E29EA2BAC4BE95B756B86E59 /* CoreText.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreText.framework; path = System/Library/Frameworks/CoreText.framework; sourceTree = SDKROOT; };
 		E2FEBBA9082ACBA24CFC6EF7 /* Ghostty.Error.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Error.swift; sourceTree = "<group>"; };
@@ -377,9 +371,7 @@
 			isa = PBXGroup;
 			children = (
 				08C85940214C84CB1A4E170C /* AgentsService.swift */,
-				E19D00F8370F4B9F6E48FE81 /* CalendarService.swift */,
 				4FE78438CDBB1B82E2CD3203 /* ClaudeWebFetcher.swift */,
-				B4DFFB6D6970128A8DD29E98 /* ContactService.swift */,
 				48D9389B80C07D234779F5AF /* GhosttyWindowService.swift */,
 				D8E9E31744579BBB9B8385A9 /* GitCheckpoint.swift */,
 				D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */,
@@ -398,7 +390,6 @@
 				5323499B63BC10AC67FC7545 /* SlackSupervisor.swift */,
 				52B42D4CFA935F58BB02DB79 /* SlackTrail.swift */,
 				488D9CECA1CC4818D8F00253 /* SocketModeClient.swift */,
-				826E910DE6159C463592C533 /* SparkService.swift */,
 				2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */,
 				FAA7DC5B4103396ACB2B5F3F /* UsageService.swift */,
 				207CDABC03F0B223AFE35A88 /* VaultIngestService.swift */,
@@ -864,7 +855,6 @@
 				A80A8A41B64E427C3BC9C507 /* Array+Extension.swift in Sources */,
 				0A909F682EA34DF6C6F6018F /* Backport.swift in Sources */,
 				8BC3AFA5670E2BEE782691C7 /* CGS.swift in Sources */,
-				869D6B56DDA5181778D86A2B /* CalendarService.swift in Sources */,
 				6849853A4E6B85FB19E3A411 /* ChatView.swift in Sources */,
 				73EADD2BE245DD1BB284422A /* ClaudeAPIClient.swift in Sources */,
 				BAC3A285D736D01662A6A794 /* ClaudeCLIClient.swift in Sources */,
@@ -872,7 +862,6 @@
 				3D1E8016AF772DEC464B2404 /* ClaudeTypes.swift in Sources */,
 				ABB72147FFBF17F0076E58DC /* ClaudeWebFetcher.swift in Sources */,
 				4D672BFFE8C2EFF795EF880A /* CodableBridge.swift in Sources */,
-				0D0369B1284F0428139DD123 /* ContactService.swift in Sources */,
 				7DC1D28210D31B38F3B6C51A /* ConversationManager.swift in Sources */,
 				05D8507F4BD62C17646621D9 /* CrossKit.swift in Sources */,
 				E772664D2E0DC0C71818B008 /* Cursor.swift in Sources */,
@@ -956,7 +945,6 @@
 				DF1DFC2F7AEF897D5BBB6511 /* SlackSupervisor.swift in Sources */,
 				10A7B47A455CF31127BD8159 /* SlackTrail.swift in Sources */,
 				AEB96FF45C76D44A50C4C2AC /* SocketModeClient.swift in Sources */,
-				DBBB0A53164615486398A791 /* SparkService.swift in Sources */,
 				AF44EBFA0AB87F2490D412F9 /* StdioMCPClient.swift in Sources */,
 				5B232678A7FD8C65C97CCB9E /* String+Extension.swift in Sources */,
 				7D24D640592311D1F0FA7A41 /* Stubs.swift in Sources */,

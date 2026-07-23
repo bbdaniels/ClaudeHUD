@@ -80,7 +80,6 @@ class HUDPanelController {
             .environmentObject(appState.sessionHistoryService)
             .environmentObject(appState.permissionWatcher)
             .environmentObject(appState.vaultManager)
-            .environmentObject(appState.calendarService)
             .environmentObject(appState.projectService)
             .environmentObject(appState.usageService)
             .environmentObject(appState.skillsService)
