@@ -418,9 +418,9 @@ private struct ProjectRowView: View {
                      : "New session in ~ (no cwds: set yet) — loads project context from the wiki")
         .onHover { launchHovering = $0 }
 
-        if let cwd = project.primaryCwd {
+        if let dir = project.manuscriptDir {
             Button {
-                terminalService.openInManuscriptor(URL(fileURLWithPath: cwd))
+                terminalService.openInManuscriptor(URL(fileURLWithPath: dir))
             } label: {
                 // TODO: swap for the Manuscriptor quill mark
                 Image(systemName: "signature")

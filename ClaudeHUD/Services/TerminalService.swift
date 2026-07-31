@@ -222,9 +222,11 @@ class TerminalService: ObservableObject {
     }
 
     /// Open a directory in Manuscriptor via `open -a`. ClaudeHUD hands over the
-    /// project's top-level directory; Manuscriptor browses the tree itself.
-    /// Falls back to plain `NSWorkspace.open` if Manuscriptor isn't installed
-    /// at the expected path.
+    /// project's declared `manuscript:` directory (vault Tasks.md frontmatter).
+    /// Manuscriptor's root rule resolves upward only — a project root with the
+    /// paper in a subdirectory would never resolve, which is why the directory
+    /// is declared rather than guessed. Falls back to plain `NSWorkspace.open`
+    /// if Manuscriptor isn't installed at the expected path.
     @discardableResult
     func openInManuscriptor(_ url: URL) -> Bool {
         let manuscriptorPath = "/Applications/Manuscriptor.app"

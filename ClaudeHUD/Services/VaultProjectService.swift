@@ -28,6 +28,7 @@ final class VaultProjectService: ObservableObject {
         let updated: Date?                // parsed from frontmatter `updated:`
         let updatedRaw: String            // raw frontmatter value, for display fallback
         let cwds: [String]                // first non-glob is used by "New session here"
+        let manuscript: String?           // frontmatter `manuscript:` — declared paper dir
         let hasDashboard: Bool
         let hasTechnicalNotes: Bool
         let hasSessions: Bool
@@ -43,6 +44,15 @@ final class VaultProjectService: ObservableObject {
         /// First absolute non-glob `cwds:` entry (for "New session here").
         var primaryCwd: String? {
             cwds.first { $0.hasPrefix("/") && !$0.contains("*") }
+        }
+
+        /// Declared `manuscript:` directory when absolute — what the
+        /// Manuscriptor button hands over. Declared or absent; never guessed
+        /// (Manuscriptor's root rule resolves upward only, so a project root
+        /// would not reach a paper nested in a subdirectory).
+        var manuscriptDir: String? {
+            guard let manuscript, manuscript.hasPrefix("/") else { return nil }
+            return manuscript
         }
 
         /// `updated:` more than 30 days ago + status ∈ {active, wrapping-up}.
@@ -117,6 +127,7 @@ final class VaultProjectService: ObservableObject {
         let updated = ISO8601DateFormatter.dateOnly.date(from: updatedRaw)
             ?? DateFormatter.iso8601Date.date(from: updatedRaw)
         let cwds = parseFrontmatterList(content, key: "cwds")
+        let manuscript = fm["manuscript"]
 
         let dirContents = (try? FileManager.default.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: nil
@@ -132,6 +143,7 @@ final class VaultProjectService: ObservableObject {
             updated: updated,
             updatedRaw: updatedRaw,
             cwds: cwds,
+            manuscript: manuscript,
             hasDashboard: mdFiles.contains { $0.lastPathComponent == "Dashboard.md" },
             hasTechnicalNotes: mdFiles.contains { $0.lastPathComponent == "Technical Notes.md" },
             hasSessions: mdFiles.contains { $0.lastPathComponent == "Sessions.md" },
