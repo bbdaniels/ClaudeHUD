@@ -479,15 +479,20 @@ class SessionHistoryService: ObservableObject {
 
             let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty { continue }
+            // Magic-launch bootstrap is delivered as the `/vault-bootstrap`
+            // slash command, whose recorded first turn starts with the
+            // `<command-name>…` wrapper — so it must be recognised BEFORE the
+            // generic `<`-wrapper skip below, or it would be swallowed as a
+            // pass-through and the session mislabelled as normal.
+            if let project = magicLaunchProject(trimmed) {
+                return .magicLaunch(project)
+            }
             // Command/skill wrappers precede the real prompt in real
             // sessions: skip the MESSAGE, note the interactive evidence,
             // keep scanning.
             if isPassThroughPrompt(trimmed) { sawLive = true; continue }
             // Known machine first-prompts drop the SESSION.
             if isMachineFirstPrompt(trimmed) { return .machine }
-            if trimmed.hasPrefix(magicLaunchPrefix), let project = magicLaunchProject(trimmed) {
-                return .magicLaunch(project)
-            }
             return .normal(String(trimmed.prefix(100)))
         }
 
@@ -520,7 +525,7 @@ class SessionHistoryService: ObservableObject {
             else { continue }
 
             let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty || trimmed.hasPrefix(magicLaunchPrefix) { continue }
+            if trimmed.isEmpty || magicLaunchProject(trimmed) != nil { continue }
             if isPassThroughPrompt(trimmed) { continue }
             if trimmed.hasPrefix("Caveat: The messages below") { continue }  // local-command caveat
             if trimmed.hasPrefix("[Request interrupted") { continue }        // interrupt sentinel
@@ -551,20 +556,39 @@ class SessionHistoryService: ObservableObject {
         return false
     }
 
-    /// Exact opening of the magic-launch vault bootstrap prompt, generated
-    /// verbatim by `magicLaunchInGhostty()` in HUDContentView. Recognising it
-    /// lets history relabel these sessions with the user's first real prompt
-    /// instead of the identical boilerplate. Keep in sync with the template
-    /// there.
-    nonisolated private static let magicLaunchPrefix = "Fresh session on the Obsidian vault project: "
-
-    /// Project name carried by a magic-launch bootstrap prompt — the text
-    /// between `magicLaunchPrefix` and the first period — or nil if absent.
+    /// Project name carried by a magic-launch bootstrap, or nil if the message
+    /// isn't one. The bootstrap is delivered as the `/vault-bootstrap` slash
+    /// command (see `magicLaunchArg` in HUDContentView + the command file at
+    /// ~/.claude/commands/vault-bootstrap.md). Handles both ways Claude Code
+    /// may record that first turn: the usual `<command-name>/vault-bootstrap
+    /// </command-name>…<command-args>…</command-args>` wrapper, and a raw
+    /// `/vault-bootstrap <args>` line (fallback). The args are `<project>`
+    /// optionally followed by ` :: <resolvedVaultPath>`; the project is the
+    /// text before ` :: `. Recognising this lets history relabel these
+    /// sessions by project + real prompt instead of the bootstrap boilerplate.
+    ///
+    /// The wrapper is matched ANYWHERE in the message, not at its start: Claude
+    /// Code emits `<command-message>vault-bootstrap</command-message>` on the
+    /// line ABOVE `<command-name>`, so a prefix test never fires on a real
+    /// transcript (verified against one). That miss was invisible rather than
+    /// loud — the message still begins with `<`, so `isPassThroughPrompt`
+    /// swallowed it and the session was labelled `.normal` off the user's
+    /// second message, which is exactly what recognising it here prevents.
     nonisolated private static func magicLaunchProject(_ s: String) -> String? {
-        guard s.hasPrefix(magicLaunchPrefix) else { return nil }
-        let rest = s.dropFirst(magicLaunchPrefix.count)
-        guard let dot = rest.firstIndex(of: ".") else { return nil }
-        let name = rest[..<dot].trimmingCharacters(in: .whitespaces)
+        let args: String
+        if let nameTag = s.range(of: "<command-name>/vault-bootstrap</command-name>") {
+            guard let open = s.range(of: "<command-args>", range: nameTag.upperBound..<s.endIndex),
+                  let close = s.range(of: "</command-args>", range: open.upperBound..<s.endIndex)
+            else { return nil }
+            args = String(s[open.upperBound..<close.lowerBound])
+        } else if s.hasPrefix("/vault-bootstrap") {
+            args = String(s.dropFirst("/vault-bootstrap".count))
+        } else {
+            return nil
+        }
+        var name = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let sep = name.range(of: " :: ") { name = String(name[..<sep.lowerBound]) }
+        name = name.trimmingCharacters(in: .whitespaces)
         return name.isEmpty ? nil : name
     }
 

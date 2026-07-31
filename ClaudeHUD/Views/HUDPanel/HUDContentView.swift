@@ -1397,33 +1397,22 @@ func daemonizedClaudeCommand(_ argSuffix: String, remoteControlName: String? = n
 
 // MARK: - Magic launch (shared by Session History + Projects spine)
 
-/// Build the wiki-bootstrap magic-launch prompt: the launched session loads
-/// context from the Obsidian vault (the source of truth), not a lossy chat
-/// recap. `resolvedVaultPath` non-nil → step 2 names the resolved folder
-/// directly (no index.md re-derivation, no user confirmation); nil → legacy
-/// index.md resolution. Kept on one line so it survives every delivery path
-/// (Ghostty temp script, Terminal/iTerm AppleScript `do script`, clipboard).
-/// {{PROJECT}} is the project name.
-func magicLaunchPrompt(projectName: String, resolvedVaultPath: String?) -> String {
-    let template = [
-        "Fresh session on the Obsidian vault project: {{PROJECT}}. Load context from the wiki at ~/Documents/Obsidian (the source of truth) — not from a chat recap or a prior-session summary. Tool priority: (1) mcp__obsidian__ tools for structured metadata; (2) Obsidian CLI (/Applications/Obsidian.app/Contents/MacOS/obsidian <cmd>; see `obsidian help`) — fast for `search`, `tasks`, `append`, `create`, `read`, `backlinks`; (3) direct file Read/Write/Edit at the vault path.",
-        "1. Read schema.md (the vault contract).",
-        "{{STEP2}}",
-        "3. Read that project's Dashboard.md, Tasks.md (its \"## Active\" section), and Technical Notes.md.",
-        "4. Report in ~3 lines: project status, the top 1–3 active tasks, and any \"Attention needed\" flags. Then stop and wait for the user to choose what to work on — do NOT start a task automatically.",
-        "Rules: Tasks.md is the source of truth — as work completes or appears, update its ## Active / ## Completed and the `updated:` frontmatter, append a daily-note entry, and externalize decisions into the project notes (never leave state only in chat). Never `git reset --hard` or `git clean` the vault; local edits become durable only when pushed (the 15-min sync, or ~/.claude/scripts/vault-reset.sh).",
-    ].joined(separator: " ")
-
-    let step2: String
-    if let vaultPath = resolvedVaultPath {
-        step2 = "2. This project's vault folder is already resolved: \"\(vaultPath)\". Use it directly — do NOT re-derive it from index.md and do NOT ask the user to confirm the path."
-    } else {
-        step2 = "2. Read index.md (or HOME.md) to resolve \"{{PROJECT}}\" to its folder. If there is no exact folder match, pick the closest catalog entry and confirm the path with the user in one line before proceeding."
+/// Build the magic-launch argument: a `/vault-bootstrap` slash-command
+/// invocation whose expansion (see ~/.claude/commands/vault-bootstrap.md)
+/// loads context from the Obsidian vault (the source of truth), not a lossy
+/// chat recap. Delivering the bootstrap as a slash command instead of a
+/// wall-of-text positional prompt keeps the session's first turn tidy while
+/// still auto-running on launch. The single argument is the project name,
+/// optionally followed by ` :: <resolvedVaultPath>` — when the path is present
+/// the command uses it directly (no index.md re-derivation, no user
+/// confirmation); when absent it falls back to index.md resolution. Kept on
+/// one line so it survives every delivery path (Ghostty temp script,
+/// Terminal/iTerm AppleScript `do script`, clipboard).
+func magicLaunchArg(projectName: String, resolvedVaultPath: String?) -> String {
+    if let vaultPath = resolvedVaultPath, !vaultPath.isEmpty {
+        return "/vault-bootstrap \(projectName) :: \(vaultPath)"
     }
-
-    return template
-        .replacingOccurrences(of: "{{STEP2}}", with: step2)
-        .replacingOccurrences(of: "{{PROJECT}}", with: projectName)
+    return "/vault-bootstrap \(projectName)"
 }
 
 /// Fire a magic launch for `projectName` rooted at repo `cwd`, loading vault
@@ -1435,14 +1424,13 @@ func magicLaunchPrompt(projectName: String, resolvedVaultPath: String?) -> Strin
 @MainActor
 func performMagicLaunch(projectName: String, cwd: String, resolvedVaultPath: String?,
                         launchFlags: String, terminalService: TerminalService) -> Bool {
-    let prompt = magicLaunchPrompt(projectName: projectName, resolvedVaultPath: resolvedVaultPath)
-    // Single-quote the prompt for the shell (every ' becomes '\'' and the whole
-    // string is wrapped in '...'). Neutralises the backticks (`git reset
-    // --hard`, `updated:`) and `$` so they cannot run as command substitution —
-    // which double-quoting would NOT prevent.
-    let escapedPrompt = prompt.replacingOccurrences(of: "'", with: "'\\''")
+    let arg = magicLaunchArg(projectName: projectName, resolvedVaultPath: resolvedVaultPath)
+    // Single-quote the arg for the shell (every ' becomes '\'' and the whole
+    // string is wrapped in '...') so spaces in the project name or vault path
+    // stay a single token and any ' in them cannot break out of the quoting.
+    let escapedArg = arg.replacingOccurrences(of: "'", with: "'\\''")
     let command = daemonizedClaudeCommand(
-        "\(launchFlags) '\(escapedPrompt)'",
+        "\(launchFlags) '\(escapedArg)'",
         remoteControlName: projectName
     )
     let ghosttyPath = "/Applications/Ghostty.app"
