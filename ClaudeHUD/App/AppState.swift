@@ -19,6 +19,7 @@ class AppState: ObservableObject {
     let vaultScriptInstaller = VaultScriptInstaller()
     let vaultIngestService = VaultIngestService()
     let vaultProjectService = VaultProjectService()
+    let screenCoverService: ScreenCoverService
     lazy var libraryService = LibraryService(skillsService: skillsService)
 
     /// Lazy-initialized Ghostty application. Only created the first time the
@@ -28,6 +29,7 @@ class AppState: ObservableObject {
 
     init() {
         self.tabManager = TabManager(cliClient: cliClient)
+        self.screenCoverService = ScreenCoverService(agents: agentsService)
         projectService.configure(vault: vaultManager, sessions: sessionHistoryService)
     }
 

@@ -111,6 +111,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
+        menu.addItem(
+            withTitle: appState.screenCoverService.isCovered ? "Uncover Screen" : "Cover Screen",
+            action: #selector(toggleScreenCover),
+            keyEquivalent: "c"
+        ).target = self
+
+        menu.addItem(.separator())
+
         menu.addItem(withTitle: "Quit ClaudeHUD", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
         statusItem?.menu = menu
@@ -131,7 +139,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         GhosttyWindowService.checkAccessibility(prompt: true)
     }
 
+    @objc private func toggleScreenCover() {
+        appState.screenCoverService.toggle()
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         appState.hotkeyService.unregister()
+        appState.screenCoverService.forceUncover()
     }
 }

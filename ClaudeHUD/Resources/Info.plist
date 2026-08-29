@@ -26,6 +26,8 @@
 	<string>ClaudeHUD displays today's calendar events and prepares meeting briefings.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>ClaudeHUD shows your reminders in the What's Next panel and lets you complete them.</string>
+	<key>NSAccessibilityUsageDescription</key>
+	<string>ClaudeHUD lists your open Claude sessions and blocks stray input while the screen cover is up.</string>
 	<key>NSUserNotificationUsageDescription</key>
 	<string>ClaudeHUD shows desktop notifications when Claude needs your attention.</string>
 </dict>

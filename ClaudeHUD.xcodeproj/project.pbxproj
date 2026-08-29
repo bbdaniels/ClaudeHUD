@@ -54,6 +54,7 @@
 		46302138FE115BA1187EBD3D /* FloatingNoteWindowManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CF31D45958F7B287926676 /* FloatingNoteWindowManager.swift */; };
 		4652E6B3F0033AD09954F14C /* Ghostty.Surface.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5B04B18CF3CDAE6BFDB85BC /* Ghostty.Surface.swift */; };
 		4700E3BEA067D7A2D4426084 /* ObjectIdentifier+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFA10783C0F1F95AE790BD1B /* ObjectIdentifier+Extension.swift */; };
+		476DCA2D5B58A1E489619133 /* ScreenCoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94762C41278E36F6CF3E32C3 /* ScreenCoverView.swift */; };
 		4AF5B8554FC35A218CC3F10B /* NSWindow+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA57DB994AEAAEB18B0CB03A /* NSWindow+Extension.swift */; };
 		4AFFCB2580A983F47F0BB0A1 /* GhosttyKit.xcframework in Resources */ = {isa = PBXBuildFile; fileRef = 366568F88B2D732FEAF18D21 /* GhosttyKit.xcframework */; };
 		4BA3828B5C6A7030698A1452 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1539677F5984A853CCCD2667 /* GhosttyKit.xcframework */; };
@@ -61,6 +62,7 @@
 		4DCB84C52E8DB272B4CE8823 /* libspirv_cross.a in Resources */ = {isa = PBXBuildFile; fileRef = AD95C3150FE0A4C4CFEA09D0 /* libspirv_cross.a */; };
 		4DEA00856BE8FFB74E36A917 /* NoteContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9236DD5E1930C1B92335C9C5 /* NoteContentView.swift */; };
 		4E2226AC5A3DC32CE959BD4B /* Duration+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 175F7C7BD7CB64E6EE7CF176 /* Duration+Extension.swift */; };
+		561F123A3DD19B92F6D0F233 /* ScreenCoverService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A1004F7D0D3C5C144210C7D /* ScreenCoverService.swift */; };
 		576AF1C88AA95664EAB8C877 /* libghostty.a in Resources */ = {isa = PBXBuildFile; fileRef = F91B13F700ABABA2308C8AC6 /* libghostty.a */; };
 		57A682701F700A5BB95BC4CD /* NSAppearance+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BDA365BDD0D72FA935912CF /* NSAppearance+Extension.swift */; };
 		5B232678A7FD8C65C97CCB9E /* String+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FDACE9A04CEA02436D47AD7 /* String+Extension.swift */; };
@@ -216,6 +218,7 @@
 		44C3321F95137F8014F94C16 /* LibraryItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryItem.swift; sourceTree = "<group>"; };
 		46ACBA35961D35CE59A095C9 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		48D9389B80C07D234779F5AF /* GhosttyWindowService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyWindowService.swift; sourceTree = "<group>"; };
+		4A1004F7D0D3C5C144210C7D /* ScreenCoverService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCoverService.swift; sourceTree = "<group>"; };
 		4A6ED39AD22EDDA61258DC0F /* InputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputBar.swift; sourceTree = "<group>"; };
 		4CE87221F1993D02C27C5E1B /* ClaudeAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeAPIClient.swift; sourceTree = "<group>"; };
 		4CFD163F5056F20A18D23477 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
@@ -264,6 +267,7 @@
 		9034641E5D6BB5C261970D88 /* GhosttyPackageMeta.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPackageMeta.swift; sourceTree = "<group>"; };
 		9236DD5E1930C1B92335C9C5 /* NoteContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteContentView.swift; sourceTree = "<group>"; };
 		9437E5E3F033E372FB247783 /* Ghostty.ConfigTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.ConfigTypes.swift; sourceTree = "<group>"; };
+		94762C41278E36F6CF3E32C3 /* ScreenCoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCoverView.swift; sourceTree = "<group>"; };
 		94F002554690052369E931AE /* NoteFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteFile.swift; sourceTree = "<group>"; };
 		9537964108C725A1208851B5 /* ClaudeTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeTypes.swift; sourceTree = "<group>"; };
 		9746A6576D360BAF0E62317B /* libdcimgui.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libdcimgui.a; sourceTree = "<group>"; };
@@ -359,6 +363,7 @@
 				CE31FD7228157DC53CDE8B9E /* KeychainService.swift */,
 				DB043CB409497C537E66D2B6 /* LibraryService.swift */,
 				53F0B873471D8150D4E80657 /* ProjectService.swift */,
+				4A1004F7D0D3C5C144210C7D /* ScreenCoverService.swift */,
 				59E8596B647276D0A1586779 /* SecretsVault.swift */,
 				C97BB9EE58B0DBF8AA04FDE7 /* SessionHistoryService.swift */,
 				1C704E240AFCDBD31AC48951 /* SkillsService.swift */,
@@ -525,6 +530,14 @@
 			path = LaunchAgents;
 			sourceTree = "<group>";
 		};
+		ACDC0A607A33F68A54CF98BD /* ScreenCover */ = {
+			isa = PBXGroup;
+			children = (
+				94762C41278E36F6CF3E32C3 /* ScreenCoverView.swift */,
+			);
+			path = ScreenCover;
+			sourceTree = "<group>";
+		};
 		B49D986F6B45E5C113967045 /* Claude */ = {
 			isa = PBXGroup;
 			children = (
@@ -567,6 +580,7 @@
 				6AA81EE2EE9C0A51482701D9 /* HUDPanel */,
 				83B7E7EAA19BBD98DB3E4D7C /* Library */,
 				C397A64B546A235D0748698F /* Obsidian */,
+				ACDC0A607A33F68A54CF98BD /* ScreenCover */,
 				DB36E8D3AF61BCB4DB487E7A /* Today */,
 				C468B11AFE7AFC843FD71149 /* Vault */,
 				D113A8D1E82B8E920CDC8A3F /* Workspace */,
@@ -904,6 +918,8 @@
 				F2846511D5CDD3512D19E178 /* PermissionRequest.swift in Sources */,
 				BEB2851E74A402D792BD5639 /* ProjectService.swift in Sources */,
 				716AF768A9028A0E83E447BD /* SSEMCPClient.swift in Sources */,
+				561F123A3DD19B92F6D0F233 /* ScreenCoverService.swift in Sources */,
+				476DCA2D5B58A1E489619133 /* ScreenCoverView.swift in Sources */,
 				344F340CDF4EAE1B18B24EE1 /* SecretsVault.swift in Sources */,
 				85FAE3D9A1FB9C99E73D9A64 /* SessionHistoryService.swift in Sources */,
 				09E0DD3C80E9042CE3E4BC59 /* SkillFile.swift in Sources */,
