@@ -339,12 +339,13 @@ private struct ProjectRowView: View {
                     .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
             }
             Spacer()
+            manuscriptorButton
             if effectiveDate > .distantPast {
                 Text(relativeAge(effectiveDate))
                     .font(.custom("Fira Code", size: 10 * scale))
                     .foregroundColor(.secondary.opacity(0.5))
             }
-            launchControls
+            magicLaunchButton
         }
         // Match Session History's project-row rhythm: 8pt vertical
         // padding on the compact line, flush rows (VStack spacing 0).
@@ -361,10 +362,11 @@ private struct ProjectRowView: View {
     private var launchCwd: String { project.primaryCwd ?? NSHomeDirectory() }
     private var hasCwd: Bool { project.primaryCwd != nil }
 
-    /// WORK launcher controls surfaced on the collapsed row (after the
-    /// timestamp), so a project can be started WITHOUT expanding it. Always
-    /// shown; a project with no `cwds:` launches into `~` (see `launchCwd`).
-    @ViewBuilder private var launchControls: some View {
+    /// WORK launcher controls surfaced on the collapsed row so a project can
+    /// be started WITHOUT expanding it. Row order: Manuscriptor (only when
+    /// `manuscript:` is declared) · age · magic launch. Always shown; a
+    /// project with no `cwds:` launches into `~` (see `launchCwd`).
+    @ViewBuilder private var magicLaunchButton: some View {
         Button { launch(cwd: launchCwd) } label: {
             Image(systemName: launched ? "checkmark.circle.fill" : "pencil.and.outline")
                 .font(.system(size: 11 * scale, weight: .semibold))
@@ -375,7 +377,9 @@ private struct ProjectRowView: View {
         .help(hasCwd ? "New session — loads project context from the Obsidian wiki"
                      : "New session in ~ (no cwds: set yet) — loads project context from the wiki")
         .onHover { launchHovering = $0 }
+    }
 
+    @ViewBuilder private var manuscriptorButton: some View {
         if let dir = project.manuscriptDir {
             Button {
                 terminalService.openInManuscriptor(URL(fileURLWithPath: dir))
