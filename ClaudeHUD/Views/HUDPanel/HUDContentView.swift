@@ -107,17 +107,19 @@ enum FixedTab: String, CaseIterable {
     var icon: String {
         switch self {
         case .history: return "clock.arrow.circlepath"
-        case .vault: return "briefcase"
+        case .vault: return "briefcase"               // overridden by ClaudeLogo asset; see assetIcon.
         case .today: return "calendar"
-        case .library: return "books.vertical.fill"   // overridden by Library asset; see TabBar.
+        case .library: return "books.vertical.fill"
         }
     }
 
     /// Image asset name to use INSTEAD of the SF Symbol for this tab, when set.
-    /// Lets the Library tab use the Claude logo instead of an SF Symbol.
+    /// The Projects tab wears the Claude logo (it absorbed the header's old
+    /// standalone logo, 2026-08-31); Library keeps its SF Symbol so the logo
+    /// stays unique in the strip.
     var assetIcon: String? {
         switch self {
-        case .library: return "ClaudeLogo"
+        case .vault: return "ClaudeLogo"
         default: return nil
         }
     }
@@ -202,10 +204,6 @@ struct HUDContentView: View {
             // right. The tab strip is the flexible element, so it doubles as
             // the spacer.
             HStack(spacing: 8) {
-                Image("ClaudeLogo")
-                    .resizable()
-                    .frame(width: 18, height: 18)
-
                 TabBar(activeFixedTab: $activeFixedTab)
 
                 UsageBadge()
