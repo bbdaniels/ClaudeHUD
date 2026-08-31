@@ -195,7 +195,7 @@ struct HUDContentView: View {
     @EnvironmentObject var vaultManager: VaultManager
     @State private var showTerminalPopover = false
     @State private var showInfoPopover = false
-    @State private var activeFixedTab: FixedTab? = .history
+    @State private var activeFixedTab: FixedTab? = .vault
     @State private var fontScale: CGFloat = 1.0
 
     var body: some View {
@@ -392,14 +392,14 @@ struct TabBar: View {
     private func fixedTab(_ tab: FixedTab) -> some View {
         Group {
             if let asset = tab.assetIcon {
-                // Template-rendered so we can tint to a flat white silhouette
-                // instead of the brand-colored glyph in the asset catalog.
+                // Brand-colored (orange) and slightly larger than the SF
+                // symbols: Projects is the control panel, so its glyph anchors
+                // the strip. Dim, don't tint, when inactive.
                 Image(asset)
                     .resizable()
-                    .renderingMode(.template)
                     .scaledToFit()
-                    .foregroundColor(.white.opacity(activeFixedTab == tab ? 1.0 : 0.55))
-                    .frame(width: 13 * scale, height: 13 * scale)
+                    .frame(width: 15 * scale, height: 15 * scale)
+                    .opacity(activeFixedTab == tab ? 1.0 : 0.55)
             } else {
                 Image(systemName: tab.icon)
                     .font(.captionFont(scale))
