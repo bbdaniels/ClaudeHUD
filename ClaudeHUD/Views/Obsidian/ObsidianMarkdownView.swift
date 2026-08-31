@@ -59,7 +59,7 @@ struct ObsidianMarkdownView: View {
         // Already handled by SwiftUI markdown — no conversion needed
 
         // Process inline math $...$
-        result = MarkdownContentView.processInlineMath(result)
+        result = LaTeXConverter.processInlineMath(result)
 
         return result
     }

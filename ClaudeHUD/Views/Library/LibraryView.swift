@@ -498,7 +498,7 @@ struct LibraryView: View {
     private func runTagPass(force: Bool) {
         let folder = SkillsService.skillsRoot.path
         let prompt = SkillsService.tagPrompt(force: force)
-        let command = "claude --dangerously-skip-permissions --effort high \"\(Self.shellQuote(prompt))\""
+        let command = "claude \"\(Self.shellQuote(prompt))\""
         let ghostty = "/Applications/Ghostty.app"
         let app = FileManager.default.fileExists(atPath: ghostty) ? ghostty : nil
         terminalService.launchWithCommand(command, inDirectory: folder, usingApp: app)

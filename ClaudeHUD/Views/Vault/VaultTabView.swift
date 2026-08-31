@@ -283,26 +283,6 @@ private struct ProjectRowView: View {
     @EnvironmentObject private var terminalService: TerminalService
     @State private var launchHovering = false
     @State private var launched = false
-    @State private var unsafeMode: Bool
-    @State private var effort: String
-
-    private static let effortLevels = ["default", "low", "medium", "high", "max"]
-
-    init(project: VaultProjectService.Project, isExpanded: Bool,
-         ingestService: VaultIngestService, vaultPath: URL?,
-         effectiveDate: Date, onToggle: @escaping () -> Void) {
-        self.project = project
-        self.isExpanded = isExpanded
-        self.ingestService = ingestService
-        self.vaultPath = vaultPath
-        self.effectiveDate = effectiveDate
-        self.onToggle = onToggle
-        // Per-project launch flags, keyed by the repo cwd so they stay shared with
-        // the expanded WORK section + Session History (one source of truth).
-        let key = project.primaryCwd ?? project.name
-        _unsafeMode = State(initialValue: UserDefaults.standard.bool(forKey: "history.unsafe.\(key)"))
-        _effort = State(initialValue: UserDefaults.standard.string(forKey: "history.effort.\(key)") ?? "default")
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -322,9 +302,9 @@ private struct ProjectRowView: View {
                     TasksSubsection(project: project)
                     Divider().opacity(0.18)
                     // WORK — this project's sessions + live agents + Launch +
-                    // resume/Safe-Unsafe/effort, keyed by the canonical cwds:
-                    // resolver. Owns its own "Work" label (controls share the
-                    // header line). Tasks stay READ-ONLY in Projects (Phase 1).
+                    // resume, keyed by the canonical cwds: resolver. Owns its
+                    // own "Work" label (controls share the header line). Tasks
+                    // stay READ-ONLY in Projects (Phase 1).
                     WorkSubsection(project: project)
                     Divider().opacity(0.18)
                     SectionLabel("Notes")
@@ -381,32 +361,10 @@ private struct ProjectRowView: View {
     private var launchCwd: String { project.primaryCwd ?? NSHomeDirectory() }
     private var hasCwd: Bool { project.primaryCwd != nil }
 
-    /// WORK launcher controls surfaced on the collapsed row (after the timestamp):
-    /// Safe/Unsafe, effort, and Launch — so a project can be configured + started
-    /// WITHOUT expanding it. Always shown; a project with no `cwds:` launches
-    /// into `~` (see `launchCwd`). The two toggles persist to the same
-    /// per-project UserDefaults keys the expanded WORK section + Session History
-    /// use, so all three surfaces stay in sync.
+    /// WORK launcher controls surfaced on the collapsed row (after the
+    /// timestamp), so a project can be started WITHOUT expanding it. Always
+    /// shown; a project with no `cwds:` launches into `~` (see `launchCwd`).
     @ViewBuilder private var launchControls: some View {
-        Button {
-            unsafeMode.toggle()
-            UserDefaults.standard.set(unsafeMode, forKey: defaultsKey)
-        } label: {
-            Image(systemName: unsafeMode ? "lock.open.fill" : "lock.fill")
-                .font(.system(size: 11 * scale))
-                .foregroundColor(unsafeMode ? .red : .green)
-        }
-        .buttonStyle(.plain)
-        .help(unsafeMode ? "Unsafe mode (click to toggle)" : "Safe mode (click to toggle)")
-
-        Button { cycleEffort() } label: {
-            Image(systemName: effortIcon)
-                .font(.system(size: 11 * scale))
-                .foregroundColor(effortColor)
-        }
-        .buttonStyle(.plain)
-        .help("Effort: \(effort) (click to cycle)")
-
         Button { launch(cwd: launchCwd) } label: {
             Image(systemName: launched ? "checkmark.circle.fill" : "pencil.and.outline")
                 .font(.system(size: 11 * scale, weight: .semibold))
@@ -432,42 +390,10 @@ private struct ProjectRowView: View {
         }
     }
 
-    private var defaultsKey: String { "history.unsafe.\(project.primaryCwd ?? project.name)" }
-    private var effortKey: String { "history.effort.\(project.primaryCwd ?? project.name)" }
-    private var launchFlags: String {
-        var f = ""
-        if unsafeMode { f += " --dangerously-skip-permissions" }
-        if effort != "default" { f += " --effort \(effort)" }
-        return f
-    }
-    private func cycleEffort() {
-        guard let idx = Self.effortLevels.firstIndex(of: effort) else { effort = "default"; return }
-        effort = Self.effortLevels[(idx + 1) % Self.effortLevels.count]
-        UserDefaults.standard.set(effort, forKey: effortKey)
-    }
-    private var effortIcon: String {
-        switch effort {
-        case "low": return "gauge.with.dots.needle.0percent"
-        case "medium": return "gauge.with.dots.needle.33percent"
-        case "high": return "gauge.with.dots.needle.67percent"
-        case "max": return "gauge.with.dots.needle.100percent"
-        default: return "gauge.with.dots.needle.50percent"
-        }
-    }
-    private var effortColor: Color {
-        switch effort {
-        case "low": return .red
-        case "medium": return .orange
-        case "high": return .white
-        case "max": return .green
-        default: return .secondary
-        }
-    }
-
     private func launch(cwd: String) {
         _ = performMagicLaunch(projectName: project.name, cwd: cwd,
                                resolvedVaultPath: project.folder.path,
-                               launchFlags: launchFlags, terminalService: terminalService)
+                               terminalService: terminalService)
         launched = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { launched = false }
     }
@@ -1421,8 +1347,8 @@ private func prettifyMarkdown(_ s: String) -> LocalizedStringKey {
 /// The spine's WORK section: every session and currently-alive agent whose
 /// repo working directory canonically resolves to THIS project's vault folder
 /// (the `cwds:` join key shared with the ingest hook), plus a wiki-bootstrap
-/// Launch and the per-project Safe/Unsafe + effort toggles. Sessions reuse the
-/// Session-History `SessionDetailRow` verbatim (resume buttons + ingest badge).
+/// Launch. Sessions reuse the Session-History `SessionDetailRow` verbatim
+/// (resume buttons + ingest badge).
 ///
 /// Resolution is done by `VaultProjectService.primeResolution` (off the main
 /// actor, memoized) so filtering thousands of sessions costs only cache reads.
@@ -1438,31 +1364,9 @@ private struct WorkSubsection: View {
 
     @State private var primed = false
     @State private var showAll = false
-    @State private var unsafeMode: Bool
-    @State private var effort: String
     @State private var feedback: String?
 
     private let sessionCap = 5
-    private static let effortLevels = ["default", "low", "medium", "high", "max"]
-
-    init(project: VaultProjectService.Project) {
-        self.project = project
-        // Key the per-project flags by the repo cwd so they're shared with the
-        // Session-History row for the same project (one source of truth); fall
-        // back to the folder name when the project declares no cwd.
-        let key = project.primaryCwd ?? project.name
-        _unsafeMode = State(initialValue: UserDefaults.standard.bool(forKey: "history.unsafe.\(key)"))
-        _effort = State(initialValue: UserDefaults.standard.string(forKey: "history.effort.\(key)") ?? "default")
-    }
-
-    private var defaultsKey: String { "history.unsafe.\(project.primaryCwd ?? project.name)" }
-    private var effortKey: String { "history.effort.\(project.primaryCwd ?? project.name)" }
-    private var launchFlags: String {
-        var f = ""
-        if unsafeMode { f += " --dangerously-skip-permissions" }
-        if effort != "default" { f += " --effort \(effort)" }
-        return f
-    }
 
     /// Sessions whose repo cwd resolves to this project's vault folder. Empty
     /// until `primed`; afterwards a live filter over the published session list.
@@ -1495,7 +1399,6 @@ private struct WorkSubsection: View {
                 ForEach(visibleSessions) { session in
                     SessionDetailRow(
                         session: session,
-                        launchFlags: launchFlags,
                         searchResult: nil,
                         onDelete: { sessionHistory.deleteSession(id: session.id) }
                     )
@@ -1527,27 +1430,6 @@ private struct WorkSubsection: View {
         HStack(spacing: 8) {
             SectionLabel("Work")
             Spacer()
-            // Per-project Safe/Unsafe (persisted, shared with Session History).
-            Button(action: {
-                unsafeMode.toggle()
-                UserDefaults.standard.set(unsafeMode, forKey: defaultsKey)
-            }) {
-                Image(systemName: unsafeMode ? "lock.open.fill" : "lock.fill")
-                    .font(.system(size: 11 * scale))
-                    .foregroundColor(unsafeMode ? .red : .green)
-            }
-            .buttonStyle(.borderless)
-            .hudTip(unsafeMode ? "Unsafe mode (click to toggle)" : "Safe mode (click to toggle)")
-
-            // Per-project effort (persisted, shared with Session History).
-            Button(action: { cycleEffort() }) {
-                Image(systemName: effortIcon)
-                    .font(.system(size: 11 * scale))
-                    .foregroundColor(effortColor)
-            }
-            .buttonStyle(.borderless)
-            .hudTip("Effort: \(effort) (click to cycle)")
-
             // Launch — magic wiki-bootstrap session in the project's repo cwd.
             // The vault folder is known directly here, so the prompt always
             // takes the "already resolved" branch (no index.md re-derivation).
@@ -1614,36 +1496,11 @@ private struct WorkSubsection: View {
     private func launch(cwd: String) {
         let auto = performMagicLaunch(
             projectName: project.name, cwd: cwd,
-            resolvedVaultPath: project.folder.path, launchFlags: launchFlags,
+            resolvedVaultPath: project.folder.path,
             terminalService: terminalService
         )
         feedback = auto ? "Opened!" : "Cmd+V"
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
-    }
-
-    private func cycleEffort() {
-        guard let idx = Self.effortLevels.firstIndex(of: effort) else { effort = "default"; return }
-        effort = Self.effortLevels[(idx + 1) % Self.effortLevels.count]
-        UserDefaults.standard.set(effort, forKey: effortKey)
-    }
-
-    private var effortIcon: String {
-        switch effort {
-        case "low": return "gauge.with.dots.needle.0percent"
-        case "medium": return "gauge.with.dots.needle.33percent"
-        case "high": return "gauge.with.dots.needle.67percent"
-        case "max": return "gauge.with.dots.needle.100percent"
-        default: return "gauge.with.dots.needle.50percent"
-        }
-    }
-    private var effortColor: Color {
-        switch effort {
-        case "low": return .red
-        case "medium": return .orange
-        case "high": return .white
-        case "max": return .green
-        default: return .secondary
-        }
     }
 }
 

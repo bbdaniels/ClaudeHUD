@@ -191,7 +191,6 @@ struct HUDContentView: View {
     @EnvironmentObject var terminalService: TerminalService
     @EnvironmentObject var sessionHistory: SessionHistoryService
     @EnvironmentObject var vaultManager: VaultManager
-    @State private var showPermissionPopover = false
     @State private var showTerminalPopover = false
     @State private var showInfoPopover = false
     @State private var activeFixedTab: FixedTab? = .history
@@ -199,45 +198,17 @@ struct HUDContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
+            // Header — one row: tabs on the left, readouts and actions on the
+            // right. The tab strip is the flexible element, so it doubles as
+            // the spacer.
             HStack(spacing: 8) {
                 Image("ClaudeLogo")
                     .resizable()
                     .frame(width: 18, height: 18)
 
-                Picker("", selection: $tabManager.selectedModel) {
-                    Text("Sonnet").tag("sonnet")
-                    Text("Haiku").tag("haiku")
-                    Text("Opus").tag("opus")
-                    Text("Fable").tag("fable")
-                }
-                .labelsHidden()
-                .fixedSize()
-
-                Button(action: { showPermissionPopover.toggle() }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: permissionIcon)
-                            .font(.smallFont(fontScale))
-                        Text(permissionLabel)
-                            .font(.smallFont(fontScale))
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(
-                        RoundedRectangle(cornerRadius: 5)
-                            .fill(permissionColor.opacity(0.15))
-                    )
-                    .foregroundColor(permissionColor)
-                }
-                .buttonStyle(.borderless)
-                .hudTip("Permission mode for new sessions (click to change)")
-                .popover(isPresented: $showPermissionPopover) {
-                    PermissionPopover(selection: $tabManager.permissionMode)
-                }
+                TabBar(activeFixedTab: $activeFixedTab)
 
                 UsageBadge()
-
-                Spacer()
 
                 Button(action: {
                     terminalService.launchClaudeAtHome()
@@ -247,7 +218,7 @@ struct HUDContentView: View {
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.borderless)
-                .hudTip("New Claude session at ~ (high effort, bypass permissions)")
+                .hudTip("New Claude session at ~")
                 .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
                     showTerminalPopover = true
                 })
@@ -269,9 +240,6 @@ struct HUDContentView: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
-
-            // Tab bar
-            TabBar(activeFixedTab: $activeFixedTab)
 
             Divider()
                 .opacity(0.5)
@@ -309,18 +277,21 @@ struct HUDContentView: View {
                         .environmentObject(appState.libraryService)
                         .environmentObject(terminalService)
                 }
-            } else if tabManager.currentTab?.kind == .terminal {
+            } else {
                 TerminalTabView(sessionId: tabManager.selectedTabId)
                     .id(tabManager.selectedTabId)
                     .environmentObject(appState)
-            } else {
-                ChatView()
-                    .id(tabManager.selectedTabId)
-                    .environmentObject(tabManager.currentConversation)
             }
         }
         .frame(minWidth: 380, minHeight: 420)
         .environment(\.fontScale, fontScale)
+        .onChange(of: tabManager.tabs.isEmpty) { _, isEmpty in
+            // Closing the last terminal tab leaves nothing for the `nil`
+            // (tab-selected) state to render, so fall back to a fixed tab.
+            if isEmpty && activeFixedTab == nil {
+                activeFixedTab = FixedTab.orderedTabs().first { !FixedTab.isHidden($0) } ?? .vault
+            }
+        }
         .onGeometryChange(for: CGFloat.self) { geo in
             geo.size.width
         } action: { width in
@@ -332,44 +303,14 @@ struct HUDContentView: View {
             }
         }
         .overlay(
-            Group {
-                Button("") { tabManager.addTab() }
-                    .keyboardShortcut("t", modifiers: .command)
-                    .frame(width: 0, height: 0)
-                    .hidden()
-                Button("") {
-                    tabManager.closeTab(tabManager.selectedTabId)
-                }
-                .keyboardShortcut("w", modifiers: .command)
-                .frame(width: 0, height: 0)
-                .hidden()
+            Button("") {
+                tabManager.closeTab(tabManager.selectedTabId)
             }
+            .keyboardShortcut("w", modifiers: .command)
+            .frame(width: 0, height: 0)
+            .hidden()
         )
         .hudTooltipLayer()
-    }
-
-    private var permissionIcon: String {
-        switch tabManager.permissionMode {
-        case "dangerously-skip": return "lock.open"
-        case "default": return "lock"
-        default: return "shield"
-        }
-    }
-
-    private var permissionLabel: String {
-        switch tabManager.permissionMode {
-        case "dangerously-skip": return "Unsafe"
-        case "default": return "Safe"
-        default: return "Plan"
-        }
-    }
-
-    private var permissionColor: Color {
-        switch tabManager.permissionMode {
-        case "dangerously-skip": return .red
-        case "default": return .orange
-        default: return .green
-        }
     }
 }
 
@@ -429,35 +370,24 @@ struct TabBar: View {
                 }
             }
 
-            Divider()
-                .frame(height: 16)
-                .padding(.horizontal, 4)
+            if !tabManager.tabs.isEmpty {
+                Divider()
+                    .frame(height: 16)
+                    .padding(.horizontal, 4)
+            }
 
-            // Conversation tabs can overflow, so they keep the horizontal scroll.
+            // Terminal tabs can overflow, so they keep the horizontal scroll.
+            // Empty when no session has been resumed into the HUD, in which
+            // case the scroll view is just the header's flexible gap.
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 0) {
                     ForEach(tabManager.tabs) { tab in
                         TabButton(tab: tab, activeFixedTab: $activeFixedTab)
                     }
-
-                    // Add tab button
-                    Button(action: {
-                        tabManager.addTab()
-                        activeFixedTab = nil
-                    }) {
-                        Image(systemName: "plus")
-                            .font(.captionFont(scale))
-                            .foregroundColor(.secondary)
-                            .frame(width: 24, height: 24)
-                    }
-                    .buttonStyle(.borderless)
-                    .hudTip("New tab")
                 }
             }
         }
-        .padding(.horizontal, 8)
-        .frame(height: 30)
-        .background(Color(.windowBackgroundColor).opacity(0.5))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -520,11 +450,9 @@ struct TabButton: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            if tab.kind == .terminal {
-                Image(systemName: "terminal")
-                    .font(.smallFont(scale))
-                    .foregroundColor(isSelected ? .accentColor : .secondary)
-            }
+            Image(systemName: "terminal")
+                .font(.smallFont(scale))
+                .foregroundColor(isSelected ? .accentColor : .secondary)
 
             if let subtitle = tab.subtitle, !subtitle.isEmpty {
                 HStack(spacing: 2) {
@@ -546,15 +474,13 @@ struct TabButton: View {
                 .lineLimit(1)
                 .foregroundColor(isSelected ? .primary : .secondary)
 
-            if tabManager.tabs.count > 1 {
-                Button(action: { tabManager.closeTab(tab.id) }) {
-                    Image(systemName: "xmark")
-                        .font(.custom("Fira Sans", size: 8 * scale).weight(.bold))
-                        .foregroundColor(.secondary.opacity(0.6))
-                }
-                .buttonStyle(.borderless)
-                .hudTip("Close tab")
+            Button(action: { tabManager.closeTab(tab.id) }) {
+                Image(systemName: "xmark")
+                    .font(.custom("Fira Sans", size: 8 * scale).weight(.bold))
+                    .foregroundColor(.secondary.opacity(0.6))
             }
+            .buttonStyle(.borderless)
+            .hudTip("Close tab")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
@@ -567,76 +493,6 @@ struct TabButton: View {
             activeFixedTab = nil
             tabManager.selectedTabId = tab.id
         }
-    }
-}
-
-// MARK: - Permission Popover
-
-struct PermissionPopover: View {
-    @Binding var selection: String
-    @Environment(\.fontScale) private var scale
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            PermissionOption(
-                title: "Plan",
-                description: "Claude proposes a plan and asks before taking any action.",
-                icon: "shield",
-                color: .green,
-                tag: "plan",
-                selection: $selection
-            )
-            PermissionOption(
-                title: "Safe",
-                description: "Claude reads freely but asks permission for Bash commands.",
-                icon: "lock",
-                color: .orange,
-                tag: "default",
-                selection: $selection
-            )
-            PermissionOption(
-                title: "Unsafe",
-                description: "No permission checks. Claude runs any Bash command without asking.",
-                icon: "lock.open",
-                color: .white,
-                tag: "dangerously-skip",
-                selection: $selection
-            )
-        }
-        .padding(12)
-        .frame(width: 280)
-    }
-}
-
-struct PermissionOption: View {
-    let title: String
-    let description: String
-    let icon: String
-    let color: Color
-    let tag: String
-    @Binding var selection: String
-    @Environment(\.fontScale) private var scale
-
-    var body: some View {
-        Button(action: { selection = tag }) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: selection == tag ? "checkmark.circle.fill" : "circle")
-                    .font(.bodyFont(scale))
-                    .foregroundColor(selection == tag ? color : .secondary)
-                    .frame(width: 18)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.bodyMedium(scale))
-                        .foregroundColor(.primary)
-                    Text(description)
-                        .font(.smallFont(scale))
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -764,7 +620,7 @@ struct SessionHistoryView: View {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 11 * scale))
                         .foregroundColor(.secondary)
-                    TextField("Search chats...", text: $searchText)
+                    TextField("Search sessions...", text: $searchText)
                         .font(.smallFont(scale))
                         .textFieldStyle(.plain)
                         .onChange(of: searchText) { newValue in
@@ -1015,24 +871,11 @@ struct ProjectRow: View {
     @State private var expanded = false
     @State private var showAll = false
     @State private var feedback: String?
-    @State private var unsafeMode: Bool
-    @State private var effort: String
     @Environment(\.fontScale) private var scale
 
     private let sessionCap = 5
-    private static let effortLevels = ["default", "low", "medium", "high", "max"]
 
     private var latest: SessionInfo { sessions.first! }
-
-    private var launchFlags: String {
-        var flags = ""
-        if unsafeMode { flags += " --dangerously-skip-permissions" }
-        if effort != "default" { flags += " --effort \(effort)" }
-        return flags
-    }
-
-    private var defaultsKey: String { "history.unsafe.\(projectPath)" }
-    private var effortKey: String { "history.effort.\(projectPath)" }
 
     /// Whether this project has any full-text search matches.
     private var hasSearchMatches: Bool {
@@ -1049,26 +892,6 @@ struct ProjectRow: View {
         return Array(sessions.prefix(sessionCap))
     }
 
-    private var effortIcon: String {
-        switch effort {
-        case "low": return "gauge.with.dots.needle.0percent"
-        case "medium": return "gauge.with.dots.needle.33percent"
-        case "high": return "gauge.with.dots.needle.67percent"
-        case "max": return "gauge.with.dots.needle.100percent"
-        default: return "gauge.with.dots.needle.50percent"
-        }
-    }
-
-    private var effortColor: Color {
-        switch effort {
-        case "low": return .red
-        case "medium": return .orange
-        case "high": return .white
-        case "max": return .green
-        default: return .secondary
-        }
-    }
-
     init(projectName: String, projectPath: String, sessions: [SessionInfo],
          isStarred: Bool, isUnclaimed: Bool = false,
          searchResults: [String: SessionSearchResult] = [:],
@@ -1082,8 +905,6 @@ struct ProjectRow: View {
         self.searchResults = searchResults
         self.onToggleStar = onToggleStar
         self.onDeleteSession = onDeleteSession
-        self._unsafeMode = State(initialValue: UserDefaults.standard.bool(forKey: "history.unsafe.\(projectPath)"))
-        self._effort = State(initialValue: UserDefaults.standard.string(forKey: "history.effort.\(projectPath)") ?? "default")
     }
 
     var body: some View {
@@ -1111,29 +932,6 @@ struct ProjectRow: View {
                 }
                 .buttonStyle(.borderless)
                 .hudTip(isStarred ? "Unstar project" : "Star project")
-
-                // Unsafe toggle (per-project, persistent)
-                Button(action: {
-                    unsafeMode.toggle()
-                    UserDefaults.standard.set(unsafeMode, forKey: defaultsKey)
-                }) {
-                    Image(systemName: unsafeMode ? "lock.open.fill" : "lock.fill")
-                        .font(.system(size: 11 * scale))
-                        .foregroundColor(unsafeMode ? .red : .green)
-                        .frame(width: 16)
-                }
-                .buttonStyle(.borderless)
-                .hudTip(unsafeMode ? "Unsafe mode (click to toggle)" : "Safe mode (click to toggle)")
-
-                // Effort toggle (per-project, persistent)
-                Button(action: { cycleEffort() }) {
-                    Image(systemName: effortIcon)
-                        .font(.system(size: 11 * scale))
-                        .foregroundColor(effortColor)
-                        .frame(width: 16)
-                }
-                .buttonStyle(.borderless)
-                .hudTip("Effort: \(effort) (click to cycle)")
 
                 Text(projectName)
                     .font(.smallMedium(scale))
@@ -1236,7 +1034,6 @@ struct ProjectRow: View {
                     ForEach(visibleSessions) { session in
                         SessionDetailRow(
                             session: session,
-                            launchFlags: launchFlags,
                             searchResult: searchResults[session.id],
                             onDelete: { onDeleteSession(session.id) }
                         )
@@ -1258,14 +1055,8 @@ struct ProjectRow: View {
         }
     }
 
-    private func cycleEffort() {
-        guard let idx = Self.effortLevels.firstIndex(of: effort) else { effort = "default"; return }
-        effort = Self.effortLevels[(idx + 1) % Self.effortLevels.count]
-        UserDefaults.standard.set(effort, forKey: effortKey)
-    }
-
     private func newSession(usingApp appPath: String) {
-        let command = daemonizedClaudeCommand(launchFlags)
+        let command = daemonizedClaudeCommand("")
         let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
         let bg = useColors ? TerminalService.projectColor(for: projectName) : nil
         let auto = terminalService.launchWithCommand(command, inDirectory: projectPath, usingApp: appPath, backgroundColor: bg)
@@ -1281,7 +1072,7 @@ struct ProjectRow: View {
         let resolvedVaultPath = projectService.vaultFolderPath(forRepoPath: projectPath)
         let auto = performMagicLaunch(
             projectName: projectName, cwd: projectPath,
-            resolvedVaultPath: resolvedVaultPath, launchFlags: launchFlags,
+            resolvedVaultPath: resolvedVaultPath,
             terminalService: terminalService
         )
         feedback = auto ? "Opened!" : "Cmd+V"
@@ -1367,8 +1158,8 @@ struct GitHubRepoIndicator: View {
 /// unchanged. If `--bg` ever fails or no id is parsed we fall back to a
 /// plain foreground `claude`, so a launch can never be broken by this.
 ///
-/// `argSuffix` is everything after `claude` (e.g. ` --effort high`,
-/// ` --resume <id> --dangerously-skip-permissions`, or flags + a prompt).
+/// `argSuffix` is everything after `claude` (e.g. ` --resume <id>`, or a
+/// prompt). Empty for a plain new session.
 ///
 /// `remoteControlName` — when non-nil, prepends `--remote-control "<name>"`
 /// so the session is reachable via Claude Code Remote Control. Names are
@@ -1423,14 +1214,14 @@ func magicLaunchArg(projectName: String, resolvedVaultPath: String?) -> String {
 /// session is identifiable in the agents list.
 @MainActor
 func performMagicLaunch(projectName: String, cwd: String, resolvedVaultPath: String?,
-                        launchFlags: String, terminalService: TerminalService) -> Bool {
+                        terminalService: TerminalService) -> Bool {
     let arg = magicLaunchArg(projectName: projectName, resolvedVaultPath: resolvedVaultPath)
     // Single-quote the arg for the shell (every ' becomes '\'' and the whole
     // string is wrapped in '...') so spaces in the project name or vault path
     // stay a single token and any ' in them cannot break out of the quoting.
     let escapedArg = arg.replacingOccurrences(of: "'", with: "'\\''")
     let command = daemonizedClaudeCommand(
-        "\(launchFlags) '\(escapedArg)'",
+        " '\(escapedArg)'",
         remoteControlName: projectName
     )
     let ghosttyPath = "/Applications/Ghostty.app"
@@ -1444,7 +1235,6 @@ func performMagicLaunch(projectName: String, cwd: String, resolvedVaultPath: Str
 
 struct SessionDetailRow: View {
     let session: SessionInfo
-    let launchFlags: String
     let searchResult: SessionSearchResult?
     let onDelete: () -> Void
     @EnvironmentObject var terminalService: TerminalService
@@ -1552,7 +1342,7 @@ struct SessionDetailRow: View {
     }
 
     private func resume(usingApp appPath: String) {
-        let command = daemonizedClaudeCommand(" --resume \(session.id)\(launchFlags)")
+        let command = daemonizedClaudeCommand(" --resume \(session.id)")
         let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
         let projectName = URL(fileURLWithPath: session.projectPath).lastPathComponent
         let bg = useColors ? TerminalService.projectColor(for: projectName) : nil
@@ -1562,7 +1352,7 @@ struct SessionDetailRow: View {
     }
 
     private func resumeInHUD() {
-        let command = daemonizedClaudeCommand(" --resume \(session.id)\(launchFlags)")
+        let command = daemonizedClaudeCommand(" --resume \(session.id)")
         let projectName = URL(fileURLWithPath: session.projectPath).lastPathComponent
         let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
         let bg = useColors ? TerminalService.projectColor(for: projectName) : nil
@@ -1750,10 +1540,7 @@ struct InfoPopover: View {
                     .font(.custom("Fira Sans", size: 12).weight(.semibold))
                     .foregroundColor(.secondary)
 
-                InfoRow(icon: "lock.fill", text: "**Safe/Unsafe:** Per-project toggle in history. Controls --dangerously-skip-permissions")
-                InfoRow(icon: "gauge.with.dots.needle.50percent", text: "**Effort:** Click gauge icon in history to cycle default/low/medium/high/max")
                 InfoRow(icon: "star.fill", text: "**Star:** Pin projects to a Starred section at the top of history")
-                InfoRow(icon: "shield", text: "**Permissions:** Plan/Safe/Unsafe controls how much Claude can do without asking")
                 InfoRow(icon: "terminal", text: "**Terminal:** Click to launch, long-press to switch. Ghostty, iTerm2, Terminal, and more")
                 // DISABLED — notifications superseded by the daemon agent handler.
                 // InfoRow(icon: "bell.fill", text: "**Notifications:** Desktop via macOS, mobile via [ntfy.sh](https://ntfy.sh)")

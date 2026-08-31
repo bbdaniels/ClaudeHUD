@@ -74,7 +74,6 @@ class HUDPanelController {
         let contentView = HUDContentView()
             .environmentObject(appState)
             .environmentObject(appState.tabManager)
-            .environmentObject(appState.cliClient)
             .environmentObject(appState.terminalService)
             .environmentObject(appState.sessionHistoryService)
             .environmentObject(appState.vaultManager)

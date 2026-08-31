@@ -358,7 +358,7 @@
       </a>
     </div>
     <div class="hero-shot">
-      <img src="screenshot.png" alt="ClaudeHUD floating panel showing recent chats grouped by project">
+      <img src="screenshot.png" alt="ClaudeHUD floating panel showing recent sessions grouped by project">
     </div>
   </div>
 
@@ -368,12 +368,8 @@
       <h2>Features</h2>
       <ul class="feature-list">
         <li>
-          <span class="feature-label">Multi-tab conversations</span>
-          <span class="feature-desc">Open multiple chats with Cmd+T. Each tab maintains its own history and session state. Tab titles are auto-generated from your first message.</span>
-        </li>
-        <li>
           <span class="feature-label">Session history</span>
-          <span class="feature-desc">Browse all past Claude Code sessions across every project. Launch new sessions or resume old ones with one click. Per-project safe/unsafe toggle, effort level, and star/pin &mdash; all remembered across launches.</span>
+          <span class="feature-desc">Browse all past Claude Code sessions across every project. Launch new sessions or resume old ones with one click. Per-project star/pin &mdash; remembered across launches.</span>
         </li>
         <li>
           <span class="feature-label">Obsidian notes</span>
@@ -478,8 +474,8 @@
     ClaudeHUDApp.swift          <span class="cmt"># App entry, menu bar setup</span>
     AppState.swift              <span class="cmt"># Global state, services</span>
   Claude/
-    ClaudeCLIClient.swift       <span class="cmt"># CLI subprocess management</span>
-    ConversationManager.swift   <span class="cmt"># Conversations, tabs, messaging</span>
+    TabManager.swift            <span class="cmt"># HUD terminal tabs</span>
+    TerminalSession.swift       <span class="cmt"># Ghostty surface owner</span>
   Models/
     NoteFile.swift              <span class="cmt"># Obsidian file tree model</span>
     VaultSettings.swift         <span class="cmt"># Vault config, bookmarks</span>
@@ -487,9 +483,8 @@
     HUDPanel/
       HUDPanelController.swift  <span class="cmt"># NSPanel floating window</span>
       HUDContentView.swift      <span class="cmt"># Main layout, tabs, history, info</span>
-    Chat/
-      ChatView.swift            <span class="cmt"># Message list + input</span>
-      MessageBubble.swift       <span class="cmt"># Markdown parser + renderers</span>
+    Shared/
+      MarkdownBlocks.swift      <span class="cmt"># Markdown renderers + KaTeX</span>
     Obsidian/
       ObsidianBrowserView.swift <span class="cmt"># Vault browser, search, file tree</span>
       ObsidianMarkdownView.swift <span class="cmt"># Extended markdown renderer</span>

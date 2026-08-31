@@ -47,8 +47,7 @@
 		300F5B400249B3D84DBD6C1F /* permission-watcher.sh in Resources */ = {isa = PBXBuildFile; fileRef = AB272797EF5863C22BEFFDE7 /* permission-watcher.sh */; };
 		312035615DEC2CCBF6B7578A /* Ghostty.App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33C1791B27160BFFE1B81BA5 /* Ghostty.App.swift */; };
 		344F340CDF4EAE1B18B24EE1 /* SecretsVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E8596B647276D0A1586779 /* SecretsVault.swift */; };
-		3AC79C0378BBFE5D3C197E09 /* InputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A6ED39AD22EDDA61258DC0F /* InputBar.swift */; };
-		3D1E8016AF772DEC464B2404 /* ClaudeTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9537964108C725A1208851B5 /* ClaudeTypes.swift */; };
+		3CCAE765C9EFE1202B3718B6 /* MarkdownBlocks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C25C90AD7421B63879BFE80 /* MarkdownBlocks.swift */; };
 		4167B772A7F89D1779F98239 /* libfreetype.a in Resources */ = {isa = PBXBuildFile; fileRef = AB8F3ADA72810AD4176731B5 /* libfreetype.a */; };
 		456A775AEB1CC14776BC7C28 /* vault-ingest-prompt.md in Resources */ = {isa = PBXBuildFile; fileRef = 11FF9297DE2CD760A7CBB416 /* vault-ingest-prompt.md */; };
 		46302138FE115BA1187EBD3D /* FloatingNoteWindowManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CF31D45958F7B287926676 /* FloatingNoteWindowManager.swift */; };
@@ -74,20 +73,17 @@
 		61A79D763A6AAFC36056A28C /* vault-email-ingest.sh in Resources */ = {isa = PBXBuildFile; fileRef = 0B247D259B3E01BF7ECD38BF /* vault-email-ingest.sh */; };
 		62681EDDCDBBA34D5BEC1B71 /* View+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33DB2BD0985C47EE12DA61AA /* View+Extension.swift */; };
 		62BA2D9F0205706B941FC1A1 /* GhosttyPackageMeta.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9034641E5D6BB5C261970D88 /* GhosttyPackageMeta.swift */; };
-		6849853A4E6B85FB19E3A411 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FD67A81EBE058854F735069 /* ChatView.swift */; };
 		69AEB196C941A78DAB9434E6 /* SurfaceDragSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFF0598B1720C80E2E205CDE /* SurfaceDragSource.swift */; };
 		6A148D7769F6B682AA1B8983 /* Ghostty.Action.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2D5D690DAB6FDFE2D23AAE9 /* Ghostty.Action.swift */; };
 		6C61B2CE643B8F374B2808E7 /* ExpiringUndoManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB6EA00FF03F3C11DDAA52A6 /* ExpiringUndoManager.swift */; };
 		6E76C3600929761BFCF83639 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E85FBA53BC2B877A3E34EF6 /* LibraryView.swift */; };
 		716AF768A9028A0E83E447BD /* SSEMCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B9601851634E06856B4D47D /* SSEMCPClient.swift */; };
-		73EADD2BE245DD1BB284422A /* ClaudeAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CE87221F1993D02C27C5E1B /* ClaudeAPIClient.swift */; };
 		749DC764D831EF175567E9FC /* VaultTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B280310DE38541F7B2CD6849 /* VaultTabView.swift */; };
 		763AB8326C29448B08217DAC /* NSPasteboard+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72393D01E3F5276CB9B73669 /* NSPasteboard+Extension.swift */; };
 		763D915CF0FBE368DEE6A12F /* HotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */; };
 		767202F3C664C4829D4EFED8 /* GhosttyDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F039EB68F8D2416F59AF489 /* GhosttyDelegate.swift */; };
 		7CD3467413D1EB8C9004A8D8 /* libglslang.a in Resources */ = {isa = PBXBuildFile; fileRef = F1676F27C790551944D42AF4 /* libglslang.a */; };
 		7D24D640592311D1F0FA7A41 /* Stubs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 116D192F995BA6063E058A7F /* Stubs.swift */; };
-		7DC1D28210D31B38F3B6C51A /* ConversationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3256754C76CCAD0FA8F83274 /* ConversationManager.swift */; };
 		7FF6D28391555F6C0ED924DB /* Transferable+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = E37A463159EBF8606D95E0A1 /* Transferable+Extension.swift */; };
 		8123A352C357703346F0F832 /* TodoItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E0D64CF3689B9D885F9F313 /* TodoItem.swift */; };
 		815353343C4BC778548C4338 /* LibraryRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF071C0FD812AE7E6F9A7928 /* LibraryRow.swift */; };
@@ -109,7 +105,6 @@
 		96C997E65F697D968F12E091 /* Dock.swift in Sources */ = {isa = PBXBuildFile; fileRef = C351829385CF609EED3E826E /* Dock.swift */; };
 		98CDCDB7078ED15735D8BB1F /* libsentry.a in Resources */ = {isa = PBXBuildFile; fileRef = A72C6D575DC0E64C605D2287 /* libsentry.a */; };
 		993B4A345258F5757C3DD80B /* liboniguruma.a in Resources */ = {isa = PBXBuildFile; fileRef = EE17FE3F383C37A3CD745AB2 /* liboniguruma.a */; };
-		9A10C6567AB89D52BB2F6DFC /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BF6467BABED6305C19A0C5C /* MessageBubble.swift */; };
 		9BB16D12A5097FE7C4E715DD /* NonDraggableHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBE6E2EB23B16AE0FEEA524B /* NonDraggableHostingView.swift */; };
 		9C3637274F96736D202895D8 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 330288F7F0E1F56443C80A74 /* TodayView.swift */; };
 		9D1751A3FD807556940D4438 /* ntfy-notify.sh in Resources */ = {isa = PBXBuildFile; fileRef = C6D82DD1759F543B48C98E52 /* ntfy-notify.sh */; };
@@ -122,7 +117,6 @@
 		AA1830B8C3DD8D346BBF9895 /* KeychainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE31FD7228157DC53CDE8B9E /* KeychainService.swift */; };
 		AAA3C4E4A2A9BBFB16772482 /* libz.a in Resources */ = {isa = PBXBuildFile; fileRef = BC2C8BB22D0C22A9B123A59E /* libz.a */; };
 		AB1D0A0392E8C30197A7DC11 /* VaultIngestService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 207CDABC03F0B223AFE35A88 /* VaultIngestService.swift */; };
-		AB52E8B15A0B2E94FDCFEAF0 /* ToolCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 502D6FDFD2A08657B013ED9B /* ToolCallView.swift */; };
 		ABB72147FFBF17F0076E58DC /* ClaudeWebFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FE78438CDBB1B82E2CD3203 /* ClaudeWebFetcher.swift */; };
 		ACA58B1127ED796388A0721A /* Ghostty.Inspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 030E2CA6AD393F2A3D855BC1 /* Ghostty.Inspector.swift */; };
 		ACE0E7A59578E712633FCF0E /* libintl.a in Resources */ = {isa = PBXBuildFile; fileRef = EFD0660D3C5F18063FE60EDC /* libintl.a */; };
@@ -133,7 +127,7 @@
 		B6062851E1689D3F69E61783 /* AgentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AEA2D1DA808678730DAFAB2 /* AgentModels.swift */; };
 		B728A86479EA3AF024F601DF /* FileHandle+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA8F11CEDEDF5C46D131CAD5 /* FileHandle+Extension.swift */; };
 		B8D06D4427A9E6FF2119DCC7 /* com.bbdaniels.obsidian-sync.plist in Resources */ = {isa = PBXBuildFile; fileRef = 2EEF39238129551C8264F8B4 /* com.bbdaniels.obsidian-sync.plist */; };
-		BAC3A285D736D01662A6A794 /* ClaudeCLIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 369134DB1B8B42279EB5E1D8 /* ClaudeCLIClient.swift */; };
+		B9BB43007843C4DDDA76766F /* TabManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C0EBE8F166B3770D136865B /* TabManager.swift */; };
 		BB7A3F82BD20DD9B51E7177A /* Ghostty.ConfigTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9437E5E3F033E372FB247783 /* Ghostty.ConfigTypes.swift */; };
 		BEB2851E74A402D792BD5639 /* ProjectService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53F0B873471D8150D4E80657 /* ProjectService.swift */; };
 		BF445FDFA96FA2C5EFF79A90 /* NSEvent+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC1DA3F388949A5B7B055AA6 /* NSEvent+Extension.swift */; };
@@ -202,32 +196,28 @@
 		2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalService.swift; sourceTree = "<group>"; };
 		2EEBFE2793D1BE2364B60C89 /* ObsidianMarkdownView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianMarkdownView.swift; sourceTree = "<group>"; };
 		2EEF39238129551C8264F8B4 /* com.bbdaniels.obsidian-sync.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "com.bbdaniels.obsidian-sync.plist"; sourceTree = "<group>"; };
-		3256754C76CCAD0FA8F83274 /* ConversationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationManager.swift; sourceTree = "<group>"; };
 		330288F7F0E1F56443C80A74 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
 		33B9100D8D4E09B3B7E405AF /* Optional+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Optional+Extension.swift"; sourceTree = "<group>"; };
 		33C1791B27160BFFE1B81BA5 /* Ghostty.App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.App.swift; sourceTree = "<group>"; };
 		33DB2BD0985C47EE12DA61AA /* View+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+Extension.swift"; sourceTree = "<group>"; };
 		36100007ADEA5D729AB5F922 /* Ghostty.Input.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Input.swift; sourceTree = "<group>"; };
 		366568F88B2D732FEAF18D21 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
-		369134DB1B8B42279EB5E1D8 /* ClaudeCLIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCLIClient.swift; sourceTree = "<group>"; };
 		39C7242E2783A2815CB305E2 /* HUDPanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUDPanelController.swift; sourceTree = "<group>"; };
 		3B87051A2FE60BB08D085B5D /* NSImage+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSImage+Extension.swift"; sourceTree = "<group>"; };
 		3B9601851634E06856B4D47D /* SSEMCPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEMCPClient.swift; sourceTree = "<group>"; };
+		3C25C90AD7421B63879BFE80 /* MarkdownBlocks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownBlocks.swift; sourceTree = "<group>"; };
 		4147B98C388E49B41A477E73 /* NSColor+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSColor+Extension.swift"; sourceTree = "<group>"; };
 		446CE71CD596514D14EAEBFA /* CGS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CGS.swift; sourceTree = "<group>"; };
 		44C3321F95137F8014F94C16 /* LibraryItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryItem.swift; sourceTree = "<group>"; };
 		46ACBA35961D35CE59A095C9 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		48D9389B80C07D234779F5AF /* GhosttyWindowService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyWindowService.swift; sourceTree = "<group>"; };
 		4A1004F7D0D3C5C144210C7D /* ScreenCoverService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCoverService.swift; sourceTree = "<group>"; };
-		4A6ED39AD22EDDA61258DC0F /* InputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputBar.swift; sourceTree = "<group>"; };
-		4CE87221F1993D02C27C5E1B /* ClaudeAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeAPIClient.swift; sourceTree = "<group>"; };
 		4CFD163F5056F20A18D23477 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		4E5CC94E94375F63C3B1C6D3 /* MCPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPClient.swift; sourceTree = "<group>"; };
 		4F1CCAC3654CFE6A96560A4D /* SurfaceScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceScrollView.swift; sourceTree = "<group>"; };
 		4FA9FAACA9B3A6FF9DD56B44 /* SurfaceView+Image.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceView+Image.swift"; sourceTree = "<group>"; };
 		4FDACE9A04CEA02436D47AD7 /* String+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "String+Extension.swift"; sourceTree = "<group>"; };
 		4FE78438CDBB1B82E2CD3203 /* ClaudeWebFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeWebFetcher.swift; sourceTree = "<group>"; };
-		502D6FDFD2A08657B013ED9B /* ToolCallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCallView.swift; sourceTree = "<group>"; };
 		50E5626B4C84084B8B14BB91 /* Tooltip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tooltip.swift; sourceTree = "<group>"; };
 		53F0B873471D8150D4E80657 /* ProjectService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectService.swift; sourceTree = "<group>"; };
 		58276C1EA3EC3682B1C6FE36 /* ClaudeHUD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeHUD.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -243,8 +233,8 @@
 		68C16ED4C6BC5E8AE994EEC8 /* HostingWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostingWindow.swift; sourceTree = "<group>"; };
 		68D028D91836CDCCAD3E5DFF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		6B704EFA6C1852BC574365CB /* Weak.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Weak.swift; sourceTree = "<group>"; };
+		6C0EBE8F166B3770D136865B /* TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManager.swift; sourceTree = "<group>"; };
 		6E85FBA53BC2B877A3E34EF6 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
-		6FD67A81EBE058854F735069 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		7046491BBCE7F8A5DF2AE95B /* TerminalSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSession.swift; sourceTree = "<group>"; };
 		71E2A18C94034AA8F2D9503E /* Ghostty.Event.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Event.swift; sourceTree = "<group>"; };
 		72393D01E3F5276CB9B73669 /* NSPasteboard+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSPasteboard+Extension.swift"; sourceTree = "<group>"; };
@@ -252,7 +242,6 @@
 		762A5D34E8673E4172E0C54A /* NSView+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSView+Extension.swift"; sourceTree = "<group>"; };
 		780C3E8AEA8CC301D2806F1B /* CrossKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossKit.swift; sourceTree = "<group>"; };
 		7ADA35FF9D1AED3E119C54A9 /* KeyboardShortcut+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeyboardShortcut+Extension.swift"; sourceTree = "<group>"; };
-		7BF6467BABED6305C19A0C5C /* MessageBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubble.swift; sourceTree = "<group>"; };
 		7C833E15743B893B9F72BC7D /* SkillFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillFile.swift; sourceTree = "<group>"; };
 		7DC0E016BB2EFA248FF50C5D /* vault-email-ingest-prompt.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "vault-email-ingest-prompt.md"; sourceTree = "<group>"; };
 		7FF9DA594E9870B247A558E0 /* TerminalTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTabView.swift; sourceTree = "<group>"; };
@@ -269,7 +258,6 @@
 		9437E5E3F033E372FB247783 /* Ghostty.ConfigTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.ConfigTypes.swift; sourceTree = "<group>"; };
 		94762C41278E36F6CF3E32C3 /* ScreenCoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCoverView.swift; sourceTree = "<group>"; };
 		94F002554690052369E931AE /* NoteFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteFile.swift; sourceTree = "<group>"; };
-		9537964108C725A1208851B5 /* ClaudeTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeTypes.swift; sourceTree = "<group>"; };
 		9746A6576D360BAF0E62317B /* libdcimgui.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libdcimgui.a; sourceTree = "<group>"; };
 		9A39F72F605ECF71563A3E2E /* NSMenuItem+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSMenuItem+Extension.swift"; sourceTree = "<group>"; };
 		9AEA2D1DA808678730DAFAB2 /* AgentModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentModels.swift; sourceTree = "<group>"; };
@@ -530,6 +518,14 @@
 			path = LaunchAgents;
 			sourceTree = "<group>";
 		};
+		A7FE23A029F894F41E906CD9 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				3C25C90AD7421B63879BFE80 /* MarkdownBlocks.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
 		ACDC0A607A33F68A54CF98BD /* ScreenCover */ = {
 			isa = PBXGroup;
 			children = (
@@ -541,10 +537,7 @@
 		B49D986F6B45E5C113967045 /* Claude */ = {
 			isa = PBXGroup;
 			children = (
-				4CE87221F1993D02C27C5E1B /* ClaudeAPIClient.swift */,
-				369134DB1B8B42279EB5E1D8 /* ClaudeCLIClient.swift */,
-				9537964108C725A1208851B5 /* ClaudeTypes.swift */,
-				3256754C76CCAD0FA8F83274 /* ConversationManager.swift */,
+				6C0EBE8F166B3770D136865B /* TabManager.swift */,
 				7046491BBCE7F8A5DF2AE95B /* TerminalSession.swift */,
 			);
 			path = Claude;
@@ -576,11 +569,11 @@
 			isa = PBXGroup;
 			children = (
 				9CAC8DAC3F016020147131CD /* Agents */,
-				F567D485403F54C56BF3CE92 /* Chat */,
 				6AA81EE2EE9C0A51482701D9 /* HUDPanel */,
 				83B7E7EAA19BBD98DB3E4D7C /* Library */,
 				C397A64B546A235D0748698F /* Obsidian */,
 				ACDC0A607A33F68A54CF98BD /* ScreenCover */,
+				A7FE23A029F894F41E906CD9 /* Shared */,
 				DB36E8D3AF61BCB4DB487E7A /* Today */,
 				C468B11AFE7AFC843FD71149 /* Vault */,
 				D113A8D1E82B8E920CDC8A3F /* Workspace */,
@@ -728,17 +721,6 @@
 			path = SurfaceView;
 			sourceTree = "<group>";
 		};
-		F567D485403F54C56BF3CE92 /* Chat */ = {
-			isa = PBXGroup;
-			children = (
-				6FD67A81EBE058854F735069 /* ChatView.swift */,
-				4A6ED39AD22EDDA61258DC0F /* InputBar.swift */,
-				7BF6467BABED6305C19A0C5C /* MessageBubble.swift */,
-				502D6FDFD2A08657B013ED9B /* ToolCallView.swift */,
-			);
-			path = Chat;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -842,14 +824,9 @@
 				A80A8A41B64E427C3BC9C507 /* Array+Extension.swift in Sources */,
 				0A909F682EA34DF6C6F6018F /* Backport.swift in Sources */,
 				8BC3AFA5670E2BEE782691C7 /* CGS.swift in Sources */,
-				6849853A4E6B85FB19E3A411 /* ChatView.swift in Sources */,
-				73EADD2BE245DD1BB284422A /* ClaudeAPIClient.swift in Sources */,
-				BAC3A285D736D01662A6A794 /* ClaudeCLIClient.swift in Sources */,
 				11D068D60F1FBC84E1D988EA /* ClaudeHUDApp.swift in Sources */,
-				3D1E8016AF772DEC464B2404 /* ClaudeTypes.swift in Sources */,
 				ABB72147FFBF17F0076E58DC /* ClaudeWebFetcher.swift in Sources */,
 				4D672BFFE8C2EFF795EF880A /* CodableBridge.swift in Sources */,
-				7DC1D28210D31B38F3B6C51A /* ConversationManager.swift in Sources */,
 				05D8507F4BD62C17646621D9 /* CrossKit.swift in Sources */,
 				E772664D2E0DC0C71818B008 /* Cursor.swift in Sources */,
 				96C997E65F697D968F12E091 /* Dock.swift in Sources */,
@@ -880,7 +857,6 @@
 				8C46A3A5A8F635DA6316E52D /* HUDPanelController.swift in Sources */,
 				E7298415B9F7EFB367CAFB9B /* HostingWindow.swift in Sources */,
 				763D915CF0FBE368DEE6A12F /* HotkeyService.swift in Sources */,
-				3AC79C0378BBFE5D3C197E09 /* InputBar.swift in Sources */,
 				EEC5054A3B33EBA08F1A8D24 /* JSONRPCTypes.swift in Sources */,
 				1B9D94AD63BF74BBA5872C00 /* KeyboardLayout.swift in Sources */,
 				BF6ACC5B653AC80ACD988FAF /* KeyboardShortcut+Extension.swift in Sources */,
@@ -893,7 +869,7 @@
 				5E8249E75BC7071A42BD394B /* MCPClient.swift in Sources */,
 				9DA0FDBD089DA3477830FAE4 /* MCPConfigLoader.swift in Sources */,
 				2C29DFF9CEB92A300E5B2FE0 /* MCPServerManager.swift in Sources */,
-				9A10C6567AB89D52BB2F6DFC /* MessageBubble.swift in Sources */,
+				3CCAE765C9EFE1202B3718B6 /* MarkdownBlocks.swift in Sources */,
 				85D3B7318B938BAA19EB88FD /* MetalView.swift in Sources */,
 				57A682701F700A5BB95BC4CD /* NSAppearance+Extension.swift in Sources */,
 				1C0F632F6A32BA1CD374B977 /* NSApplication+Extension.swift in Sources */,
@@ -937,13 +913,13 @@
 				A38AF7A81F9EFE0753DB4AB9 /* SurfaceView.swift in Sources */,
 				5BF325072C380E00573361A0 /* SurfaceView_AppKit.swift in Sources */,
 				952C077516A9880889016AA8 /* TabGroupCloseCoordinator.swift in Sources */,
+				B9BB43007843C4DDDA76766F /* TabManager.swift in Sources */,
 				AD2F609C2D74B1370002AE03 /* TabTitleEditor.swift in Sources */,
 				2DC1704ACE2F286704A1DF5C /* TerminalService.swift in Sources */,
 				02E8F7DE762C69D42BEF9FD3 /* TerminalSession.swift in Sources */,
 				0C6EFA26F155B9FEB15877AA /* TerminalTabView.swift in Sources */,
 				9C3637274F96736D202895D8 /* TodayView.swift in Sources */,
 				8123A352C357703346F0F832 /* TodoItem.swift in Sources */,
-				AB52E8B15A0B2E94FDCFEAF0 /* ToolCallView.swift in Sources */,
 				0A4D8DD96DCA844462BAAE4B /* Tooltip.swift in Sources */,
 				7FF6D28391555F6C0ED924DB /* Transferable+Extension.swift in Sources */,
 				D00889A3F1FC9FF708D7CD2C /* UUID+Extension.swift in Sources */,

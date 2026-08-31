@@ -1,7 +1,9 @@
 import SwiftUI
 
-/// Compact pill badge in the header showing 5-hour usage %.
-/// Click opens a popover with the full breakdown.
+/// Compact pill badge in the header: session %, its reset clock, and weekly %,
+/// e.g. `18% · 5h→2:40pm · 64% wk`. Every segment is optional and drops out
+/// when its field is missing, so the pill collapses to the bare gauge icon
+/// rather than showing placeholders. Click opens the full breakdown.
 struct UsageBadge: View {
     @EnvironmentObject var usageService: UsageService
     @State private var showPopover = false
@@ -12,9 +14,15 @@ struct UsageBadge: View {
             HStack(spacing: 4) {
                 Image(systemName: iconName)
                     .font(.smallFont(scale))
-                if let label = displayLabel {
-                    Text(label)
+                if !segments.isEmpty {
+                    Text(segments.joined(separator: " · "))
                         .font(.smallFont(scale))
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+                if usageService.isStale {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.captionFont(scale))
                 }
             }
             .padding(.horizontal, 6)
@@ -35,14 +43,34 @@ struct UsageBadge: View {
 
     private var iconName: String { "gauge.with.dots.needle.50percent" }
 
-    private var displayLabel: String? {
-        guard let pct = usageService.usage?.fiveHour?.utilization else { return nil }
-        return "\(Int(pct.rounded()))%"
+    /// Header row, built as optional segments so a missing field self-removes.
+    private var segments: [String] {
+        guard let u = usageService.usage else { return [] }
+        var out: [String] = []
+        if let fh = u.fiveHour {
+            out.append("\(Int(fh.utilization.rounded()))%")
+            if let reset = fh.resetsAt, reset > Date() {
+                out.append("5h→" + Self.clock.string(from: reset))
+            }
+        }
+        if let wd = u.sevenDay {
+            out.append("\(Int(wd.utilization.rounded()))% wk")
+        }
+        return out
     }
+
+    private static let clock: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("jmm")
+        return f
+    }()
 
     private var tint: Color {
         guard usageService.hasCookie else { return .secondary }
         guard let pct = usageService.usage?.fiveHour?.utilization else { return .secondary }
+        // A number nobody has refreshed in half an hour shouldn't read as
+        // authoritative, however red it is.
+        guard !usageService.isStale else { return .secondary }
         switch pct {
         case ..<60: return .green
         case ..<85: return .orange
@@ -62,12 +90,20 @@ struct UsageBadge: View {
         if let wd = u.sevenDay {
             parts.append("Weekly: \(Int(wd.utilization.rounded()))% (resets \(relativeReset(wd.resetsAt)))")
         }
+        if usageService.isStale, let fetched = usageService.lastFetched {
+            parts.append("Stale — last updated \(relative(fetched))")
+        }
+        parts.append("Click for the full breakdown")
         return parts.joined(separator: "\n")
     }
 
     private func relativeReset(_ date: Date?) -> String {
         guard let date else { return "window inactive" }
         guard date > Date() else { return "window reset" }
+        return relative(date)
+    }
+
+    private func relative(_ date: Date) -> String {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())

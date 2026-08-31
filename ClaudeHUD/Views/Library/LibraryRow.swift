@@ -115,7 +115,7 @@ struct LibraryRow: View {
         } else {
             dir = item.path.deletingLastPathComponent().path
         }
-        let command = "claude --dangerously-skip-permissions --effort high \"\(Self.shellQuote(prompt))\""
+        let command = "claude \"\(Self.shellQuote(prompt))\""
         let ghostty = "/Applications/Ghostty.app"
         let app = FileManager.default.fileExists(atPath: ghostty) ? ghostty : nil
         let auto = terminalService.launchWithCommand(command, inDirectory: dir, usingApp: app)

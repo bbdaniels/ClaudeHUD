@@ -5,9 +5,8 @@ private let logger = Logger(subsystem: "com.claudehud", category: "AppState")
 
 @MainActor
 class AppState: ObservableObject {
-    let cliClient = ClaudeCLIClient()
     let serverManager = MCPServerManager()
-    let tabManager: TabManager
+    let tabManager = TabManager()
     let hotkeyService = HotkeyService()
     let terminalService = TerminalService()
     let sessionHistoryService = SessionHistoryService()
@@ -28,7 +27,6 @@ class AppState: ObservableObject {
     lazy var ghosttyApp: Ghostty.App = .init()
 
     init() {
-        self.tabManager = TabManager(cliClient: cliClient)
         self.screenCoverService = ScreenCoverService(agents: agentsService)
         projectService.configure(vault: vaultManager, sessions: sessionHistoryService)
     }

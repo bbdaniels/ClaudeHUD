@@ -66,11 +66,11 @@ class TerminalService: ObservableObject {
         NSWorkspace.shared.openApplication(at: url, configuration: config) { _, _ in }
     }
 
-    /// Open a new Ghostty window at `$HOME` running Claude with bypass permissions
-    /// and high effort. Falls back to the selected terminal if Ghostty is not installed.
+    /// Open a new Ghostty window at `$HOME` running Claude.
+    /// Falls back to the selected terminal if Ghostty is not installed.
     @discardableResult
     func launchClaudeAtHome() -> Bool {
-        let command = "claude --dangerously-skip-permissions --effort high"
+        let command = "claude"
         let ghosttyPath = "/Applications/Ghostty.app"
         let app = FileManager.default.fileExists(atPath: ghosttyPath) ? ghosttyPath : nil
         return launchWithCommand(command, inDirectory: NSHomeDirectory(), usingApp: app)
