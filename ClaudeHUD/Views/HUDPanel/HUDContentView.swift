@@ -235,6 +235,14 @@ struct HUDContentView: View {
                 .popover(isPresented: $showInfoPopover) {
                     InfoPopover()
                 }
+
+                Button(action: { appState.screenCoverService.cover() }) {
+                    Image(systemName: "lock.fill")
+                        .font(.smallFont(fontScale))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .hudTip("Cover screen — input locked, agents keep running")
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
