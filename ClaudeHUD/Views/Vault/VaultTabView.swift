@@ -35,6 +35,11 @@ struct VaultTabView: View {
     /// project that's busy in sessions but whose `updated:` went stale still
     /// sorts as recent. Primed off-main in `.task`.
     @State private var folderLatestSession: [String: Date] = [:]
+    /// Bumped after the agent roster's cwds are primed into the resolver cache.
+    /// `primeResolution` fills a private cache with no `objectWillChange`, so
+    /// this is what re-renders the rows with warm badges instead of waiting on
+    /// the next 2s roster republish.
+    @State private var agentResolutionTick = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -53,7 +58,12 @@ struct VaultTabView: View {
                 // a deterministic content height. The list is only tens of rows
                 // and collapsed rows are cheap headers, so eager layout is fine.
                 VStack(alignment: .leading, spacing: 0) {
-                    let sections = recencySections
+                    // Built ONCE per body pass and handed to both the sort and
+                    // the rows: `AgentsService` republishes every 2s, so a
+                    // per-row filter over the roster would be O(rows × agents)
+                    // on every tick of a non-lazy, fully-realized list.
+                    let live = folderLiveSessions
+                    let sections = recencySections(live: live)
                     if sections.isEmpty {
                         Text(searchText.isEmpty ? "No projects." : "No matches")
                             .font(.smallFont(scale))
@@ -76,6 +86,7 @@ struct VaultTabView: View {
                                         ingestService: ingestService,
                                         vaultPath: vaultPath,
                                         effectiveDate: effectiveUpdated(project),
+                                        liveSessions: live[project.name] ?? LiveSessionCounts(),
                                         onToggle: { toggle(project.id) }
                                     )
                                 }
@@ -116,6 +127,17 @@ struct VaultTabView: View {
                 map[folder] = s.timestamp
             }
             folderLatestSession = map
+        }
+        // The live-session badges join agents to projects through the same
+        // memoized resolver, but the session prime above only sees session
+        // cwds. Prime the agent roster's cwds too, keyed on the DISTINCT cwd
+        // set so this re-runs when a session appears in a new repo — not on
+        // every 2s roster republish.
+        .task(id: agentCwdSignature) {
+            let cwds = Set(agentsService.agents.map { $0.cwd }).filter { !$0.isEmpty }
+            guard !cwds.isEmpty else { return }
+            await projectService.primeResolution(forCwds: cwds)
+            agentResolutionTick &+= 1
         }
         .sheet(isPresented: $showNewProject) {
             NewProjectSheet(
@@ -160,7 +182,43 @@ struct VaultTabView: View {
         max(p.updated ?? .distantPast, folderLatestSession[p.name] ?? .distantPast)
     }
 
-    private var recencySections: [(title: String, projects: [VaultProjectService.Project])] {
+    /// Distinct working directories across the agent roster. Used as the
+    /// `.task(id:)` key for the resolver prime so it re-fires on a genuinely
+    /// new cwd rather than on the poller's 2s republish.
+    private var agentCwdSignature: Int {
+        Set(agentsService.agents.map { $0.cwd }).hashValue
+    }
+
+    /// folder name → live INTERACTIVE session counts, in one pass over the
+    /// roster.
+    ///
+    /// "Interactive" is `isOpen` — a live `claude attach <short>` process. The
+    /// daemon's job dirs carry no interactive flag (ClaudeHUD's own magic
+    /// launch runs interactive sessions through `claude --bg` and then attaches
+    /// them), so an attached terminal is the only honest discriminator.
+    ///
+    /// States come from `AgentSession.bucket`, never from `rawState`. `bucket`
+    /// carries the roster liveness gate: the daemon never flushes a terminal
+    /// state when a worker dies abnormally, so a `state.json` frozen on
+    /// `blocked` would otherwise be counted as "needs me" forever. Absent from
+    /// `roster.workers` ⇒ `.stopped` ⇒ not counted.
+    private var folderLiveSessions: [String: LiveSessionCounts] {
+        var map: [String: LiveSessionCounts] = [:]
+        for a in agentsService.agents {
+            guard a.isAlive, a.isOpen, !a.cwd.isEmpty,
+                  let folder = projectService.folderName(forCwd: a.cwd) else { continue }
+            switch a.bucket {
+            case .working:    map[folder, default: LiveSessionCounts()].working += 1
+            case .needsInput: map[folder, default: LiveSessionCounts()].blocked += 1
+            case .idle:       map[folder, default: LiveSessionCounts()].idle += 1
+            default:          break
+            }
+        }
+        return map
+    }
+
+    private func recencySections(live: [String: LiveSessionCounts])
+        -> [(title: String, projects: [VaultProjectService.Project])] {
         let cal = Calendar.current
         let startOfToday = cal.startOfDay(for: Date())
         let startOfWeek = cal.date(byAdding: .day, value: -7, to: startOfToday)!
@@ -178,7 +236,18 @@ struct VaultTabView: View {
         var out: [(title: String, projects: [VaultProjectService.Project])] = []
         for (idx, title) in titles.enumerated() {
             let group = fp.filter { rank($0) == idx }
-                          .sorted { effectiveUpdated($0) > effectiveUpdated($1) }
+                          .sorted { a, b in
+                              // A project with a session waiting on the user
+                              // floats WITHIN its recency bucket. Compared as a
+                              // boolean, not by count, so two waiting projects
+                              // keep their existing recency order relative to
+                              // each other. Bucket membership is unchanged —
+                              // nothing crosses a section boundary.
+                              let wa = (live[a.name]?.blocked ?? 0) > 0
+                              let wb = (live[b.name]?.blocked ?? 0) > 0
+                              if wa != wb { return wa }
+                              return effectiveUpdated(a) > effectiveUpdated(b)
+                          }
             if !group.isEmpty { out.append((title: title, projects: group)) }
         }
         return out
@@ -269,6 +338,75 @@ struct VaultTabView: View {
     }
 }
 
+// MARK: - Live session badges
+
+/// One project's live INTERACTIVE session counts, by state. See
+/// `VaultTabView.folderLiveSessions` for how each field is derived.
+private struct LiveSessionCounts: Equatable {
+    var working = 0
+    /// Awaiting the user — the "needs me" signal. Roster-alive only.
+    var blocked = 0
+    var idle = 0
+    var isEmpty: Bool { working == 0 && blocked == 0 && idle == 0 }
+}
+
+/// Compact state cluster on the collapsed project row: green dot = running a
+/// turn, amber dot = waiting on you, clock = alive but idle. Display-only —
+/// the row's tap-to-expand passes straight through.
+///
+/// Deliberately borrows the ingested-count chip's idiom (Fira Code 10, 4/1
+/// padding, radius-3 low-opacity fill) so a busy row still reads as calm; the
+/// idle segment stays on `.secondary` because it is informational, not a call
+/// to act.
+private struct LiveSessionBadges: View {
+    let counts: LiveSessionCounts
+    @Environment(\.fontScale) private var scale
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if counts.working > 0 {
+                chip(count: counts.working, tint: .green, text: .green.opacity(0.9)) {
+                    Circle().fill(Color.green).frame(width: 5, height: 5)
+                }
+            }
+            if counts.blocked > 0 {
+                chip(count: counts.blocked, tint: .orange, text: .orange.opacity(0.95)) {
+                    Circle().fill(Color.orange).frame(width: 5, height: 5)
+                }
+            }
+            if counts.idle > 0 {
+                chip(count: counts.idle, tint: .secondary, text: .secondary.opacity(0.6)) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 8 * scale))
+                        .foregroundColor(.secondary.opacity(0.6))
+                }
+            }
+        }
+        .help(helpText)
+    }
+
+    private func chip<Glyph: View>(count: Int, tint: Color, text: Color,
+                                   @ViewBuilder glyph: () -> Glyph) -> some View {
+        HStack(spacing: 3) {
+            glyph()
+            Text("\(count)")
+                .font(.custom("Fira Code", size: 10 * scale))
+                .foregroundColor(text)
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 1)
+        .background(RoundedRectangle(cornerRadius: 3).fill(tint.opacity(0.12)))
+    }
+
+    private var helpText: String {
+        var parts: [String] = []
+        if counts.working > 0 { parts.append("\(counts.working) working") }
+        if counts.blocked > 0 { parts.append("\(counts.blocked) waiting on you") }
+        if counts.idle > 0 { parts.append("\(counts.idle) idle") }
+        return "Open sessions — " + parts.joined(separator: " · ")
+    }
+}
+
 // MARK: - Project row
 
 private struct ProjectRowView: View {
@@ -278,6 +416,10 @@ private struct ProjectRowView: View {
     let vaultPath: URL?
     /// max(updated:, latest session) — the recency the row is bucketed by.
     let effectiveDate: Date
+    /// Live interactive-session counts for this project. Passed by value (not
+    /// read off `AgentsService` here) so the row does not subscribe to the 2s
+    /// roster republish — this list is deliberately non-lazy and fully realized.
+    let liveSessions: LiveSessionCounts
     let onToggle: () -> Void
     @Environment(\.fontScale) private var scale
     @EnvironmentObject private var terminalService: TerminalService
@@ -337,6 +479,9 @@ private struct ProjectRowView: View {
                     .padding(.horizontal, 4)
                     .padding(.vertical, 1)
                     .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
+            }
+            if !liveSessions.isEmpty {
+                LiveSessionBadges(counts: liveSessions)
             }
             Spacer()
             manuscriptorButton
