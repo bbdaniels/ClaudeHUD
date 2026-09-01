@@ -87,6 +87,7 @@ struct VaultTabView: View {
                                         vaultPath: vaultPath,
                                         effectiveDate: effectiveUpdated(project),
                                         liveSessions: live[project.name] ?? LiveSessionCounts(),
+                                        liveSessionsProvider: { liveSessions(forFolder: project.name) },
                                         onToggle: { toggle(project.id) }
                                     )
                                 }
@@ -204,17 +205,54 @@ struct VaultTabView: View {
     /// `roster.workers` ⇒ `.stopped` ⇒ not counted.
     private var folderLiveSessions: [String: LiveSessionCounts] {
         var map: [String: LiveSessionCounts] = [:]
+        for (folder, sessions) in liveSessionsByFolder {
+            var counts = LiveSessionCounts()
+            for a in sessions {
+                switch a.bucket {
+                case .working:    counts.working += 1
+                case .needsInput: counts.blocked += 1
+                case .idle:       counts.idle += 1
+                default:          break
+                }
+            }
+            map[folder] = counts
+        }
+        return map
+    }
+
+    /// folder name → the live INTERACTIVE sessions themselves. One source for
+    /// both the badge counts and the badge's click target, so what a click
+    /// raises is exactly what was counted. Unsorted: ordering is only needed
+    /// on click, and this runs on every body pass.
+    private var liveSessionsByFolder: [String: [AgentSession]] {
+        var map: [String: [AgentSession]] = [:]
         for a in agentsService.agents {
             guard a.isAlive, a.isOpen, !a.cwd.isEmpty,
                   let folder = projectService.folderName(forCwd: a.cwd) else { continue }
+            // Only the three badged buckets: an alive+open session in an
+            // unrecognized daemon state (`.other`) must not be click-cyclable
+            // when the badge never advertised it.
             switch a.bucket {
-            case .working:    map[folder, default: LiveSessionCounts()].working += 1
-            case .needsInput: map[folder, default: LiveSessionCounts()].blocked += 1
-            case .idle:       map[folder, default: LiveSessionCounts()].idle += 1
-            default:          break
+            case .working, .needsInput, .idle: break
+            default: continue
             }
+            map[folder, default: []].append(a)
         }
         return map
+    }
+
+    /// One project's live sessions, most recently active first. Called from a
+    /// badge click only.
+    ///
+    /// `updatedAt` alone is not the recency: the daemon flushes `state.json`
+    /// event-driven and can lag minutes behind an actively working session,
+    /// while the transcript ticks on every turn — so the later of the two is
+    /// the honest ordering.
+    private func liveSessions(forFolder folder: String) -> [AgentSession] {
+        func recency(_ a: AgentSession) -> Date {
+            max(a.updatedAt ?? .distantPast, a.transcriptMtime ?? .distantPast)
+        }
+        return (liveSessionsByFolder[folder] ?? []).sorted { recency($0) > recency($1) }
     }
 
     private func recencySections(live: [String: LiveSessionCounts])
@@ -351,18 +389,38 @@ private struct LiveSessionCounts: Equatable {
 }
 
 /// Compact state cluster on the collapsed project row: green dot = running a
-/// turn, amber dot = waiting on you, clock = alive but idle. Display-only —
-/// the row's tap-to-expand passes straight through.
+/// turn, amber dot = waiting on you, clock = alive but idle.
+///
+/// With `onTap` supplied the whole cluster is one button that raises this
+/// project's session windows (see `ProjectRowView.focusNextLiveSession`); a
+/// `Button` rather than a gesture so it wins the hit-test on its own bounds
+/// and the row's tap-to-expand does not also fire — the same idiom the
+/// trailing launch controls use. Left nil the cluster stays display-only and
+/// the row's tap passes straight through, exactly as it originally shipped.
 ///
 /// Deliberately borrows the ingested-count chip's idiom (Fira Code 10, 4/1
 /// padding, radius-3 low-opacity fill) so a busy row still reads as calm; the
 /// idle segment stays on `.secondary` because it is informational, not a call
-/// to act.
+/// to act. Hover only deepens the chip fill, so the resting appearance is
+/// unchanged.
 private struct LiveSessionBadges: View {
     let counts: LiveSessionCounts
+    var onTap: (() -> Void)?
     @Environment(\.fontScale) private var scale
+    @State private var hovering = false
 
     var body: some View {
+        if let onTap {
+            Button(action: onTap) { cluster }
+                .buttonStyle(.plain)
+                .onHover { hovering = $0 }
+                .help(helpText + " — click to focus, again to cycle")
+        } else {
+            cluster.help(helpText)
+        }
+    }
+
+    private var cluster: some View {
         HStack(spacing: 4) {
             if counts.working > 0 {
                 chip(count: counts.working, tint: .green, text: .green.opacity(0.9)) {
@@ -382,7 +440,7 @@ private struct LiveSessionBadges: View {
                 }
             }
         }
-        .help(helpText)
+        .contentShape(Rectangle())
     }
 
     private func chip<Glyph: View>(count: Int, tint: Color, text: Color,
@@ -395,7 +453,7 @@ private struct LiveSessionBadges: View {
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 1)
-        .background(RoundedRectangle(cornerRadius: 3).fill(tint.opacity(0.12)))
+        .background(RoundedRectangle(cornerRadius: 3).fill(tint.opacity(hovering ? 0.22 : 0.12)))
     }
 
     private var helpText: String {
@@ -420,11 +478,21 @@ private struct ProjectRowView: View {
     /// read off `AgentsService` here) so the row does not subscribe to the 2s
     /// roster republish — this list is deliberately non-lazy and fully realized.
     let liveSessions: LiveSessionCounts
+    /// Resolves the sessions behind `liveSessions`, most recently active
+    /// first. A closure, not an array, so the roster is walked on click only —
+    /// holding the sessions here would re-diff every row on the 2s republish
+    /// this list is built to avoid.
+    let liveSessionsProvider: () -> [AgentSession]
     let onToggle: () -> Void
     @Environment(\.fontScale) private var scale
     @EnvironmentObject private var terminalService: TerminalService
     @State private var launchHovering = false
     @State private var launched = false
+    /// Which of this project's live sessions the next badge click raises.
+    /// Keyed by the session-id list so the cycle restarts whenever the set
+    /// changes rather than pointing at whatever now sits at a stale index.
+    @State private var badgeCycleIndex = 0
+    @State private var badgeCycleKey: [String] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -481,7 +549,7 @@ private struct ProjectRowView: View {
                     .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
             }
             if !liveSessions.isEmpty {
-                LiveSessionBadges(counts: liveSessions)
+                LiveSessionBadges(counts: liveSessions, onTap: focusNextLiveSession)
             }
             Spacer()
             manuscriptorButton
@@ -537,6 +605,32 @@ private struct ProjectRowView: View {
             .buttonStyle(.plain)
             .help("Open in Manuscriptor")
         }
+    }
+
+    /// Raise the window of this project's most recently active live session;
+    /// click again to walk the rest. Read-only — it never touches the daemon
+    /// and never launches anything, so a click on a stale badge is harmless.
+    private func focusNextLiveSession() {
+        let sessions = liveSessionsProvider()
+        guard !sessions.isEmpty else {
+            GhosttyWindowService.activateApp()
+            return
+        }
+        let key = sessions.map(\.id)
+        if key != badgeCycleKey {
+            badgeCycleKey = key
+            badgeCycleIndex = 0
+        }
+        let idx = badgeCycleIndex % sessions.count
+        badgeCycleIndex = (idx + 1) % sessions.count
+
+        let session = sessions[idx]
+        let basename = URL(fileURLWithPath: session.cwd).lastPathComponent
+        if GhosttyWindowService.focusWindow(hostPid: session.attachedGhosttyPid,
+                                            titleContains: basename) { return }
+        // Nothing identifiable (no host pid, no matching title, or no AX
+        // grant): still put the user in the terminal if it's running at all.
+        GhosttyWindowService.activateApp()
     }
 
     private func launch(cwd: String) {

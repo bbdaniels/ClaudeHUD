@@ -119,12 +119,61 @@ enum GhosttyWindowService {
     /// Activate Ghostty and raise the specific window to the front.
     /// When the window was enumerated via the ps fallback we only have a PID,
     /// so we can only activate that whole Ghostty process.
+    ///
+    /// The activate is not redundant with `kAXRaiseAction`: raising only
+    /// reorders the window within its own app, so without also activating the
+    /// owning process the window comes forward on a Space the user is not
+    /// looking at and the click appears to do nothing.
     static func raise(_ window: GhosttyWindow) {
         NSRunningApplication(processIdentifier: window.pid)?.activate()
         if let ax = window.axWindow {
             AXUIElementSetAttributeValue(ax, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
             AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
         }
+    }
+
+    /// Raise the Ghostty window hosting one session, without prompting for
+    /// anything.
+    ///
+    /// `hostPid` — the Ghostty process the roster saw hosting `claude attach
+    /// <id>` — is authoritative and tried first: two sessions in one project
+    /// share a window title, so matching on the title alone routes the click to
+    /// the wrong one. `titleContains` is the fallback for rows that carry no
+    /// host pid; Ghostty retitles windows from the running shell, so the launch
+    /// title survives only as a case-insensitive substring.
+    ///
+    /// Returns false for every degraded path — Accessibility not granted, no
+    /// Ghostty running, nothing matched — so the caller can fall back. This
+    /// never prompts for the AX grant; the screen cover owns that UX.
+    @discardableResult
+    static func focusWindow(hostPid: pid_t? = nil, titleContains needle: String) -> Bool {
+        guard checkAccessibility(prompt: false) else { return false }
+
+        let windows = openWindows()
+        if let hostPid, let win = windows.first(where: { $0.pid == hostPid }) {
+            raise(win)
+            return true
+        }
+
+        let key = needle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return false }
+        guard let win = windows.first(where: {
+            $0.title.range(of: key, options: [.caseInsensitive]) != nil
+        }) else { return false }
+        raise(win)
+        return true
+    }
+
+    /// Bring Ghostty forward without targeting a window — the degraded path
+    /// when a session's window can't be identified but the app is running, so
+    /// the click still lands the user in the terminal. Returns false when no
+    /// Ghostty process exists.
+    @discardableResult
+    static func activateApp() -> Bool {
+        for pid in ghosttyPIDs() {
+            if NSRunningApplication(processIdentifier: pid)?.activate() == true { return true }
+        }
+        return false
     }
 
     /// Returns true if Accessibility permission is granted for this process.
