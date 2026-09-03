@@ -1259,7 +1259,11 @@ struct PermissionModeMenu: View {
                 }
             }
         } label: {
-            glyph.opacity(0.001)   // hit target only; AppKit re-tints menu labels
+            // Hit target only: AppKit paints a Menu label opaque in its own
+            // tint (ignoring opacity), so the label carries no glyph at all.
+            Color.clear
+                .frame(width: 16 * scale, height: 16 * scale)
+                .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
