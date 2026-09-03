@@ -208,6 +208,8 @@ struct HUDContentView: View {
 
                 UsageBadge()
 
+                PermissionModeMenu()
+
                 Button(action: {
                     terminalService.launchClaudeAtHome()
                 }) {
@@ -1150,6 +1152,116 @@ struct GitHubRepoIndicator: View {
     }
 }
 
+// MARK: - Launch permission mode (global)
+
+/// The single, global permission mode every ClaudeHUD-launched session
+/// starts in. Chosen from the header picker and persisted in
+/// `UserDefaults` (`launch.permissionMode`); read at launch time by
+/// `permissionModeFlag()`, which every launch path (magic launch, `>_` at
+/// `~`, resume, HUD tab) folds into its `claude` invocation. One control,
+/// one source of truth — no per-row or per-launch override (user directive
+/// 2026-09-03: "a single global mode control at the top").
+enum LaunchPermissionMode: String, CaseIterable, Identifiable {
+    /// No flag: Claude Code's own configured default.
+    case inherit = ""
+    case manual = "manual"
+    case acceptEdits = "acceptEdits"
+    case plan = "plan"
+    case auto = "auto"
+    case bypass = "bypassPermissions"
+
+    var id: String { rawValue }
+
+    static let defaultsKey = "launch.permissionMode"
+
+    static var current: LaunchPermissionMode {
+        get {
+            let raw = UserDefaults.standard.string(forKey: defaultsKey) ?? ""
+            return LaunchPermissionMode(rawValue: raw) ?? .inherit
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: defaultsKey) }
+    }
+
+    /// Menu label.
+    var title: String {
+        switch self {
+        case .inherit: return "Default (Claude's setting)"
+        case .manual: return "Manual — ask every time"
+        case .acceptEdits: return "Accept edits"
+        case .plan: return "Plan"
+        case .auto: return "Auto"
+        case .bypass: return "Bypass permissions"
+        }
+    }
+
+    /// Compact header readout.
+    var shortTitle: String {
+        switch self {
+        case .inherit: return "default"
+        case .manual: return "manual"
+        case .acceptEdits: return "edits"
+        case .plan: return "plan"
+        case .auto: return "auto"
+        case .bypass: return "bypass"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .inherit: return "shield"
+        case .manual: return "hand.raised"
+        case .acceptEdits: return "pencil"
+        case .plan: return "list.bullet.clipboard"
+        case .auto: return "bolt"
+        case .bypass: return "shield.slash"
+        }
+    }
+
+    /// The CLI argument (leading space) or empty for `.inherit`.
+    var cliFlag: String {
+        rawValue.isEmpty ? "" : " --permission-mode \(rawValue)"
+    }
+}
+
+/// The `--permission-mode` fragment for the currently selected global mode.
+func permissionModeFlag() -> String { LaunchPermissionMode.current.cliFlag }
+
+/// Header picker: one global control for the mode every launch uses.
+struct PermissionModeMenu: View {
+    @AppStorage(LaunchPermissionMode.defaultsKey) private var raw: String = ""
+    @Environment(\.fontScale) private var scale
+
+    private var mode: LaunchPermissionMode { LaunchPermissionMode(rawValue: raw) ?? .inherit }
+
+    var body: some View {
+        Menu {
+            ForEach(LaunchPermissionMode.allCases) { m in
+                Button {
+                    raw = m.rawValue
+                } label: {
+                    if m == mode {
+                        Label(m.title, systemImage: "checkmark")
+                    } else {
+                        Text(m.title)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: mode.symbol)
+                    .font(.system(size: 11 * scale, weight: .semibold))
+                Text(mode.shortTitle)
+                    .font(.custom("Fira Code", size: 10 * scale))
+            }
+            .foregroundColor(mode == .bypass ? .orange : .secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .hudTip("Permission mode for every new session launched from here")
+    }
+}
+
 // MARK: - Daemon registration
 
 /// Wraps a `claude` invocation so the launched session registers with the
@@ -1180,8 +1292,9 @@ func daemonizedClaudeCommand(_ argSuffix: String, remoteControlName: String? = n
     } else {
         rcFlag = ""
     }
-    let bg = "claude --bg" + rcFlag + argSuffix
-    let plain = "claude" + rcFlag + argSuffix
+    let modeFlag = permissionModeFlag()
+    let bg = "claude --bg" + rcFlag + modeFlag + argSuffix
+    let plain = "claude" + rcFlag + modeFlag + argSuffix
     return "__o=$(\(bg) 2>&1); "
         + "__i=$(printf '%s' \"$__o\" | perl -pe 's/\\e\\[[0-9;]*m//g' "
         + "| grep -oE 'backgrounded[^0-9a-f]*[0-9a-f]{8}' "

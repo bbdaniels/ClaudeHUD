@@ -70,7 +70,7 @@ class TerminalService: ObservableObject {
     /// Falls back to the selected terminal if Ghostty is not installed.
     @discardableResult
     func launchClaudeAtHome() -> Bool {
-        let command = "claude"
+        let command = "claude" + permissionModeFlag()
         let ghosttyPath = "/Applications/Ghostty.app"
         let app = FileManager.default.fileExists(atPath: ghosttyPath) ? ghosttyPath : nil
         return launchWithCommand(command, inDirectory: NSHomeDirectory(), usingApp: app)
