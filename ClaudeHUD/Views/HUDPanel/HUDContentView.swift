@@ -1259,16 +1259,22 @@ struct PermissionModeMenu: View {
                 }
             }
         } label: {
-            // Glyph only — the header has no room for a label, so the mode
-            // is carried by color (user directive 2026-09-03).
-            Image(systemName: "shield.fill")
-                .font(.system(size: 12 * scale, weight: .semibold))
-                .foregroundColor(mode.color)
+            glyph.opacity(0.001)   // hit target only; AppKit re-tints menu labels
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+        // Glyph only — the header has no room for a label, so the mode is
+        // carried by color (user directive 2026-09-03). Drawn BEHIND the
+        // menu because a Menu label's foreground color is stripped on macOS.
+        .background(glyph)
         .hudTip("Permission mode: \(mode.title)")
+    }
+
+    private var glyph: some View {
+        Image(systemName: "shield.fill")
+            .font(.system(size: 12 * scale, weight: .semibold))
+            .foregroundColor(mode.color)
     }
 }
 
