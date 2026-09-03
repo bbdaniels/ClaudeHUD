@@ -1206,6 +1206,18 @@ enum LaunchPermissionMode: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Header color — the only visible signal of the current mode.
+    var color: Color {
+        switch self {
+        case .inherit: return .secondary
+        case .manual: return .blue
+        case .acceptEdits: return .green
+        case .plan: return .purple
+        case .auto: return .yellow
+        case .bypass: return .red
+        }
+    }
+
     var symbol: String {
         switch self {
         case .inherit: return "shield"
@@ -1247,18 +1259,16 @@ struct PermissionModeMenu: View {
                 }
             }
         } label: {
-            HStack(spacing: 3) {
-                Image(systemName: mode.symbol)
-                    .font(.system(size: 11 * scale, weight: .semibold))
-                Text(mode.shortTitle)
-                    .font(.custom("Fira Code", size: 10 * scale))
-            }
-            .foregroundColor(mode == .bypass ? .orange : .secondary)
+            // Glyph only — the header has no room for a label, so the mode
+            // is carried by color (user directive 2026-09-03).
+            Image(systemName: "shield.fill")
+                .font(.system(size: 12 * scale, weight: .semibold))
+                .foregroundColor(mode.color)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .hudTip("Permission mode for every new session launched from here")
+        .hudTip("Permission mode: \(mode.title)")
     }
 }
 
