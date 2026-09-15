@@ -714,9 +714,10 @@ class VaultManager: ObservableObject {
     /// a minimal `Dashboard.md` carrying the `gen:briefing` block the cloud
     /// cleaner regenerates, and a `Technical Notes.md` stub. Non-destructive:
     /// refuses if the folder already exists (never overwrites). Returns the new
-    /// folder URL. Caller owns the follow-up (`VaultProjectService.refresh()`
-    /// to surface the row; the 15-min `obsidian-sync.sh` pushes the folder to
-    /// `origin/main`, so it's local until then).
+    /// folder URL. Caller owns the follow-up (`VaultProjectService.insertProject`
+    /// to surface the row, then a background `refresh()`; the 15-min
+    /// `obsidian-sync.sh` pushes the folder to `origin/main`, so it's local
+    /// until then).
     static func createProject(vaultPath: URL, name rawName: String) -> Result<URL, CreateProjectError> {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return .failure(.emptyName) }

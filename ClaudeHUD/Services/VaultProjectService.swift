@@ -76,9 +76,14 @@ final class VaultProjectService: ObservableObject {
 
     /// Filenames the Notes section's "other files" listing excludes
     /// (they have their own dedicated subsections).
-    private let canonicalFiles: Set<String> = [
+    private nonisolated static let canonicalFiles: Set<String> = [
         "Tasks.md", "Dashboard.md", "Technical Notes.md", "Sessions.md", "Session Log.md"
     ]
+
+    /// Bumped at the start of every `refresh()`; a scan publishes only if it
+    /// is still the newest, so a slow (iCloud-cold) scan that finishes after
+    /// a later one can never overwrite fresher results.
+    private var scanGeneration = 0
 
     // MARK: - Lifecycle
 
@@ -88,12 +93,48 @@ final class VaultProjectService: ObservableObject {
     }
 
     /// Re-scan the vault. Call from view `onAppear` or explicitly after
-    /// the vault changes. Cheap (just reads frontmatter), so safe.
-    func refresh() {
+    /// the vault changes. NOT cheap: it reads every project's `Tasks.md` in
+    /// full and lists every folder, and the vault is iCloud-evicted, so a
+    /// cold scan blocks 0.5–2 s per file (a 39 s main-thread hang when this
+    /// ran synchronously). The scan therefore runs detached; only the
+    /// publish touches the main actor. Fire-and-forget; `await` it when
+    /// the caller needs the fresh list.
+    @discardableResult
+    func refresh() -> Task<Void, Never> {
+        scanGeneration &+= 1
+        let generation = scanGeneration
         guard let vault = vaultPath else {
             projects = []
-            return
+            return Task {}
         }
+        return Task { [weak self] in
+            let out = await Task.detached(priority: .userInitiated) {
+                VaultProjectService.scan(vaultPath: vault)
+            }.value
+            guard let self, generation == self.scanGeneration else { return }
+            self.projects = out
+            self.lastRefresh = Date()
+            logger.info("vault projects refreshed: \(out.count) total, \(out.filter { $0.isActive }.count) active")
+        }
+    }
+
+    /// Insert (or replace) one project parsed from `folder`, re-sorted into
+    /// place, without waiting for a full scan — used right after "New
+    /// Project" so the row exists to auto-expand. Parses via the same
+    /// `parseProject` as the scan; one small folder, so a main-actor read
+    /// of a just-written (never evicted) file is fine. Returns the project.
+    @discardableResult
+    func insertProject(folder: URL) -> Project? {
+        guard let p = Self.parseProject(folder: folder) else { return nil }
+        var out = projects.filter { $0.name != p.name }
+        out.append(p)
+        projects = Self.sorted(out)
+        return p
+    }
+
+    /// The full filesystem scan: one `parseProject` per non-hidden folder,
+    /// sorted. Pure and nonisolated — run it off the main actor.
+    nonisolated static func scan(vaultPath vault: URL) -> [Project] {
         let folders = (try? FileManager.default.contentsOfDirectory(
             at: vault, includingPropertiesForKeys: [.isDirectoryKey]
         )) ?? []
@@ -103,21 +144,22 @@ final class VaultProjectService: ObservableObject {
                   !folder.lastPathComponent.hasPrefix(".") else { continue }
             if let p = parseProject(folder: folder) { out.append(p) }
         }
-        // Sort: active+wrapping-up first (by updated desc), then everything else (by updated desc).
-        out.sort { lhs, rhs in
+        return sorted(out)
+    }
+
+    /// Sort: active+wrapping-up first (by updated desc), then everything else (by updated desc).
+    private nonisolated static func sorted(_ projects: [Project]) -> [Project] {
+        projects.sorted { lhs, rhs in
             if lhs.isActive != rhs.isActive { return lhs.isActive }   // active first
             let l = lhs.updated ?? .distantPast
             let r = rhs.updated ?? .distantPast
             return l > r
         }
-        projects = out
-        lastRefresh = Date()
-        logger.info("vault projects refreshed: \(out.count) total, \(out.filter { $0.isActive }.count) active")
     }
 
     // MARK: - Per-project parse
 
-    private func parseProject(folder: URL) -> Project? {
+    private nonisolated static func parseProject(folder: URL) -> Project? {
         let tasks = folder.appending(path: "Tasks.md")
         guard let content = try? String(contentsOf: tasks, encoding: .utf8) else { return nil }
         let fm = parseFrontmatter(content)
@@ -154,7 +196,7 @@ final class VaultProjectService: ObservableObject {
 
     // MARK: - Frontmatter (top-level scalars)
 
-    private func parseFrontmatter(_ content: String) -> [String: String] {
+    private nonisolated static func parseFrontmatter(_ content: String) -> [String: String] {
         guard content.hasPrefix("---\n") else { return [:] }
         let body = String(content.dropFirst(4))
         guard let end = body.range(of: "\n---\n") else { return [:] }
@@ -185,7 +227,7 @@ final class VaultProjectService: ObservableObject {
     /// `cwds:`
     /// `  - /Users/bbdaniels/Projects/ClaudeHUD`
     /// Returns the bare strings (quotes stripped).
-    private func parseFrontmatterList(_ content: String, key: String) -> [String] {
+    private nonisolated static func parseFrontmatterList(_ content: String, key: String) -> [String] {
         guard content.hasPrefix("---\n") else { return [] }
         let body = String(content.dropFirst(4))
         guard let end = body.range(of: "\n---\n") else { return [] }
@@ -273,10 +315,11 @@ final class VaultProjectService: ObservableObject {
         var line: Int = -1
     }
 
-    // MARK: - Lazy parsers (called by views when expanded)
+    // MARK: - Lazy parsers (called by views when expanded; nonisolated so
+    // the file read + parse can run off the main actor)
 
     /// Drop a leading YAML frontmatter block, if any.
-    static func stripFrontmatter(_ content: String) -> String {
+    nonisolated static func stripFrontmatter(_ content: String) -> String {
         guard content.hasPrefix("---\n") else { return content }
         let body = String(content.dropFirst(4))
         guard let end = body.range(of: "\n---\n") else { return content }
@@ -290,7 +333,7 @@ final class VaultProjectService: ObservableObject {
     /// char wrapping) are reflowed to spaces; blank lines preserved as
     /// paragraph separators, so the rendered text wraps to the panel
     /// width instead of the markdown source width.
-    static func extractPreamble(from content: String) -> String? {
+    nonisolated static func extractPreamble(from content: String) -> String? {
         let stripped = stripFrontmatter(content)
         var inPreamble = false
         var collected: [String] = []
@@ -309,7 +352,7 @@ final class VaultProjectService: ObservableObject {
     /// First non-empty paragraph of a markdown string. Skips frontmatter
     /// and any leading headings; "paragraph" = first run of consecutive
     /// non-empty lines, reflowed to a single line.
-    static func extractFirstParagraph(from content: String) -> String? {
+    nonisolated static func extractFirstParagraph(from content: String) -> String? {
         let stripped = stripFrontmatter(content)
         var collected: [String] = []
         for line in stripped.components(separatedBy: "\n") {
@@ -329,7 +372,7 @@ final class VaultProjectService: ObservableObject {
     /// Join consecutive non-empty lines with a single space; preserve
     /// blank lines as paragraph breaks (`\n\n`). Markdown convention:
     /// a single newline inside a paragraph is a soft break (= space).
-    private static func reflowProse(_ lines: [String]) -> String {
+    private nonisolated static func reflowProse(_ lines: [String]) -> String {
         var paragraphs: [[String]] = [[]]
         for line in lines {
             if line.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -350,7 +393,7 @@ final class VaultProjectService: ObservableObject {
 
     /// Pull out the body between a `## <heading>` line and the next `## ` line.
     /// Returns nil if the section isn't present.
-    static func extractSection(named heading: String, from content: String) -> String? {
+    nonisolated static func extractSection(named heading: String, from content: String) -> String? {
         let prefix = "## \(heading)"
         var inSection = false
         var collected: [String] = []
@@ -374,7 +417,7 @@ final class VaultProjectService: ObservableObject {
     /// is the project's human surface (Now / Next / Recently done / Later),
     /// regenerated nightly. Returns nil if absent/empty. Format-independent:
     /// just delimiter extraction; the view renders whatever markdown is inside.
-    static func extractBriefing(from content: String) -> String? {
+    nonisolated static func extractBriefing(from content: String) -> String? {
         guard let start = content.range(of: "<!-- gen:briefing -->"),
               let end = content.range(of: "<!-- /gen:briefing -->",
                                      range: start.upperBound..<content.endIndex)
@@ -390,7 +433,7 @@ final class VaultProjectService: ObservableObject {
     /// there is no leading bold. Single source of truth for bullet-title
     /// extraction, shared by the parser, the Vault tab's `SubBulletRow`,
     /// and the Today tab's task mapping (`VaultManager.extractActiveTasks`).
-    static func splitBullet(_ s: String) -> (title: String, body: String) {
+    nonisolated static func splitBullet(_ s: String) -> (title: String, body: String) {
         let t = s.trimmingCharacters(in: .whitespaces)
         if t.hasPrefix("**") {
             let afterOpen = t.index(t.startIndex, offsetBy: 2)
@@ -419,7 +462,7 @@ final class VaultProjectService: ObservableObject {
     /// Done-state never comes from an incidental "✅ DONE" in the prose —
     /// only a `[x]` marker, a fully struck-through title, or a `✅` in the
     /// title counts (see `ActiveTask`).
-    static func parseActiveTasks(from content: String) -> [ActiveTask] {
+    nonisolated static func parseActiveTasks(from content: String) -> [ActiveTask] {
         var tasks: [ActiveTask] = []
 
         // The open container — a `### ` heading group or a flat bullet task.

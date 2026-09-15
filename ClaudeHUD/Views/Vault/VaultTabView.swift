@@ -106,7 +106,7 @@ struct VaultTabView: View {
             }
             // Warm the harvested-spine sources so an expanded row's WORK +
             // People/Meetings/Emails render without a cold wait. Idempotent:
-            // `start()` no-ops if already polling, `refresh()` is cheap, and
+            // `start()` no-ops if already polling, `refresh()` scans detached, and
             // sessions only reload when not already present.
             agentsService.start()
             crossProjectService.refresh()
@@ -145,15 +145,14 @@ struct VaultTabView: View {
                 vaultPath: vaultPath,
                 existingNames: Set(projectService.projects.map { $0.name.lowercased() })
             ) { folder in
-                projectService.refresh()
-                // Expand the freshly-created project so it's visible immediately
-                // (refresh rebuilt the Project values; match by folder name to
-                // get the reloaded URL that keys `expandedProjects`).
-                if let created = projectService.projects.first(where: {
-                    $0.name == folder.lastPathComponent
-                }) {
+                // Parse just the new folder and insert its row so it can
+                // expand immediately; a full vault scan (iCloud-cold, tens of
+                // seconds) must never gate this. The background refresh then
+                // reconciles the rest of the list.
+                if let created = projectService.insertProject(folder: folder) {
                     expandedProjects = [created.folder]
                 }
+                projectService.refresh()
             }
         }
     }
@@ -739,19 +738,25 @@ private struct StatusSubsection: View {
             }
         }
         .task(id: project.id) {
-            if project.hasDashboard,
-               let raw = try? String(contentsOf: project.dashboardPath, encoding: .utf8) {
-                briefing = VaultProjectService.extractBriefing(from: raw)
-                currentStatus = VaultProjectService.extractSection(named: "Current Status", from: raw)
-            } else {
-                briefing = nil
-                currentStatus = nil
-            }
-            if let raw = try? String(contentsOf: project.tasksPath, encoding: .utf8) {
-                preamble = VaultProjectService.extractPreamble(from: raw)
-            } else {
-                preamble = nil
-            }
+            // Read + parse off the main actor (iCloud-evicted files block on
+            // a cold read); assign the results back on the main actor.
+            let p = project
+            let (b, s, pre) = await Task.detached(priority: .userInitiated) {
+                () -> (String?, String?, String?) in
+                var b: String? = nil, s: String? = nil
+                if p.hasDashboard,
+                   let raw = try? String(contentsOf: p.dashboardPath, encoding: .utf8) {
+                    b = VaultProjectService.extractBriefing(from: raw)
+                    s = VaultProjectService.extractSection(named: "Current Status", from: raw)
+                }
+                let pre = (try? String(contentsOf: p.tasksPath, encoding: .utf8))
+                    .flatMap { VaultProjectService.extractPreamble(from: $0) }
+                return (b, s, pre)
+            }.value
+            guard !Task.isCancelled else { return }
+            briefing = b
+            currentStatus = s
+            preamble = pre
         }
     }
 
@@ -800,11 +805,14 @@ private struct TasksSubsection: View {
             }
         }
         .task(id: project.id) {
-            if let raw = try? String(contentsOf: project.tasksPath, encoding: .utf8) {
-                tasks = VaultProjectService.parseActiveTasks(from: raw)
-            } else {
-                tasks = []
-            }
+            // Read + parse off the main actor; assign on the main actor.
+            let path = project.tasksPath
+            let parsed = await Task.detached(priority: .userInitiated) {
+                (try? String(contentsOf: path, encoding: .utf8))
+                    .map { VaultProjectService.parseActiveTasks(from: $0) } ?? []
+            }.value
+            guard !Task.isCancelled else { return }
+            tasks = parsed
         }
     }
 }
