@@ -924,6 +924,49 @@ struct PermissionModeMenu: View {
     }
 }
 
+// MARK: - Daemon registration
+
+/// Wraps a `claude` invocation so the launched session registers with the
+/// background daemon (visible in `claude agents` / Agent View) instead of
+/// running as an unregistered foreground REPL that nothing can supervise.
+///
+/// Why: a plain `claude …` in a terminal tab is attached straight to that
+/// PTY and never touches the daemon, so it can't be peeked/answered/stopped
+/// from Agent View. Starting with the (undocumented but stable) `--bg` flag
+/// hands the session to the daemon; we parse the printed id (ANSI-stripped)
+/// and immediately `claude attach` it in the same tab so interaction is
+/// unchanged. If `--bg` ever fails or no id is parsed we fall back to a
+/// plain foreground `claude`, so a launch can never be broken by this.
+///
+/// `argSuffix` is everything after `claude` (e.g. ` --resume <id>`, or a
+/// prompt). Empty for a plain new session.
+///
+/// `remoteControlName` — when non-nil, prepends `--remote-control "<name>"`
+/// so the session is reachable via Claude Code Remote Control. Names are
+/// shell-escaped here. Magic-launched sessions pass the project name so
+/// each session is named after the project it serves.
+func daemonizedClaudeCommand(_ argSuffix: String, remoteControlName: String? = nil) -> String {
+    let rcFlag: String
+    if let name = remoteControlName, !name.isEmpty {
+        // Single-quote escape: every ' becomes '\'' and wrap in '...'.
+        let escaped = name.replacingOccurrences(of: "'", with: "'\\''")
+        rcFlag = " --remote-control '\(escaped)'"
+    } else {
+        rcFlag = ""
+    }
+    let modeFlag = permissionModeFlag()
+    let bg = "claude --bg" + rcFlag + modeFlag + argSuffix
+    let plain = "claude" + rcFlag + modeFlag + argSuffix
+    return "__o=$(\(bg) 2>&1); "
+        + "__i=$(printf '%s' \"$__o\" | perl -pe 's/\\e\\[[0-9;]*m//g' "
+        + "| grep -oE 'backgrounded[^0-9a-f]*[0-9a-f]{8}' "
+        + "| grep -oE '[0-9a-f]{8}' | tail -1); "
+        + "if [ -n \"$__i\" ]; then "
+        + "echo \"[registered with daemon: $__i -- run 'claude agents' to supervise]\"; "
+        + "claude attach \"$__i\"; "
+        + "else printf '%s\\n' \"$__o\"; \(plain); fi"
+}
+
 // MARK: - Magic launch (Projects spine)
 
 /// Build the magic-launch argument: a `/vault-bootstrap` slash-command
@@ -958,14 +1001,25 @@ func performMagicLaunch(projectName: String, cwd: String, resolvedVaultPath: Str
     // string is wrapped in '...') so spaces in the project name or vault path
     // stay a single token and any ' in them cannot break out of the quoting.
     let escapedArg = arg.replacingOccurrences(of: "'", with: "'\\''")
-    let escapedName = projectName.replacingOccurrences(of: "'", with: "'\\''")
-    // Plain interactive `claude` in a new Ghostty window, the same launch
-    // path as History's >_ resume.
-    let command = "claude" + permissionModeFlag() + " --remote-control '\(escapedName)' '\(escapedArg)'"
+    return launchClaudeSession(argSuffix: " '\(escapedArg)'", name: projectName, cwd: cwd,
+                               terminalService: terminalService)
+}
+
+/// THE HUD launch path for a Claude session: a new Ghostty window (titled,
+/// folder pre-trusted by `launchWithCommand`) running the daemon-registered
+/// `claude --bg … ` + `claude attach` form, so the session is in the roster
+/// and gets its Projects/Agents badges and click-to-focus. Used by the wiki
+/// launch and History's >_ resume. A foreground `claude` does NOT register
+/// (verified 2026-09-16: no roster worker, no jobs dir).
+@MainActor
+@discardableResult
+func launchClaudeSession(argSuffix: String, name: String, cwd: String,
+                         terminalService: TerminalService) -> Bool {
+    let command = daemonizedClaudeCommand(argSuffix, remoteControlName: name)
     let ghosttyPath = "/Applications/Ghostty.app"
     let app = FileManager.default.fileExists(atPath: ghosttyPath) ? ghosttyPath : nil
     let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
-    let bg = useColors ? TerminalService.projectColor(for: projectName) : nil
+    let bg = useColors ? TerminalService.projectColor(for: name) : nil
     return terminalService.launchWithCommand(command, inDirectory: cwd, usingApp: app, backgroundColor: bg)
 }
 
@@ -986,8 +1040,8 @@ struct SessionDetailRow: View {
     @Environment(\.fontScale) private var scale
 
     /// The `>_` action resumes in Ghostty.
-    private var ghostty: (name: String, path: String)? {
-        terminalService.installedLaunchers.first { $0.name == "Ghostty" }
+    private var hasGhostty: Bool {
+        terminalService.installedLaunchers.contains { $0.name == "Ghostty" }
     }
 
     var body: some View {
@@ -1038,8 +1092,8 @@ struct SessionDetailRow: View {
                     .font(.custom("Fira Sans", size: 10 * scale))
                     .foregroundColor(.green)
             } else {
-                if let ghostty {
-                    Button(action: { resume(usingApp: ghostty.path) }) {
+                if hasGhostty {
+                    Button(action: resume) {
                         Text(">_")
                             .font(.custom("Fira Code", size: 9 * scale).weight(.semibold))
                             .foregroundColor(.white)
@@ -1073,18 +1127,11 @@ struct SessionDetailRow: View {
                 : "Project: \(name)")
     }
 
-    /// `claude --resume <id>` with the header's permission mode, in a new
-    /// Ghostty window cd'd to the session's original cwd.
-    static func resumeCommand(sessionID: String) -> String {
-        "claude" + permissionModeFlag() + " --resume \(sessionID)"
-    }
-
-    private func resume(usingApp appPath: String) {
-        let command = Self.resumeCommand(sessionID: session.id)
-        let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
+    /// Resume in the session's original cwd through the shared launch path.
+    private func resume() {
         let projectName = URL(fileURLWithPath: session.projectPath).lastPathComponent
-        let bg = useColors ? TerminalService.projectColor(for: projectName) : nil
-        let auto = terminalService.launchWithCommand(command, inDirectory: session.projectPath, usingApp: appPath, backgroundColor: bg)
+        let auto = launchClaudeSession(argSuffix: " --resume \(session.id)", name: projectName,
+                                       cwd: session.projectPath, terminalService: terminalService)
         feedback = auto ? "Opened!" : "Cmd+V"
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
     }

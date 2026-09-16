@@ -193,9 +193,9 @@ struct VaultTabView: View {
     /// roster.
     ///
     /// "Interactive" is `isOpen` — a live `claude attach <short>` process. The
-    /// daemon's job dirs carry no interactive flag, so an attached terminal is
-    /// the only honest discriminator. (HUD launches run plain `claude` in
-    /// Ghostty and never register with the daemon, so they are not counted.)
+    /// daemon's job dirs carry no interactive flag (ClaudeHUD's own magic
+    /// launch runs interactive sessions through `claude --bg` and then attaches
+    /// them), so an attached terminal is the only honest discriminator.
     ///
     /// States come from `AgentSession.bucket`, never from `rawState`. `bucket`
     /// carries the roster liveness gate: the daemon never flushes a terminal
