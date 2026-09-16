@@ -3,8 +3,8 @@ import AppKit
 
 /// One row in the Library tab — uniform across all categories.
 /// Layout: title + summary on the left, three small action buttons on the right
-/// (Reveal in Finder, Open in VS Code, Open with Claude). Mirrors the action
-/// stack on the History tab's ProjectRow so the muscle memory is the same.
+/// (Reveal in Finder, Open in VS Code, Open with Claude). Mirrors the resume
+/// stack on the History tab's SessionDetailRow so the muscle memory is the same.
 struct LibraryRow: View {
     let item: LibraryItem
     @EnvironmentObject var library: LibraryService
@@ -64,7 +64,7 @@ struct LibraryRow: View {
                     .font(.custom("Fira Sans", size: 11 * scale))
                     .foregroundColor(.green)
             } else {
-                // Same icon stack pattern as History's ProjectRow: small SF
+                // Same icon stack pattern as History's SessionDetailRow: small SF
                 // Symbols in white, optional launcher buttons in Fira Code.
                 Button(action: revealInFinder) {
                     Image(systemName: "folder")

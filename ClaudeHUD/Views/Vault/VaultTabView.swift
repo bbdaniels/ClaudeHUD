@@ -1599,7 +1599,7 @@ private func prettifyMarkdown(_ s: String) -> LocalizedStringKey {
 /// repo working directory canonically resolves to THIS project's vault folder
 /// (the `cwds:` join key shared with the ingest hook), plus a wiki-bootstrap
 /// Launch. Sessions reuse the Session-History `SessionDetailRow` verbatim
-/// (resume buttons + ingest badge).
+/// (the `>_` resume action).
 ///
 /// Resolution is done by `VaultProjectService.primeResolution` (off the main
 /// actor, memoized) so filtering thousands of sessions costs only cache reads.

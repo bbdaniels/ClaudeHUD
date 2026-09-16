@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import os
+import SQLite3
 
 private let logger = Logger(subsystem: "com.claudehud", category: "SessionHistory")
 
@@ -43,67 +44,107 @@ class SessionHistoryService: ObservableObject {
     private let claudeProjectsDir = "\(NSHomeDirectory())/.claude/projects"
     private var searchTask: Task<Void, Never>?
 
+    /// Persistent full-text index over listed transcripts (user + assistant
+    /// text only). Updated incrementally after every scan; the ONLY search path.
+    private let transcriptIndex = TranscriptIndex()
+    private var indexTask: Task<Void, Never>?
+    private var currentQuery = ""
+
+    /// Coalesces overlapping refreshes (launch, History appear, Projects
+    /// appear) into one scan.
+    private var refreshTask: Task<Void, Never>?
+
     func refresh() async {
+        if let inFlight = refreshTask { return await inFlight.value }
+        let task = Task { await performRefresh() }
+        refreshTask = task
+        await task.value
+        refreshTask = nil
+    }
+
+    private func performRefresh() async {
         isLoading = true
         defer { isLoading = false }
 
-        let result = await Task.detached(priority: .userInitiated) { [claudeProjectsDir] in
-            Self.scanSessions(in: claudeProjectsDir)
+        let started = Date()
+        let index = transcriptIndex
+        let headCache = await index.loadHeads()
+        let scan = await Task.detached(priority: .userInitiated) { [claudeProjectsDir] in
+            Self.scanSessions(in: claudeProjectsDir, headCache: headCache)
         }.value
+        let ms = Int(Date().timeIntervalSince(started) * 1000)
+        logger.info("session scan: \(scan.sessions.count, privacy: .public) sessions, \(scan.changedHeads.count, privacy: .public) heads classified, in \(ms, privacy: .public) ms")
 
-        sessions = result
+        sessions = scan.sessions
+        await index.saveHeads(changed: scan.changedHeads, removed: scan.removedPaths)
+        updateIndex()
+        updateTitles()
     }
 
-    /// Full-text search across all session files. Binary pre-filter then targeted parse.
+    // MARK: - Titles
+
+    private let titler = SessionTitler()
+    private var titleTask: Task<Void, Never>?
+
+    /// Title untitled sessions in the background, one Haiku call at a time,
+    /// and relabel each row as its title lands. One pass at a time; a
+    /// refresh during a pass is picked up by the next refresh.
+    private func updateTitles() {
+        guard titleTask == nil else { return }
+        let candidates = sessions.map { (id: $0.id, path: $0.filePath, modified: $0.timestamp) }
+        let titler = titler
+        titleTask = Task { [weak self] in
+            await titler.titleUntitled(candidates) { id, title in
+                await MainActor.run { self?.relabel(id: id, title: title) }
+            }
+            await MainActor.run { self?.titleTask = nil }
+        }
+    }
+
+    private func relabel(id: String, title: String) {
+        guard let i = sessions.firstIndex(where: { $0.id == id }) else { return }
+        let s = sessions[i]
+        sessions[i] = SessionInfo(id: s.id, projectPath: s.projectPath, projectName: s.projectName,
+                                  preview: title, timestamp: s.timestamp, filePath: s.filePath)
+    }
+
+    /// Bring the index up to date with the listed sessions, off the main
+    /// actor. One pass at a time: a refresh during a pass is picked up by the
+    /// next refresh (only changed/grown files are read, so passes are cheap
+    /// once the first build is done). A live query re-runs when the pass ends
+    /// so results filled in by a first build appear without retyping.
+    private func updateIndex() {
+        guard indexTask == nil else { return }
+        let files = sessions.map { (id: $0.id, path: $0.filePath) }
+        let index = transcriptIndex
+        indexTask = Task { [weak self] in
+            await index.update(files: files)
+            guard let self else { return }
+            self.indexTask = nil
+            if !self.currentQuery.isEmpty { self.search(query: self.currentQuery) }
+        }
+    }
+
+    /// Full-text search: an FTS5 prefix query against the transcript index,
+    /// published in ONE batch (a per-match @Published mutation re-rendered the
+    /// non-lazy history list once per hit). The view orders hits by recency.
     func search(query: String) {
         searchTask?.cancel()
-        searchResults = [:]
+        currentQuery = query
 
         guard !query.isEmpty else {
+            searchResults = [:]
             isSearching = false
             return
         }
 
         isSearching = true
-        let sessions = self.sessions
-        let q = query
-
+        let index = transcriptIndex
         searchTask = Task { [weak self] in
-            // Collect matches OFF the main actor and publish them in ONE
-            // batch. Publishing per-match (a @Published mutation for every hit)
-            // made the Session-History view recompute projectGroups/sections
-            // and rebuild its non-lazy list once PER result — a re-render storm
-            // that was the search-typing lag. One assignment = one render.
-            let collected: [String: SessionSearchResult] = await withTaskGroup(
-                of: (String, SessionSearchResult)?.self
-            ) { group in
-                for session in sessions {
-                    group.addTask {
-                        // Phase 1: binary pre-filter — check raw bytes, no JSON parsing
-                        guard let data = try? Data(contentsOf: URL(fileURLWithPath: session.filePath)) else { return nil }
-                        guard let raw = String(data: data, encoding: .utf8) else { return nil }
-                        guard raw.range(of: q, options: .caseInsensitive) != nil else { return nil }
-
-                        // Phase 2: targeted parse — find snippet in actual message content
-                        guard let snippet = Self.extractSnippet(from: raw, query: q) else { return nil }
-                        return (session.id, SessionSearchResult(id: session.id, snippet: snippet))
-                    }
-                }
-
-                var acc: [String: SessionSearchResult] = [:]
-                for await result in group {
-                    if Task.isCancelled { break }
-                    guard let (id, searchResult) = result else { continue }
-                    acc[id] = searchResult
-                }
-                return acc
-            }
-
-            await MainActor.run { [weak self] in
-                guard let self, !Task.isCancelled else { return }
-                self.searchResults = collected
-                self.isSearching = false
-            }
+            let collected = await index.search(query)
+            guard let self, !Task.isCancelled else { return }
+            self.searchResults = collected
+            self.isSearching = false
         }
     }
 
@@ -123,13 +164,23 @@ class SessionHistoryService: ObservableObject {
         }
 
         sessions.removeAll { $0.id == id }
+        let index = transcriptIndex
+        Task { await index.remove(sessionID: id) }
     }
 
     // MARK: - Scanning (off main thread)
 
-    nonisolated private static func scanSessions(in baseDir: String) -> [SessionInfo] {
+    /// List real sessions. ~/.claude/projects holds ~10,000 transcripts (almost
+    /// all machine one-shots, each in its own project dir), so re-reading every
+    /// 64 KB head and decoding every dir name on each scan cost ~12 s. Head
+    /// verdicts are cached by path + mtime + size (a transcript that has not
+    /// changed cannot change verdict), and a dir name is decoded only when it
+    /// holds a listed session.
+    nonisolated private static func scanSessions(
+        in baseDir: String, headCache: [String: CachedHead]
+    ) -> (sessions: [SessionInfo], changedHeads: [String: CachedHead], removedPaths: [String]) {
         let fm = FileManager.default
-        guard let projectDirs = try? fm.contentsOfDirectory(atPath: baseDir) else { return [] }
+        guard let projectDirs = try? fm.contentsOfDirectory(atPath: baseDir) else { return ([], [:], []) }
 
         // Close-out titles written by the vault-ingest pipeline at SessionEnd
         // (see loadSidecarTitles). When present they ARE the label — they
@@ -138,22 +189,31 @@ class SessionHistoryService: ObservableObject {
         let sidecarTitles = loadSidecarTitles()
 
         var found: [SessionInfo] = []
+        var changedHeads: [String: CachedHead] = [:]
+        var seenPaths = Set<String>()
 
+        // mtime + size come back with the listing itself (bulk attribute
+        // fetch), not one stat per transcript.
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
         for dir in projectDirs {
             let dirPath = "\(baseDir)/\(dir)"
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue else { continue }
+            // Fails for non-directories, so no separate isDirectory stat.
+            guard let urls = try? fm.contentsOfDirectory(
+                at: URL(fileURLWithPath: dirPath, isDirectory: true),
+                includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) else { continue }
+            var decodedDir: (path: String, name: String)?
 
-            let (projectPath, projectName) = decodeProjectDir(dir)
-
-            guard let files = try? fm.contentsOfDirectory(atPath: dirPath) else { continue }
-
-            for file in files where file.hasSuffix(".jsonl") {
+            for url in urls where url.pathExtension == "jsonl" {
+                let file = url.lastPathComponent
                 let filePath = "\(dirPath)/\(file)"
                 let sessionId = String(file.dropLast(6)) // remove .jsonl
 
-                guard let attrs = try? fm.attributesOfItem(atPath: filePath),
-                      let modDate = attrs[.modificationDate] as? Date else { continue }
+                guard let values = try? url.resourceValues(forKeys: Set(keys)),
+                      let modDate = values.contentModificationDate,
+                      let fileSize = values.fileSize else { continue }
+                let size = Int64(fileSize)
+                seenPaths.insert(filePath)
+                let mtime = modDate.timeIntervalSince1970
 
                 // Classify every session from its transcript head FIRST — even
                 // when a digest sidecar exists. Sidecars used to win outright,
@@ -161,41 +221,36 @@ class SessionHistoryService: ObservableObject {
                 // NO_DURABLE_CONTENT rule surface in history under a plausible
                 // title (Haiku digested a skill-selector query as real work:
                 // "Skill-selection query re: patient risk scoring"). The head
-                // read is cheap and off the main thread.
-                let head = classifyHead(from: filePath)
-                if case .machine = head { continue }
+                // read is off the main thread and cached per file version.
+                let verdict: CachedHead
+                if let cached = headCache[filePath], cached.mtime == mtime, cached.size == size {
+                    verdict = cached
+                } else {
+                    verdict = headVerdict(for: filePath, mtime: mtime, size: size)
+                    changedHeads[filePath] = verdict
+                }
+                if verdict.kind == .machine { continue }
+
+                if decodedDir == nil { decodedDir = decodeProjectDir(dir) }
+                let (projectPath, projectName) = decodedDir!
 
                 let preview: String
                 if let title = sidecarTitles[sessionId] {
                     // Ingested, substantive session: the close-out digest title
-                    // wins. Strip a leading "<project>: " — the list is already
-                    // grouped under the project, and sidecars written before the
+                    // wins. Strip a leading "<project>: " — every row already
+                    // carries a project tag, and sidecars written before the
                     // ingest prompt's no-project-name title rule carry the
                     // prefix forever otherwise. A sidecar also rescues .unknown
                     // heads (e.g. a giant first record that overflows the head
                     // window): the digest itself proves the session had
                     // substance.
                     preview = stripProjectPrefix(title, projectName: projectName)
+                } else if let label = verdict.label {
+                    preview = label
                 } else {
-                    switch head {
-                    case .machine:
-                        continue // unreachable; handled above
-                    case .unknown:
-                        // No real user turn found in the head and never
-                        // digested — abandoned shells and unparseable heads.
-                        continue
-                    case .normal(let firstPrompt):
-                        preview = firstPrompt
-                    case .magicLaunch(let project):
-                        // Claude Code's ai-title is generated from the opening
-                        // turn and FROZEN, and every magic-launched session
-                        // opens with the same bootstrap boilerplate — so its
-                        // ai-title is always junk ("context load", "obsidian
-                        // estonia-ecm project") no matter the work that
-                        // followed. Label with the user's first real prompt
-                        // instead; until one exists, a short project tag.
-                        preview = firstRealPrompt(in: filePath) ?? "Vault session: \(project)"
-                    }
+                    // No real user turn found in the head and never digested:
+                    // abandoned shells and unparseable heads.
+                    continue
                 }
 
                 found.append(SessionInfo(
@@ -209,20 +264,17 @@ class SessionHistoryService: ObservableObject {
             }
         }
 
-        return found.sorted { $0.timestamp > $1.timestamp }
+        let removed = headCache.keys.filter { !seenPaths.contains($0) }
+        return (found.sorted { $0.timestamp > $1.timestamp }, changedHeads, removed)
     }
 
-    /// Close-out session titles written by the vault-ingest pipeline at
-    /// SessionEnd (vault-ingest.sh → write_title_sidecar): the digest's
-    /// "## <date> — <title>" heading, keyed by session id under
-    /// ~/.claude/hud/session-titles/<id>.txt. These summarize what a session
-    /// ACCOMPLISHED — far better than Claude Code's ai-title, which is
-    /// generated from the opening turn and freezes at "context load" for every
-    /// magic-launched vault session. Loaded once per scan; absent for
-    /// un-ingested sessions, which fall back to readPreview (ai-title / first
-    /// prompt). A sidecar is a LABEL, not a listing decision — machine
-    /// one-shots are dropped by classifyHead even when a stray digest gave
-    /// them a sidecar.
+    /// Session titles, keyed by session id under
+    /// ~/.claude/hud/session-titles/<id>.txt. Written by the one title
+    /// generator, `SessionTitler`; sidecars from vault-ingest digests before
+    /// 1.11.0 remain valid. Loaded once per scan; an untitled session falls
+    /// back to its first real prompt. A sidecar is a LABEL, not a listing
+    /// decision: machine one-shots are dropped by classifyHead even when a
+    /// stray sidecar exists.
     nonisolated private static func loadSidecarTitles() -> [String: String] {
         let dir = "\(NSHomeDirectory())/.claude/hud/session-titles"
         let fm = FileManager.default
@@ -240,7 +292,7 @@ class SessionHistoryService: ObservableObject {
 
     /// Strip a leading "<project>: " / "<project> — " from a digest title.
     /// The ingest prompt's title rule forbids the project name (the history
-    /// list is already grouped under it), but sidecars written before the
+    /// row already carries a project tag), but sidecars written before the
     /// rule landed — and the occasional model slip since — still carry it.
     /// A display-level strip fixes the whole backlog without rewriting any
     /// vault history.
@@ -254,41 +306,10 @@ class SessionHistoryService: ObservableObject {
         return stripped.prefix(1).uppercased() + String(stripped.dropFirst())
     }
 
-    // MARK: - Snippet Extraction (for search results)
-
-    /// Extract a snippet from raw JSONL text around the first message content match.
-    nonisolated private static func extractSnippet(from raw: String, query: String) -> String? {
-        for line in raw.components(separatedBy: "\n") {
-            guard !line.isEmpty,
-                  let lineData = line.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any]
-            else { continue }
-
-            let content = extractMessageContent(from: json)
-            guard let content, !content.isEmpty else { continue }
-            guard content.localizedCaseInsensitiveContains(query) else { continue }
-
-            // Found a match — build snippet
-            let lower = content.lowercased()
-            let q = query.lowercased()
-            guard let range = lower.range(of: q) else { continue }
-
-            let center = lower.distance(from: lower.startIndex, to: range.lowerBound)
-            let start = max(0, center - 40)
-            let end = min(content.count, center + q.count + 40)
-            let startIdx = content.index(content.startIndex, offsetBy: start)
-            let endIdx = content.index(content.startIndex, offsetBy: end)
-            var snippet = String(content[startIdx..<endIdx])
-                .replacingOccurrences(of: "\n", with: " ")
-            if start > 0 { snippet = "…" + snippet }
-            if end < content.count { snippet += "…" }
-            return snippet
-        }
-        return nil
-    }
+    // MARK: - Message Content
 
     /// Extract user/assistant text content from a JSONL line (any format).
-    nonisolated private static func extractMessageContent(from json: [String: Any]) -> String? {
+    nonisolated fileprivate static func extractMessageContent(from json: [String: Any]) -> String? {
         // Format 1: {"role": "user"/"assistant", "content": "..."}
         if let role = json["role"] as? String, role == "user" || role == "assistant" {
             return extractTextContent(json["content"])
@@ -423,6 +444,29 @@ class SessionHistoryService: ObservableObject {
         case magicLaunch(String)
     }
 
+    /// A transcript's listing verdict: its head class resolved to a label.
+    /// Expensive (a 64 KB head read, plus up to 1 MB for a magic launch), so
+    /// the scan caches it per file version.
+    nonisolated private static func headVerdict(for path: String, mtime: Double, size: Int64) -> CachedHead {
+        switch classifyHead(from: path) {
+        case .machine:
+            return CachedHead(mtime: mtime, size: size, kind: .machine, label: nil)
+        case .unknown:
+            return CachedHead(mtime: mtime, size: size, kind: .listed, label: nil)
+        case .normal(let firstPrompt):
+            return CachedHead(mtime: mtime, size: size, kind: .listed, label: firstPrompt)
+        case .magicLaunch:
+            // Claude Code's ai-title is generated from the opening turn and
+            // FROZEN, and every magic-launched session opens with the same
+            // bootstrap boilerplate, so its ai-title is always junk ("context
+            // load", "obsidian estonia-ecm project") no matter the work that
+            // followed. Label with the user's first real prompt instead. A
+            // bootstrap the person never typed into is an abandoned shell,
+            // listed only if a digest sidecar titles it (like .unknown).
+            return CachedHead(mtime: mtime, size: size, kind: .listed, label: conversationOpening(in: path, promptLimit: 1, wantReply: false).prompts.first.map { String($0.prefix(100)) })
+        }
+    }
+
     /// Classify a session from the first 64 KB of its transcript.
     ///
     ///  * **.machine** — programmatic `claude -p` runs: skill-tip catalog
@@ -499,39 +543,58 @@ class SessionHistoryService: ObservableObject {
         return (sawSdk && !sawLive) ? .machine : .unknown
     }
 
-    /// The user's first genuine prompt AFTER the magic-launch bootstrap
-    /// message — the session's actual topic. Bootstrap context loading (wiki
-    /// reads, tool results) sits between the boilerplate and that prompt, so
-    /// this scans a 1 MB window rather than the 16 KB head, but only parses
-    /// lines carrying promptSource "typed" — present in every transcript new
-    /// enough to be magic-launched. Called only for magic-launch sessions
-    /// with no digest sidecar yet (the handful of live ones), so the bigger
-    /// read stays off the hot path.
-    nonisolated private static func firstRealPrompt(in path: String) -> String? {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+    /// The opening of the conversation as the person had it: their first
+    /// `promptLimit` genuine prompts (after any magic-launch bootstrap) and
+    /// the first assistant text that followed the first one. Bootstrap
+    /// context loading can run past a megabyte, so the file is streamed in
+    /// chunks until enough is found. Only records the person sent count:
+    /// `promptSource` typed, queued (typed while Claude was busy), or
+    /// suggestion_accepted; system-injected records (task notifications) and
+    /// meta/skill expansions carry other sources or none. Read-only.
+    nonisolated static func conversationOpening(in path: String, promptLimit: Int, wantReply: Bool)
+        -> (prompts: [String], reply: String?) {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return ([], nil) }
         defer { handle.closeFile() }
 
-        let data = handle.readData(ofLength: 1_048_576)
-        // Lenient decode: garbled bytes can only land in a truncated last
-        // line, which fails to parse and is skipped.
-        let text = String(decoding: data, as: UTF8.self)
+        let sources = ["typed", "queued", "suggestion_accepted"]
+            .map { Data("\"promptSource\":\"\($0)\"".utf8) }
+        let assistantMarker = Data("\"type\":\"assistant\"".utf8)
+        var prompts: [String] = []
+        var reply: String?
+        func done() -> Bool { prompts.count >= promptLimit && (!wantReply || reply != nil) }
 
-        for line in text.components(separatedBy: "\n") {
-            guard line.contains("\"promptSource\":\"typed\""),
-                  let lineData = line.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
-                  let role = messageRole(from: json), role == "user",
-                  let content = extractMessageContent(from: json)
-            else { continue }
+        var pending = Data()
+        while true {
+            let chunk = handle.readData(ofLength: 1_048_576)
+            let atEOF = chunk.isEmpty
+            pending.append(chunk)
+            // Complete lines only; keep a trailing partial line for the next chunk.
+            let end = atEOF ? pending.endIndex : (pending.lastIndex(of: 0x0A).map { pending.index(after: $0) } ?? pending.startIndex)
+            let complete = pending[pending.startIndex..<end]
+            for line in complete.split(separator: 0x0A, omittingEmptySubsequences: true) {
+                let isPrompt = prompts.count < promptLimit && sources.contains(where: { line.range(of: $0) != nil })
+                let isReply = wantReply && reply == nil && !prompts.isEmpty && line.range(of: assistantMarker) != nil
+                guard isPrompt || isReply,
+                      let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                      let role = messageRole(from: json),
+                      let content = extractMessageContent(from: json)
+                else { continue }
+                let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty { continue }
 
-            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty || magicLaunchProject(trimmed) != nil { continue }
-            if isPassThroughPrompt(trimmed) { continue }
-            if trimmed.hasPrefix("Caveat: The messages below") { continue }  // local-command caveat
-            if trimmed.hasPrefix("[Request interrupted") { continue }        // interrupt sentinel
-            return String(trimmed.prefix(100))
+                if isReply, role == "assistant" {
+                    reply = String(trimmed.prefix(400))
+                } else if isPrompt, role == "user" {
+                    if magicLaunchProject(trimmed) != nil || isPassThroughPrompt(trimmed) { continue }
+                    if trimmed.hasPrefix("Caveat: The messages below") { continue }  // local-command caveat
+                    if trimmed.hasPrefix("[Request interrupted") { continue }        // interrupt sentinel
+                    prompts.append(String(trimmed.prefix(300)))
+                }
+                if done() { return (prompts, reply) }
+            }
+            if atEOF { return (prompts, reply) }
+            pending = Data(pending[end...])
         }
-        return nil
     }
 
     /// Synthetic user messages that are commands passed through to Claude,
@@ -609,15 +672,464 @@ class SessionHistoryService: ObservableObject {
         if let str = content as? String, !str.isEmpty {
             return str
         }
+        // Every text block, joined: a message can carry several, and search
+        // must see all of them. Tool payloads (tool_use / tool_result) and
+        // thinking blocks are not text and are skipped.
         if let blocks = content as? [[String: Any]] {
-            for block in blocks {
-                if block["type"] as? String == "text",
-                   let text = block["text"] as? String, !text.isEmpty {
-                    return text
-                }
+            let texts = blocks.compactMap { block -> String? in
+                guard block["type"] as? String == "text",
+                      let text = block["text"] as? String, !text.isEmpty else { return nil }
+                return text
             }
+            return texts.isEmpty ? nil : texts.joined(separator: "\n")
         }
         return nil
+    }
+}
+
+// MARK: - Session Titler
+
+/// The one session-title generator. For a listed session with no sidecar
+/// title, feeds a cheap Haiku call the conversation's opening (the first few
+/// real user prompts plus a little of the first reply) and writes the result
+/// to ~/.claude/hud/session-titles/<id>.txt, the label source the scan reads.
+/// Transcripts are only read, never modified.
+///
+/// Cost control: only untitled sessions; a session is titled once it has
+/// three real prompts or has been idle for 30 minutes (a one-word opener like
+/// "yes" alone makes a poor title); calls run sequentially with a pause
+/// between them and a cap per pass; a failed session is not retried until the
+/// next launch.
+actor SessionTitler {
+    private static let titlesDir = "\(NSHomeDirectory())/.claude/hud/session-titles"
+    private static let claudePath = "\(NSHomeDirectory())/.local/bin/claude"
+    private static let perPass = 25
+    private static let settleAge: TimeInterval = 30 * 60
+    private var attempted = Set<String>()
+
+    func titleUntitled(_ candidates: [(id: String, path: String, modified: Date)],
+                       onTitle: (String, String) async -> Void) async {
+        guard FileManager.default.isExecutableFile(atPath: Self.claudePath) else { return }
+        var calls = 0
+        for c in candidates where !attempted.contains(c.id) {
+            if calls >= Self.perPass || Task.isCancelled { break }
+            let sidecar = "\(Self.titlesDir)/\(c.id).txt"
+            if FileManager.default.fileExists(atPath: sidecar) { continue }
+
+            let opening = SessionHistoryService.conversationOpening(in: c.path, promptLimit: 5, wantReply: true)
+            guard !opening.prompts.isEmpty else { continue }
+            let settled = Date().timeIntervalSince(c.modified) > Self.settleAge
+            guard settled || opening.prompts.count >= 3 else { continue }
+
+            attempted.insert(c.id)
+            calls += 1
+            guard let title = await Self.generate(prompts: opening.prompts, reply: opening.reply) else {
+                logger.error("session title: generation failed for \(c.id, privacy: .public)")
+                continue
+            }
+            Self.writeSidecar(id: c.id, title: title)
+            await onTitle(c.id, title)
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        if calls > 0 { logger.info("session titles: \(calls, privacy: .public) generated") }
+    }
+
+    private static func generate(prompts: [String], reply: String?) async -> String? {
+        var prompt = """
+            Write a title for this chat session so its owner can find it later in a list. \
+            Name the concrete topic or task in 3 to 8 words, sentence case, no quotes, \
+            no trailing period. Reply with the title only.
+
+            The person's opening messages:
+            """
+        for (i, p) in prompts.enumerated() { prompt += "\n\(i + 1). \(p)" }
+        if let reply { prompt += "\n\nStart of the assistant's first reply:\n\(reply)" }
+
+        return await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .utility).async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: claudePath)
+                process.arguments = ["-p", "--model", "haiku", "--strict-mcp-config",
+                                     "--tools", "", "--no-session-persistence", prompt]
+                process.currentDirectoryURL = URL(fileURLWithPath: NSTemporaryDirectory())
+                var env = ProcessInfo.processInfo.environment
+                env["VAULT_INGEST"] = "1"  // the ingest hook's loop guard: never digest this call
+                env.removeValue(forKey: "CLAUDECODE")
+                process.environment = env
+                let out = Pipe()
+                process.standardOutput = out
+                process.standardError = Pipe()
+                do { try process.run() } catch { cont.resume(returning: nil); return }
+                let timer = DispatchWorkItem { if process.isRunning { process.terminate() } }
+                DispatchQueue.global().asyncAfter(deadline: .now() + 90, execute: timer)
+                let data = out.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                timer.cancel()
+                guard process.terminationStatus == 0,
+                      let text = String(data: data, encoding: .utf8) else {
+                    cont.resume(returning: nil); return
+                }
+                cont.resume(returning: sanitize(text))
+            }
+        }
+    }
+
+    private static func sanitize(_ raw: String) -> String? {
+        guard let line = raw.split(whereSeparator: \.isNewline)
+            .map({ $0.trimmingCharacters(in: .whitespaces) })
+            .first(where: { !$0.isEmpty }) else { return nil }
+        let t = line.trimmingCharacters(in: CharacterSet(charactersIn: "\"'`*#_ ."))
+        guard !t.isEmpty, t.count <= 120 else { return nil }
+        return String(t.prefix(90))
+    }
+
+    private static func writeSidecar(id: String, title: String) {
+        let fm = FileManager.default
+        try? fm.createDirectory(atPath: titlesDir, withIntermediateDirectories: true)
+        let tmp = "\(titlesDir)/.tmp.\(id)"
+        guard (try? (title + "\n").write(toFile: tmp, atomically: false, encoding: .utf8)) != nil else { return }
+        _ = try? fm.replaceItemAt(URL(fileURLWithPath: "\(titlesDir)/\(id).txt"), withItemAt: URL(fileURLWithPath: tmp))
+        if fm.fileExists(atPath: tmp) { try? fm.moveItem(atPath: tmp, toPath: "\(titlesDir)/\(id).txt") }
+    }
+}
+
+// MARK: - Transcript Index
+
+/// A transcript's cached listing verdict, valid while the file's mtime and
+/// size are unchanged. A machine one-shot is never listed; a listed session
+/// with no `label` (no real user turn in its head) shows only when a digest
+/// sidecar titles it.
+struct CachedHead {
+    enum Kind: String { case machine, listed }
+    let mtime: Double
+    let size: Int64
+    let kind: Kind
+    let label: String?
+}
+
+/// Persistent session store in Application Support: the cached head verdicts
+/// that make the session scan cheap, and an incremental full-text index of
+/// listed session transcripts:
+/// SQLite FTS5 in Application Support. Only user and assistant TEXT is
+/// indexed (tool payloads, tool results, and thinking blocks are skipped), so
+/// base64 blobs and file dumps cannot produce false hits. Transcripts are
+/// append-only JSONL, so a grown file is read from the last indexed line
+/// boundary; a shrunk or rewritten file is reindexed from zero.
+///
+/// All SQLite access runs on one private serial queue, never on the Swift
+/// concurrency pool or the main actor: callers await a continuation. `update`
+/// takes the queue once per file, so a search issued mid-build waits at most
+/// one file.
+final class TranscriptIndex: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "com.claudehud.transcript-index", qos: .utility)
+    private var db: OpaquePointer?
+    /// Bump when the schema or the extraction rule changes: a mismatch drops
+    /// and rebuilds the index.
+    private static let schemaVersion: Int32 = 3
+    private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
+    init() {
+        queue.sync { openDatabase() }
+    }
+
+    deinit {
+        if let db { sqlite3_close(db) }
+    }
+
+    // MARK: Public API
+
+    /// Index every listed session's new bytes and drop sessions no longer
+    /// listed (deleted, or reclassified as machine one-shots).
+    func update(files: [(id: String, path: String)]) async {
+        guard !files.isEmpty else { return }  // a failed scan must not wipe the index
+        let started = Date()
+        let listed = Set(files.map(\.id))
+        await onQueue { self.pruneUnlisted(listed) }
+        var changed = 0
+        for f in files {
+            if await onQueue({ self.indexFile(id: f.id, path: f.path) }) { changed += 1 }
+        }
+        let ms = Int(Date().timeIntervalSince(started) * 1000)
+        logger.info("transcript index: \(changed, privacy: .public)/\(files.count, privacy: .public) files updated in \(ms, privacy: .public) ms")
+    }
+
+    /// Sessions whose text matches every query token (prefix match), each
+    /// with a snippet around its best-ranked matching message.
+    func search(_ query: String) async -> [String: SessionSearchResult] {
+        let tokens = query.lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+        guard !tokens.isEmpty else { return [:] }
+        let match = tokens.map { "\"\($0)\"*" }.joined(separator: " ")
+
+        return await onQueue(qos: .userInitiated) { self.runSearch(match) }
+    }
+
+    func remove(sessionID: String) async {
+        await onQueue { self.deleteSession(sessionID) }
+    }
+
+    /// Every cached head verdict, keyed by transcript path.
+    func loadHeads() async -> [String: CachedHead] {
+        await onQueue(qos: .userInitiated) {
+            var out: [String: CachedHead] = [:]
+            guard let stmt = self.prepare("SELECT path, mtime, size, kind, label FROM heads") else { return out }
+            defer { sqlite3_finalize(stmt) }
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                guard let p = sqlite3_column_text(stmt, 0), let k = sqlite3_column_text(stmt, 3),
+                      let kind = CachedHead.Kind(rawValue: String(cString: k)) else { continue }
+                out[String(cString: p)] = CachedHead(
+                    mtime: sqlite3_column_double(stmt, 1),
+                    size: sqlite3_column_int64(stmt, 2),
+                    kind: kind,
+                    label: sqlite3_column_text(stmt, 4).map { String(cString: $0) })
+            }
+            return out
+        }
+    }
+
+    func saveHeads(changed: [String: CachedHead], removed: [String]) async {
+        guard !changed.isEmpty || !removed.isEmpty else { return }
+        await onQueue {
+            self.exec("BEGIN")
+            if let upsert = self.prepare("INSERT OR REPLACE INTO heads(path, mtime, size, kind, label) VALUES(?, ?, ?, ?, ?)") {
+                for (path, h) in changed {
+                    sqlite3_reset(upsert)
+                    self.bind(upsert, 1, path)
+                    sqlite3_bind_double(upsert, 2, h.mtime)
+                    sqlite3_bind_int64(upsert, 3, h.size)
+                    self.bind(upsert, 4, h.kind.rawValue)
+                    if let t = h.label { self.bind(upsert, 5, t) } else { sqlite3_bind_null(upsert, 5) }
+                    sqlite3_step(upsert)
+                }
+                sqlite3_finalize(upsert)
+            }
+            if let delete = self.prepare("DELETE FROM heads WHERE path = ?") {
+                for path in removed {
+                    sqlite3_reset(delete)
+                    self.bind(delete, 1, path)
+                    sqlite3_step(delete)
+                }
+                sqlite3_finalize(delete)
+            }
+            self.exec("COMMIT")
+        }
+    }
+
+    /// Run `work` on the index queue and await its result without holding a
+    /// concurrency-pool thread.
+    private func onQueue<T>(qos: DispatchQoS = .utility, _ work: @escaping () -> T) async -> T {
+        await withCheckedContinuation { cont in
+            queue.async(qos: qos) { cont.resume(returning: work()) }
+        }
+    }
+
+    // MARK: Search (queue-confined)
+
+    private func runSearch(_ match: String) -> [String: SessionSearchResult] {
+        guard db != nil else { return [:] }
+        var ids: [String] = []
+        if let stmt = prepare("SELECT DISTINCT session_id FROM messages WHERE messages MATCH ?") {
+            bind(stmt, 1, match)
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                if let c = sqlite3_column_text(stmt, 0) { ids.append(String(cString: c)) }
+            }
+            sqlite3_finalize(stmt)
+        }
+        var out: [String: SessionSearchResult] = [:]
+        guard let stmt = prepare("""
+            SELECT snippet(messages, 1, '', '', '…', 14) FROM messages
+            WHERE messages MATCH ? AND session_id = ? ORDER BY rank LIMIT 1
+            """) else { return out }
+        defer { sqlite3_finalize(stmt) }
+        for id in ids {
+            sqlite3_reset(stmt)
+            bind(stmt, 1, match)
+            bind(stmt, 2, id)
+            var snippet = ""
+            if sqlite3_step(stmt) == SQLITE_ROW, let c = sqlite3_column_text(stmt, 0) {
+                snippet = String(cString: c)
+                    .replacingOccurrences(of: "\n", with: " ")
+                    .trimmingCharacters(in: .whitespaces)
+            }
+            out[id] = SessionSearchResult(id: id, snippet: snippet)
+        }
+        return out
+    }
+
+    // MARK: Schema
+
+    private func openDatabase() {
+        let fm = FileManager.default
+        guard let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
+        let dir = support.appendingPathComponent("ClaudeHUD", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let path = dir.appendingPathComponent("transcript-index.sqlite").path
+        guard sqlite3_open(path, &db) == SQLITE_OK else {
+            logger.error("transcript index: cannot open \(path, privacy: .public)")
+            if let db { sqlite3_close(db) }
+            db = nil
+            return
+        }
+        exec("PRAGMA journal_mode=WAL")
+        exec("PRAGMA synchronous=NORMAL")
+
+        var version: Int32 = 0
+        if let stmt = prepare("PRAGMA user_version") {
+            if sqlite3_step(stmt) == SQLITE_ROW { version = sqlite3_column_int(stmt, 0) }
+            sqlite3_finalize(stmt)
+        }
+        guard version != Self.schemaVersion else { return }
+        exec("DROP TABLE IF EXISTS heads")
+        exec("DROP TABLE IF EXISTS files")
+        exec("DROP TABLE IF EXISTS messages")
+        exec("""
+            CREATE TABLE heads(
+                path TEXT PRIMARY KEY,
+                mtime REAL NOT NULL,
+                size INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                label TEXT)
+            """)
+        exec("""
+            CREATE TABLE files(
+                session_id TEXT PRIMARY KEY,
+                mtime REAL NOT NULL,
+                indexed_bytes INTEGER NOT NULL)
+            """)
+        exec("""
+            CREATE VIRTUAL TABLE messages USING fts5(
+                session_id UNINDEXED, body,
+                tokenize = 'unicode61 remove_diacritics 2')
+            """)
+        exec("PRAGMA user_version = \(Self.schemaVersion)")
+    }
+
+    // MARK: Indexing (queue-confined)
+
+    private func pruneUnlisted(_ listed: Set<String>) {
+        var stale: [String] = []
+        if let stmt = prepare("SELECT session_id FROM files") {
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                if let c = sqlite3_column_text(stmt, 0) {
+                    let id = String(cString: c)
+                    if !listed.contains(id) { stale.append(id) }
+                }
+            }
+            sqlite3_finalize(stmt)
+        }
+        guard !stale.isEmpty else { return }
+        exec("BEGIN")
+        for id in stale { deleteSession(id) }
+        exec("COMMIT")
+    }
+
+    private func deleteSession(_ id: String) {
+        for sql in ["DELETE FROM messages WHERE session_id = ?", "DELETE FROM files WHERE session_id = ?"] {
+            if let stmt = prepare(sql) {
+                bind(stmt, 1, id)
+                sqlite3_step(stmt)
+                sqlite3_finalize(stmt)
+            }
+        }
+    }
+
+    /// Index a file's unseen complete lines. Returns false when unchanged.
+    @discardableResult
+    private func indexFile(id: String, path: String) -> Bool {
+        guard db != nil,
+              let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let size = (attrs[.size] as? NSNumber)?.int64Value,
+              let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970
+        else { return false }
+
+        var from: Int64 = 0
+        var reset = false
+        if let stmt = prepare("SELECT mtime, indexed_bytes FROM files WHERE session_id = ?") {
+            bind(stmt, 1, id)
+            if sqlite3_step(stmt) == SQLITE_ROW {
+                let storedMtime = sqlite3_column_double(stmt, 0)
+                let storedBytes = sqlite3_column_int64(stmt, 1)
+                if storedMtime == mtime && storedBytes <= size {
+                    sqlite3_finalize(stmt)
+                    return false  // unchanged
+                }
+                if size >= storedBytes { from = storedBytes } else { reset = true }
+            }
+            sqlite3_finalize(stmt)
+        }
+
+        guard let handle = FileHandle(forReadingAtPath: path) else { return false }
+        defer { handle.closeFile() }
+        handle.seek(toFileOffset: UInt64(from))
+        let data = handle.readDataToEndOfFile()
+
+        // Only complete lines: a transcript being written may end mid-record.
+        let consumed: Int
+        if let nl = data.lastIndex(of: 0x0A) {
+            consumed = data.distance(from: data.startIndex, to: nl) + 1
+        } else {
+            consumed = 0
+        }
+
+        exec("BEGIN")
+        if reset { deleteSession(id) }
+        if consumed > 0, let insert = prepare("INSERT INTO messages(session_id, body) VALUES(?, ?)") {
+            let complete = data.prefix(consumed)
+            for line in complete.split(separator: 0x0A, omittingEmptySubsequences: true) {
+                // Cheap byte pre-filter: skip records with no text content
+                // (tool results, progress, snapshots) before JSON parsing.
+                guard line.range(of: Self.textBlockMarker) != nil
+                        || line.range(of: Self.stringContentMarker) != nil,
+                      let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                      let text = SessionHistoryService.extractMessageContent(from: json),
+                      !text.isEmpty
+                else { continue }
+                sqlite3_reset(insert)
+                bind(insert, 1, id)
+                bind(insert, 2, text)
+                sqlite3_step(insert)
+            }
+            sqlite3_finalize(insert)
+        }
+        if let upsert = prepare("""
+            INSERT INTO files(session_id, mtime, indexed_bytes) VALUES(?, ?, ?)
+            ON CONFLICT(session_id) DO UPDATE SET mtime = excluded.mtime, indexed_bytes = excluded.indexed_bytes
+            """) {
+            bind(upsert, 1, id)
+            sqlite3_bind_double(upsert, 2, mtime)
+            sqlite3_bind_int64(upsert, 3, from + Int64(consumed))
+            sqlite3_step(upsert)
+            sqlite3_finalize(upsert)
+        }
+        exec("COMMIT")
+        return true
+    }
+
+    private static let textBlockMarker = Data("\"type\":\"text\"".utf8)
+    private static let stringContentMarker = Data("\"content\":\"".utf8)
+
+    // MARK: SQLite helpers
+
+    private func exec(_ sql: String) {
+        guard let db else { return }
+        if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
+            logger.error("transcript index: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+        }
+    }
+
+    private func prepare(_ sql: String) -> OpaquePointer? {
+        guard let db else { return nil }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            logger.error("transcript index: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            return nil
+        }
+        return stmt
+    }
+
+    private func bind(_ stmt: OpaquePointer, _ index: Int32, _ text: String) {
+        sqlite3_bind_text(stmt, index, text, -1, Self.transient)
     }
 }
 

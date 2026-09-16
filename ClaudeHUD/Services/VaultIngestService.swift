@@ -8,8 +8,8 @@ private let logger = Logger(subsystem: "com.claudehud", category: "VaultIngestSe
 /// Reads the local state produced by the three workers in the vault-
 /// tooling pipeline — `vault-ingest.sh` (SessionEnd ingest), the launchd
 /// `obsidian-sync.sh` job, and each project's append-only `Sessions.md`
-/// ledger — and publishes three streams the Vault cockpit (Phase 5) and
-/// Session-History badges (Phase 4) consume:
+/// ledger — and publishes three streams the Vault cockpit (Phase 5)
+/// consumes:
 ///
 ///   1. `sessionStatus[sessionID]` — per-session provenance (ingested /
 ///      failed / unknown), built from `Sessions.md` rows with `.failed`
@@ -156,10 +156,6 @@ final class VaultIngestService: ObservableObject {
     }
 
     // MARK: - Convenience accessors
-
-    func status(forSessionID sid: String) -> SessionStatus {
-        sessionStatus[sid] ?? SessionStatus(kind: .unknown, project: nil, utc: nil, transcript: nil, notes: nil)
-    }
 
     var pendingCount: Int { queue.pending.count }
     var failedCount: Int { queue.failed.count }
@@ -527,8 +523,7 @@ final class VaultIngestService: ObservableObject {
     }
 
     /// Open `~/.claude/ingest-state/` in Finder so the user can inspect
-    /// markers directly (advanced — usually the per-row reveal buttons
-    /// on Session History badges are enough).
+    /// markers directly (advanced).
     func revealStateDirInFinder() {
         NSWorkspace.shared.activateFileViewerSelecting([stateDir])
     }

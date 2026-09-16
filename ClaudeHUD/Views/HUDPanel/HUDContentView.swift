@@ -259,9 +259,7 @@ struct HUDContentView: View {
                     SessionHistoryView()
                         .environmentObject(sessionHistory)
                         .environmentObject(terminalService)
-                        .environmentObject(appState.projectService)
-                        .environmentObject(appState.vaultIngestService)
-                        // For the unclaimed-cwd marker: same canonical resolver
+                        // For the project tag and its unclaimed marker: same canonical resolver
                         // cache the Projects spine uses (inverse of the WORK filter).
                         .environmentObject(appState.vaultProjectService)
                 case .vault:
@@ -506,99 +504,103 @@ struct TabButton: View {
 
 // MARK: - Session History View
 
+/// Recency buckets for the History tab, newest first. One bucket rule for
+/// every session row; the section order is `allCases` order.
+enum RecencyBucket: Int, CaseIterable {
+    case today, yesterday, thisWeek, thisMonth, older
+
+    init(for date: Date, now: Date = Date()) {
+        let cal = Calendar.current
+        let startOfToday = cal.startOfDay(for: now)
+        let startOfYesterday = cal.date(byAdding: .day, value: -1, to: startOfToday)!
+        let startOfWeek = cal.date(byAdding: .day, value: -7, to: startOfToday)!
+        let startOfMonth = cal.date(byAdding: .day, value: -30, to: startOfToday)!
+        if date >= startOfToday { self = .today }
+        else if date >= startOfYesterday { self = .yesterday }
+        else if date >= startOfWeek { self = .thisWeek }
+        else if date >= startOfMonth { self = .thisMonth }
+        else { self = .older }
+    }
+
+    var title: String {
+        switch self {
+        case .today: return "Today"
+        case .yesterday: return "Yesterday"
+        case .thisWeek: return "This Week"
+        case .thisMonth: return "This Month"
+        case .older: return "Older"
+        }
+    }
+}
+
+/// One History row: a session plus its project attribution (shown as a tag,
+/// not a grouping).
+struct SessionHistoryRow: Identifiable {
+    let session: SessionInfo
+    /// Resolved Obsidian project name, else the repo folder name.
+    let project: String
+    /// The cwd resolves to no vault project (the Session Inbox set).
+    let isUnclaimed: Bool
+    var id: String { session.id }
+}
+
 struct SessionHistoryView: View {
     @EnvironmentObject var sessionHistory: SessionHistoryService
-    @EnvironmentObject var terminalService: TerminalService
     @EnvironmentObject var vaultProjects: VaultProjectService
     @Environment(\.fontScale) private var scale
     @State private var searchText = ""
     @State private var resolvePrimed = false
     @State private var searchDebounceTask: Task<Void, Never>?
     @State private var useColors = UserDefaults.standard.bool(forKey: "history.useColors")
-    @State private var starredPaths: Set<String> = {
-        Set(UserDefaults.standard.stringArray(forKey: "history.starredProjects") ?? [])
-    }()
 
-    private typealias ProjectGroup = (name: String, path: String, parentPath: String, sessions: [SessionInfo])
-
-    /// Sessions grouped by project path, filtered by search, sorted by most recent.
-    private var projectGroups: [ProjectGroup] {
-        let filtered: [SessionInfo]
-        if searchText.isEmpty {
-            filtered = sessionHistory.sessions
-        } else {
-            let q = searchText.lowercased()
-            let hasSearchResults = !sessionHistory.searchResults.isEmpty
-            filtered = sessionHistory.sessions.filter {
-                $0.projectName.lowercased().contains(q) || $0.preview.lowercased().contains(q) ||
-                $0.projectPath.lowercased().contains(q) ||
-                (hasSearchResults && sessionHistory.searchResults[$0.id] != nil)
-            }
+    /// Collapse a worktree path back to its parent repo cwd.
+    private static func repoCwd(_ p: String) -> String {
+        if let range = p.range(of: "/.claude/worktrees/") {
+            return String(p[..<range.lowerBound])
         }
-
-        let home = NSHomeDirectory()
-        // Collapse a worktree path back to its parent repo cwd.
-        func repoCwd(_ p: String) -> String {
-            if let range = p.range(of: "/.claude/worktrees/") {
-                return String(p[..<range.lowerBound])
-            }
-            return p
-        }
-        // Group by the Obsidian project that OWNS the cwd (a writeable `cwds:`
-        // match) so a project spanning several repos/paths is ONE row named for the
-        // vault project. Unclaimed cwds fall back to grouping by the repo cwd
-        // (leaf-named), exactly as before. Same canonical resolver as the unclaimed
-        // marker; a "vault::" key can't collide with an absolute cwd path.
-        let grouped = Dictionary(grouping: filtered) { session -> String in
-            let cwd = repoCwd(session.projectPath)
-            if resolvePrimed, let vid = vaultProjects.folderName(forCwd: cwd) {
-                return "vault::\(vid)"
-            }
-            return cwd
-        }
-        return grouped.map { entry in
-            // The most-recent session supplies the launch/open cwd and the folder
-            // bucket for a merged vault project (its sessions may span repos).
-            let recent = entry.value.max { $0.timestamp < $1.timestamp }!
-            let repCwd = repoCwd(recent.projectPath)
-            let isVault = entry.key.hasPrefix("vault::")
-            let name = isVault ? String(entry.key.dropFirst("vault::".count))
-                               : URL(fileURLWithPath: repCwd).lastPathComponent
-            // Home dir project: group under "~" instead of "/Users"
-            let parentPath = repCwd == home
-                ? home
-                : URL(fileURLWithPath: repCwd).deletingLastPathComponent().path
-            return (name: name, path: repCwd, parentPath: parentPath, sessions: entry.value)
-        }
-        .filter { $0.path != "/" && $0.parentPath != "/" }
-        .sorted { $0.sessions.first!.timestamp > $1.sessions.first!.timestamp }
+        return p
     }
 
-    /// Partition groups into time-based sections.
-    private var sections: [(title: String, groups: [ProjectGroup])] {
-        let cal = Calendar.current
-        let now = Date()
-        let startOfToday = cal.startOfDay(for: now)
-        let startOfWeek = cal.date(byAdding: .day, value: -7, to: startOfToday)!
-
-        // projectGroups is an uncached computed property (it filters + groups +
-        // sorts every session on each access); evaluate it once here rather
-        // than twice.
-        let groups = projectGroups
-        let starred = groups.filter { starredPaths.contains($0.path) }
-        let unstarred = groups.filter { !starredPaths.contains($0.path) }
-
-        let today = unstarred.filter { $0.sessions.first!.timestamp >= startOfToday }
-        let thisWeek = unstarred.filter {
-            $0.sessions.first!.timestamp >= startOfWeek && $0.sessions.first!.timestamp < startOfToday
+    /// Every session as a row, filtered by search, newest first. The project
+    /// is attribution only: the Obsidian project that OWNS the cwd (a writeable
+    /// `cwds:` match, via the canonical resolver once primed), else the repo
+    /// folder name.
+    private var historyRows: [SessionHistoryRow] {
+        let home = NSHomeDirectory()
+        let q = searchText.lowercased()
+        let hasSearchResults = !sessionHistory.searchResults.isEmpty
+        return sessionHistory.sessions.compactMap { session -> SessionHistoryRow? in
+            let cwd = Self.repoCwd(session.projectPath)
+            // Root-level cwds ("/", "/tmp") are not projects; skip as before.
+            let parent = cwd == home ? home : URL(fileURLWithPath: cwd).deletingLastPathComponent().path
+            guard cwd != "/", parent != "/" else { return nil }
+            let vaultName = resolvePrimed ? vaultProjects.folderName(forCwd: cwd) : nil
+            let project = vaultName ?? URL(fileURLWithPath: cwd).lastPathComponent
+            if !q.isEmpty {
+                let hit = project.lowercased().contains(q) ||
+                    session.projectName.lowercased().contains(q) ||
+                    session.preview.lowercased().contains(q) ||
+                    session.projectPath.lowercased().contains(q) ||
+                    (hasSearchResults && sessionHistory.searchResults[session.id] != nil)
+                guard hit else { return nil }
+            }
+            return SessionHistoryRow(session: session, project: project,
+                                     isUnclaimed: resolvePrimed && vaultName == nil)
         }
-        let older = unstarred.filter { $0.sessions.first!.timestamp < startOfWeek }
+        .sorted { $0.session.timestamp > $1.session.timestamp }
+    }
 
-        var result: [(title: String, groups: [ProjectGroup])] = []
-        if !starred.isEmpty { result.append(("Starred", starred)) }
-        if !today.isEmpty { result.append(("Today", today)) }
-        if !thisWeek.isEmpty { result.append(("This Week", thisWeek)) }
-        if !older.isEmpty { result.append(("Older", older)) }
+    /// Rows partitioned into recency buckets, newest first within each.
+    private var sections: [(title: String, rows: [SessionHistoryRow])] {
+        let rows = historyRows
+        var result: [(title: String, rows: [SessionHistoryRow])] = []
+        let now = Date()
+        let byBucket = Dictionary(grouping: rows) { RecencyBucket(for: $0.session.timestamp, now: now) }
+        for bucket in RecencyBucket.allCases {
+            if let group = byBucket[bucket], !group.isEmpty {
+                result.append((bucket.title, group))
+            }
+        }
         return result
     }
 
@@ -674,7 +676,9 @@ struct SessionHistoryView: View {
 
                 Divider().opacity(0.3)
 
-                if projectGroups.isEmpty {
+                // `sections` filters + sorts every session; evaluate once.
+                let secs = sections
+                if secs.isEmpty {
                     Spacer()
                     Text("No matches")
                         .font(.smallFont(scale))
@@ -683,18 +687,12 @@ struct SessionHistoryView: View {
                 } else {
                     ScrollView {
                         VStack(spacing: 0) {
-                            ForEach(sections, id: \.title) { section in
+                            ForEach(secs, id: \.title) { section in
                                 TimeSectionView(
                                     title: section.title,
-                                    groups: section.groups,
-                                    starredPaths: starredPaths,
+                                    rows: section.rows,
                                     searchResults: sessionHistory.searchResults,
-                                    onToggleStar: { toggleStar($0) },
-                                    onDeleteSession: { deleteSession($0, projectPath: $1) },
-                                    // Unclaimed = repo cwd resolves to no vault
-                                    // project (the Session Inbox set). Only after
-                                    // the resolver cache is primed.
-                                    isUnclaimed: { resolvePrimed && vaultProjects.folderName(forCwd: $0) == nil }
+                                    onDeleteSession: { deleteSession($0) }
                                 )
                             }
                         }
@@ -707,81 +705,39 @@ struct SessionHistoryView: View {
         .onAppear {
             Task { await sessionHistory.refresh() }
         }
-        // Prime the canonical cwd→folder cache for every project group (the
-        // worktree-merged paths the rows key on), so the unclaimed marker can
-        // resolve. Re-runs when the session set changes; cheap on repeat
-        // (only new cwds are scanned). Read-only.
+        // Prime the canonical cwd→folder cache for every repo cwd (worktrees
+        // merged), so row tags resolve to the vault project and the unclaimed
+        // marker can show. Re-runs when the session set changes; cheap on
+        // repeat (only new cwds are scanned). Read-only.
         .task(id: sessionHistory.sessions.count) {
-            var paths = Set<String>()
-            for s in sessionHistory.sessions {
-                if let r = s.projectPath.range(of: "/.claude/worktrees/") {
-                    paths.insert(String(s.projectPath[..<r.lowerBound]))
-                } else {
-                    paths.insert(s.projectPath)
-                }
-            }
+            let paths = Set(sessionHistory.sessions.map { Self.repoCwd($0.projectPath) })
             await vaultProjects.primeResolution(forCwds: paths)
             resolvePrimed = true
         }
     }
 
-    private func toggleStar(_ path: String) {
-        if starredPaths.contains(path) {
-            starredPaths.remove(path)
-        } else {
-            starredPaths.insert(path)
-        }
-        UserDefaults.standard.set(Array(starredPaths), forKey: "history.starredProjects")
-    }
-
-    private func deleteSession(_ sessionId: String, projectPath: String) {
+    private func deleteSession(_ sessionId: String) {
         sessionHistory.deleteSession(id: sessionId)
     }
-}
-
-// MARK: - Path Display Helpers
-
-private func tildeCollapsedPath(_ path: String) -> String {
-    let home = NSHomeDirectory()
-    if path == home { return "~" }
-    if path.hasPrefix(home + "/") {
-        return "~/" + String(path.dropFirst(home.count + 1))
-    }
-    return path
-}
-
-private func abbreviatedFolderName(_ path: String) -> String {
-    let collapsed = tildeCollapsedPath(path)
-    if collapsed == "~" { return "~" }
-    return URL(fileURLWithPath: path).lastPathComponent
 }
 
 // MARK: - Collapsible Time Section
 
 struct TimeSectionView: View {
     let title: String
-    let groups: [(name: String, path: String, parentPath: String, sessions: [SessionInfo])]
-    let starredPaths: Set<String>
+    let rows: [SessionHistoryRow]
     let searchResults: [String: SessionSearchResult]
-    let onToggleStar: (String) -> Void
-    let onDeleteSession: (String, String) -> Void
-    /// True when a group's repo cwd resolves to no vault project.
-    let isUnclaimed: (String) -> Bool
+    let onDeleteSession: (String) -> Void
     @State private var collapsed = false
-    @State private var hoveredFolder: String?
+    @State private var showAll = false
     @Environment(\.fontScale) private var scale
 
-    /// Projects sub-grouped by parent folder, sorted by most recent activity.
-    private var folderGroups: [(path: String, displayName: String, fullPath: String,
-                                projects: [(name: String, path: String, parentPath: String, sessions: [SessionInfo])])] {
-        let byFolder = Dictionary(grouping: groups) { $0.parentPath }
-        return byFolder.map { entry in
-            (path: entry.key,
-             displayName: abbreviatedFolderName(entry.key),
-             fullPath: tildeCollapsedPath(entry.key),
-             projects: entry.value.sorted { $0.sessions.first!.timestamp > $1.sessions.first!.timestamp })
-        }
-        .sorted { $0.projects.first!.sessions.first!.timestamp > $1.projects.first!.sessions.first!.timestamp }
+    /// The list is non-lazy (variable-height rows), so a long bucket renders
+    /// its newest rows and a "Show all" toggle rather than thousands at once.
+    private let rowCap = 40
+
+    private var visibleRows: [SessionHistoryRow] {
+        showAll || rows.count <= rowCap ? rows : Array(rows.prefix(rowCap))
     }
 
     var body: some View {
@@ -795,7 +751,7 @@ struct TimeSectionView: View {
                 .foregroundColor(.secondary.opacity(0.7))
                 .textCase(.uppercase)
             if collapsed {
-                Text("\(groups.count)")
+                Text("\(rows.count)")
                     .font(.custom("Fira Code", size: 10 * scale))
                     .foregroundColor(.secondary.opacity(0.6))
                     .padding(.horizontal, 4)
@@ -814,341 +770,27 @@ struct TimeSectionView: View {
         .hudTip(collapsed ? "Expand section" : "Collapse section")
 
         if !collapsed {
-            ForEach(folderGroups, id: \.path) { folder in
-                VStack(spacing: 0) {
-                    // Folder header
-                    HStack(spacing: 4) {
-                        Image(systemName: "folder")
-                            .font(.system(size: 9 * scale))
-                            .foregroundColor(.secondary.opacity(0.6))
-                        Text(folder.displayName)
-                            .font(.custom("Fira Code", size: 10 * scale))
-                            .foregroundColor(.secondary.opacity(0.7))
-                        if hoveredFolder == folder.path {
-                            Text(folder.fullPath)
-                                .font(.custom("Fira Code", size: 9 * scale))
-                                .foregroundColor(.secondary.opacity(0.4))
-                                .lineLimit(1)
-                                .truncationMode(.head)
-                        }
-                        Spacer()
-                    }
-                    .padding(.horizontal, 4)
-                    .padding(.top, 4)
-                    .padding(.bottom, 1)
-                    .contentShape(Rectangle())
-                    .onHover { hoveredFolder = $0 ? folder.path : nil }
-                    .onTapGesture { NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: folder.path) }
-
-                    ForEach(folder.projects, id: \.path) { group in
-                        ProjectRow(
-                            projectName: group.name,
-                            projectPath: group.path,
-                            sessions: group.sessions,
-                            isStarred: starredPaths.contains(group.path),
-                            isUnclaimed: isUnclaimed(group.path),
-                            searchResults: searchResults,
-                            onToggleStar: { onToggleStar(group.path) },
-                            onDeleteSession: { sessionId in
-                                onDeleteSession(sessionId, group.path)
-                            }
-                        )
-                        Divider().opacity(0.3)
-                    }
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Project Row (collapsible)
-
-struct ProjectRow: View {
-    let projectName: String
-    let projectPath: String
-    let sessions: [SessionInfo]
-    let isStarred: Bool
-    /// Repo cwd resolves to no vault project → show the Session-Inbox marker.
-    let isUnclaimed: Bool
-    let searchResults: [String: SessionSearchResult]
-    let onToggleStar: () -> Void
-    let onDeleteSession: (String) -> Void
-    @EnvironmentObject var terminalService: TerminalService
-    @EnvironmentObject var tabManager: TabManager
-    @EnvironmentObject var projectService: ProjectService
-    @State private var expanded = false
-    @State private var showAll = false
-    @State private var feedback: String?
-    @Environment(\.fontScale) private var scale
-
-    private let sessionCap = 5
-
-    private var latest: SessionInfo { sessions.first! }
-
-    /// Whether this project has any full-text search matches.
-    private var hasSearchMatches: Bool {
-        !searchResults.isEmpty && sessions.contains { searchResults[$0.id] != nil }
-    }
-
-    /// Whether sessions list should be shown (explicit expand or search match).
-    private var isExpanded: Bool { expanded || hasSearchMatches }
-
-    private var visibleSessions: [SessionInfo] {
-        if showAll || sessions.count <= sessionCap {
-            return sessions
-        }
-        return Array(sessions.prefix(sessionCap))
-    }
-
-    init(projectName: String, projectPath: String, sessions: [SessionInfo],
-         isStarred: Bool, isUnclaimed: Bool = false,
-         searchResults: [String: SessionSearchResult] = [:],
-         onToggleStar: @escaping () -> Void,
-         onDeleteSession: @escaping (String) -> Void) {
-        self.projectName = projectName
-        self.projectPath = projectPath
-        self.sessions = sessions
-        self.isStarred = isStarred
-        self.isUnclaimed = isUnclaimed
-        self.searchResults = searchResults
-        self.onToggleStar = onToggleStar
-        self.onDeleteSession = onDeleteSession
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Compact project line
-            HStack(spacing: 6) {
-                if sessions.count > 1 || hasSearchMatches {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 10 * scale, weight: .semibold))
-                        .foregroundColor(.secondary)
-                        .frame(width: 14)
-                        .contentShape(Rectangle())
-                        .onTapGesture { withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() } }
-                        .hudTip(isExpanded ? "Collapse sessions" : "Expand sessions")
-                } else {
-                    Spacer().frame(width: 14)
-                }
-
-                // Star toggle
-                Button(action: onToggleStar) {
-                    Image(systemName: isStarred ? "star.fill" : "star")
-                        .font(.system(size: 11 * scale))
-                        .foregroundColor(isStarred ? .yellow : .secondary.opacity(0.4))
-                        .frame(width: 14)
-                }
-                .buttonStyle(.borderless)
-                .hudTip(isStarred ? "Unstar project" : "Star project")
-
-                Text(projectName)
-                    .font(.smallMedium(scale))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-
-                // Unclaimed-cwd marker (Phase 2): this repo maps to no vault
-                // project — the Session Inbox set. A quiet triage nudge, not a
-                // loud badge; the Projects spine never shows these.
-                if isUnclaimed {
-                    Image(systemName: "tray")
-                        .font(.system(size: 9 * scale))
-                        .foregroundColor(.secondary.opacity(0.45))
-                        .hudTip("Unclaimed — maps to no vault project (Session Inbox). Add a vault folder or a cwds: glob in its Tasks.md to claim it.")
-                }
-
-                if sessions.count > 1 {
-                    Text("\(sessions.count)")
-                        .font(.custom("Fira Code", size: 10 * scale))
-                        .foregroundColor(.secondary.opacity(0.6))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
-                }
-
-                Spacer()
-
-                Text(latest.timestamp.relativeString)
-                    .font(.custom("Fira Code", size: 10 * scale))
-                    .foregroundColor(.secondary.opacity(0.5))
-
-                GitHubRepoIndicator(
-                    info: projectService.gitHubInfo(forPath: projectPath),
-                    scale: scale
+            ForEach(visibleRows) { row in
+                SessionDetailRow(
+                    session: row.session,
+                    searchResult: searchResults[row.session.id],
+                    onDelete: { onDeleteSession(row.session.id) },
+                    projectTag: (name: row.project, isUnclaimed: row.isUnclaimed)
                 )
+                .padding(.horizontal, 4)
+                Divider().opacity(0.3)
+            }
 
-                if let feedback {
-                    Text(feedback)
+            if rows.count > rowCap {
+                Button(action: { withAnimation(.easeInOut(duration: 0.15)) { showAll.toggle() } }) {
+                    Text(showAll ? "Show less" : "Show all \(rows.count) sessions")
                         .font(.custom("Fira Sans", size: 11 * scale))
-                        .foregroundColor(.green)
-                } else {
-                    Button(action: {
-                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: projectPath)
-                    }) {
-                        Image(systemName: "folder")
-                            .font(.system(size: 11 * scale, weight: .semibold))
-                            .foregroundColor(.white)
-                    }
-                    .buttonStyle(.borderless)
-                    .hudTip("Reveal in Finder")
-
-                    if !sessions.isEmpty {
-                        Button(action: { magicLaunchInGhostty() }) {
-                            Image(systemName: "pencil.and.outline")
-                                .font(.system(size: 11 * scale, weight: .semibold))
-                                .foregroundColor(.white)
-                        }
-                        .buttonStyle(.borderless)
-                        .hudTip("New session — loads project context from the Obsidian wiki")
-                    } else {
-                        // Unavailable (no prior sessions): greyed + struck
-                        // through, the same idiom as GitHubRepoIndicator's
-                        // "no remote" state, instead of hiding the control.
-                        ZStack {
-                            Image(systemName: "pencil.and.outline")
-                                .font(.system(size: 11 * scale, weight: .semibold))
-                                .foregroundColor(.secondary.opacity(0.35))
-                            Rectangle()
-                                .frame(width: 14 * scale, height: 1.5 * scale)
-                                .rotationEffect(.degrees(-45))
-                                .foregroundColor(.secondary.opacity(0.7))
-                        }
-                        .hudTip("No prior sessions yet")
-                    }
-
-                    ForEach(terminalService.installedLaunchers, id: \.path) { launcher in
-                        Button(action: { newSession(usingApp: launcher.path) }) {
-                            Text(launcher.name == "VS Code" ? "VS" : ">_")
-                                .font(.custom("Fira Code", size: 10 * scale).weight(.semibold))
-                                .foregroundColor(.white)
-                        }
-                        .buttonStyle(.borderless)
-                        .hudTip("New session in \(launcher.name)")
-                    }
-                }
-            }
-            .padding(.vertical, 8)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                if sessions.count > 1 || hasSearchMatches {
-                    withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
-                }
-            }
-            .task(id: projectPath) {
-                projectService.refreshGitHubInfo(forPath: projectPath)
-            }
-
-            if isExpanded {
-                VStack(spacing: 0) {
-                    ForEach(visibleSessions) { session in
-                        SessionDetailRow(
-                            session: session,
-                            searchResult: searchResults[session.id],
-                            onDelete: { onDeleteSession(session.id) }
-                        )
-                    }
-
-                    // "Show more" / "Show less" toggle
-                    if sessions.count > sessionCap {
-                        Button(action: { withAnimation(.easeInOut(duration: 0.15)) { showAll.toggle() } }) {
-                            Text(showAll ? "Show less" : "Show all \(sessions.count) sessions")
-                                .font(.custom("Fira Sans", size: 11 * scale))
-                                .foregroundColor(.accentColor)
-                        }
-                        .buttonStyle(.borderless)
-                        .padding(.vertical, 4)
-                    }
-                }
-                .padding(.leading, 20)
-            }
-        }
-    }
-
-    private func newSession(usingApp appPath: String) {
-        let command = daemonizedClaudeCommand("")
-        let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
-        let bg = useColors ? TerminalService.projectColor(for: projectName) : nil
-        let auto = terminalService.launchWithCommand(command, inDirectory: projectPath, usingApp: appPath, backgroundColor: bg)
-        feedback = auto ? "Opened!" : "Cmd+V"
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
-    }
-
-    private func magicLaunchInGhostty() {
-        // Canonical registry lookup keyed by this project's absolute repo
-        // working directory. On a hit the shared launcher names the resolved
-        // vault folder directly (dropping the legacy "confirm with the user"
-        // ambiguity); on a miss it preserves the fuzzy index.md behavior.
-        let resolvedVaultPath = projectService.vaultFolderPath(forRepoPath: projectPath)
-        let auto = performMagicLaunch(
-            projectName: projectName, cwd: projectPath,
-            resolvedVaultPath: resolvedVaultPath,
-            terminalService: terminalService
-        )
-        feedback = auto ? "Opened!" : "Cmd+V"
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
-    }
-
-}
-
-// MARK: - GitHub Repo Indicator
-
-/// Reserved-slot indicator. Always renders so rows stay aligned: a white mark
-/// when the project has a GitHub remote, a greyed-out mark with a diagonal
-/// slash when it doesn't. `nil` info covers both "no remote" and "not yet
-/// fetched"; the slot is stable across both states. (Moved here from the
-/// deleted ProjectDashboardView husk — its only consumer is the ProjectRow.)
-struct GitHubRepoIndicator: View {
-    let info: GitHubRepoInfo?
-    let scale: CGFloat
-
-    private var tooltip: String {
-        guard let info else { return "No GitHub remote" }
-        let host = info.url
-            .replacingOccurrences(of: "https://", with: "")
-            .replacingOccurrences(of: "http://", with: "")
-        return "\(info.isPrivate ? "Private" : "Public") · \(host)"
-    }
-
-    var body: some View {
-        Group {
-            if let info {
-                Button {
-                    if let url = URL(string: info.url) {
-                        NSWorkspace.shared.open(url)
-                    }
-                } label: {
-                    ZStack(alignment: .bottomTrailing) {
-                        markImage.foregroundColor(.white)
-                        if info.isPrivate {
-                            Image(systemName: "lock.fill")
-                                .font(.system(size: 6 * scale, weight: .bold))
-                                .foregroundColor(.green)
-                                // Push the lock just past the bottom-right of
-                                // the mark so it reads as an overlay glyph.
-                                .offset(x: 2, y: 2)
-                        }
-                    }
+                        .foregroundColor(.accentColor)
                 }
                 .buttonStyle(.borderless)
-            } else {
-                ZStack {
-                    markImage.foregroundColor(.secondary.opacity(0.35))
-                    Rectangle()
-                        .frame(width: 14 * scale, height: 1.5 * scale)
-                        .rotationEffect(.degrees(-45))
-                        .foregroundColor(.secondary.opacity(0.7))
-                }
-                .frame(width: 12 * scale, height: 12 * scale)
+                .padding(.vertical, 4)
             }
         }
-        .hudTip(tooltip)
-    }
-
-    private var markImage: some View {
-        Image("GitHubMark")
-            .renderingMode(.template)
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .frame(width: 12 * scale, height: 12 * scale)
     }
 }
 
@@ -1325,7 +967,7 @@ func daemonizedClaudeCommand(_ argSuffix: String, remoteControlName: String? = n
         + "else printf '%s\\n' \"$__o\"; \(plain); fi"
 }
 
-// MARK: - Magic launch (shared by Session History + Projects spine)
+// MARK: - Magic launch (Projects spine)
 
 /// Build the magic-launch argument: a `/vault-bootstrap` slash-command
 /// invocation whose expansion (see ~/.claude/commands/vault-bootstrap.md)
@@ -1370,37 +1012,25 @@ func performMagicLaunch(projectName: String, cwd: String, resolvedVaultPath: Str
     return terminalService.launchWithCommand(command, inDirectory: cwd, usingApp: app, backgroundColor: bg)
 }
 
-// MARK: - Session Detail Row (inside expanded project)
+// MARK: - Session Detail Row
 
+/// One session: preview, search snippet, short id, optional project tag, age,
+/// and a single `>_` action that resumes it in its original cwd. Shared by the
+/// History tab and a project's own session list.
 struct SessionDetailRow: View {
     let session: SessionInfo
     let searchResult: SessionSearchResult?
     let onDelete: () -> Void
+    /// History tab only: the session's project (resolved Obsidian project,
+    /// else repo folder). Nil where the project is already the context.
+    var projectTag: (name: String, isUnclaimed: Bool)? = nil
     @EnvironmentObject var terminalService: TerminalService
-    @EnvironmentObject var tabManager: TabManager
-    @EnvironmentObject var ingestService: VaultIngestService
     @State private var feedback: String?
     @Environment(\.fontScale) private var scale
 
-    /// Provenance badge state for this session. Reads
-    /// `VaultIngestService` (Phase 4): a session is `ingested` if its
-    /// `Sessions.md` row landed, `failed` if a `.failed` marker exists
-    /// in `~/.claude/ingest-state/`, `pending` if a transcript is in
-    /// the worker's queue but hasn't been processed yet, otherwise no
-    /// badge.
-    private enum BadgeKind { case ingested, failed, pending, none }
-
-    private var badgeKind: BadgeKind {
-        let s = ingestService.status(forSessionID: session.id)
-        switch s.kind {
-        case .ingested: return .ingested
-        case .failed: return .failed
-        case .unknown:
-            if ingestService.queue.pending.contains(where: { $0.sessionID == session.id }) {
-                return .pending
-            }
-            return .none
-        }
+    /// The `>_` action resumes in Ghostty.
+    private var ghostty: (name: String, path: String)? {
+        terminalService.installedLaunchers.first { $0.name == "Ghostty" }
     }
 
     var body: some View {
@@ -1408,18 +1038,14 @@ struct SessionDetailRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     if let wt = session.worktreeName {
-                        HStack(spacing: 2) {
-                            Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: 8 * scale, weight: .semibold))
-                            Text(wt)
-                                .font(.custom("Fira Code", size: 10 * scale))
-                                .lineLimit(1)
-                        }
-                        .foregroundColor(.purple)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(RoundedRectangle(cornerRadius: 3).fill(Color.purple.opacity(0.15)))
-                        .hudTip("Git worktree: \(wt)")
+                        Text(wt)
+                            .font(.custom("Fira Code", size: 10 * scale))
+                            .lineLimit(1)
+                            .foregroundColor(.purple)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(RoundedRectangle(cornerRadius: 3).fill(Color.purple.opacity(0.15)))
+                            .hudTip("Git worktree: \(wt)")
                     }
                     Text(session.preview)
                         .font(.custom("Fira Sans", size: 12.5 * scale))
@@ -1427,7 +1053,7 @@ struct SessionDetailRow: View {
                         .lineLimit(1)
                 }
 
-                if let snippet = searchResult?.snippet {
+                if let snippet = searchResult?.snippet, !snippet.isEmpty {
                     Text(snippet)
                         .font(.custom("Fira Sans", size: 11 * scale))
                         .foregroundColor(.accentColor.opacity(0.8))
@@ -1438,7 +1064,9 @@ struct SessionDetailRow: View {
                     Text(String(session.id.prefix(8)))
                         .font(.custom("Fira Code", size: 10 * scale))
                         .foregroundColor(.secondary.opacity(0.5))
-                    ingestBadge
+                    if let tag = projectTag {
+                        projectChip(tag.name, isUnclaimed: tag.isUnclaimed)
+                    }
                     Spacer()
                     Text(session.timestamp.relativeString)
                         .font(.custom("Fira Code", size: 10 * scale))
@@ -1453,22 +1081,14 @@ struct SessionDetailRow: View {
                     .font(.custom("Fira Sans", size: 10 * scale))
                     .foregroundColor(.green)
             } else {
-                Button(action: resumeInHUD) {
-                    Image(systemName: "plus.rectangle.on.rectangle")
-                        .font(.system(size: 10 * scale, weight: .semibold))
-                        .foregroundColor(.white)
-                }
-                .buttonStyle(.borderless)
-                .hudTip("Resume as HUD terminal tab")
-
-                ForEach(terminalService.installedLaunchers, id: \.path) { launcher in
-                    Button(action: { resume(usingApp: launcher.path) }) {
-                        Text(launcher.name == "VS Code" ? "VS" : ">_")
+                if let ghostty {
+                    Button(action: { resume(usingApp: ghostty.path) }) {
+                        Text(">_")
                             .font(.custom("Fira Code", size: 9 * scale).weight(.semibold))
                             .foregroundColor(.white)
                     }
                     .buttonStyle(.borderless)
-                    .hudTip("Resume in \(launcher.name)")
+                    .hudTip("Resume in a new Ghostty window")
                 }
             }
         }
@@ -1480,92 +1100,36 @@ struct SessionDetailRow: View {
         }
     }
 
+    /// Project attribution chip. An unclaimed cwd (no vault project owns it,
+    /// the Session Inbox set) renders italic and dimmer: a quiet triage nudge.
+    private func projectChip(_ name: String, isUnclaimed: Bool) -> some View {
+        Text(name)
+            .font(.custom("Fira Code", size: 10 * scale))
+            .italic(isUnclaimed)
+            .foregroundColor(.secondary.opacity(isUnclaimed ? 0.5 : 0.8))
+            .lineLimit(1)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
+            .hudTip(isUnclaimed
+                ? "Unclaimed: maps to no vault project (Session Inbox). Add a vault folder or a cwds: glob in its Tasks.md to claim it."
+                : "Project: \(name)")
+    }
+
+    /// `claude --resume <id>` with the header's permission mode, in a new
+    /// Ghostty window cd'd to the session's original cwd.
+    static func resumeCommand(sessionID: String) -> String {
+        "claude" + permissionModeFlag() + " --resume \(sessionID)"
+    }
+
     private func resume(usingApp appPath: String) {
-        let command = daemonizedClaudeCommand(" --resume \(session.id)")
+        let command = Self.resumeCommand(sessionID: session.id)
         let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
         let projectName = URL(fileURLWithPath: session.projectPath).lastPathComponent
         let bg = useColors ? TerminalService.projectColor(for: projectName) : nil
         let auto = terminalService.launchWithCommand(command, inDirectory: session.projectPath, usingApp: appPath, backgroundColor: bg)
         feedback = auto ? "Opened!" : "Cmd+V"
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
-    }
-
-    private func resumeInHUD() {
-        let command = daemonizedClaudeCommand(" --resume \(session.id)")
-        let projectName = URL(fileURLWithPath: session.projectPath).lastPathComponent
-        let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
-        let bg = useColors ? TerminalService.projectColor(for: projectName) : nil
-        tabManager.addTerminalTab(
-            title: String(session.id.prefix(8)),
-            command: command,
-            workingDirectory: session.projectPath,
-            backgroundColor: bg,
-            subtitle: session.worktreeName
-        )
-        feedback = "Opened"
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { feedback = nil }
-    }
-
-    /// Small ingest-state badge next to the short session ID. Tooltip
-    /// explains the state. Click reveals the relevant file in Finder
-    /// (Sessions.md for ingested, the `.failed` marker for failed, the
-    /// transcript for pending).
-    @ViewBuilder
-    private var ingestBadge: some View {
-        switch badgeKind {
-        case .ingested:
-            badgePill(symbol: "checkmark", color: .green,
-                      tip: "Ingested into vault — click to open Sessions.md",
-                      action: revealIngestedRow)
-        case .failed:
-            badgePill(symbol: "xmark", color: .red,
-                      tip: "Ingest failed — click to reveal the .failed marker",
-                      action: revealFailedMarker)
-        case .pending:
-            badgePill(symbol: "hourglass", color: .orange,
-                      tip: "Queued — worker will pick it up on next SessionEnd",
-                      action: revealPendingTranscript)
-        case .none:
-            EmptyView()
-        }
-    }
-
-    private func badgePill(symbol: String, color: Color, tip: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 8 * scale, weight: .bold))
-                .foregroundColor(color)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
-                .background(RoundedRectangle(cornerRadius: 3).fill(color.opacity(0.18)))
-        }
-        .buttonStyle(.plain)
-        .hudTip(tip)
-    }
-
-    private func revealIngestedRow() {
-        let s = ingestService.status(forSessionID: session.id)
-        guard let project = s.project,
-              let vault = ingestService.vaultPath else { return }
-        let url = vault.appending(path: "\(project)/Sessions.md")
-        NSWorkspace.shared.activateFileViewerSelecting([url])
-    }
-
-    private func revealFailedMarker() {
-        let stateDir = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".claude/ingest-state")
-        guard let entries = try? FileManager.default.contentsOfDirectory(at: stateDir, includingPropertiesForKeys: nil),
-              let marker = entries.first(where: { $0.lastPathComponent.hasPrefix("\(session.id).") && $0.pathExtension == "failed" })
-        else {
-            NSWorkspace.shared.activateFileViewerSelecting([stateDir])
-            return
-        }
-        NSWorkspace.shared.activateFileViewerSelecting([marker])
-    }
-
-    private func revealPendingTranscript() {
-        if let p = ingestService.queue.pending.first(where: { $0.sessionID == session.id }) {
-            NSWorkspace.shared.activateFileViewerSelecting([p.path])
-        }
     }
 }
 

@@ -49,11 +49,15 @@ class AppState: ObservableObject {
 
         // Vault ingest state: poll every 30s for .done/.failed markers,
         // per-project Sessions.md provenance, sync log status. Feeds the
-        // Vault cockpit (Phase 5) and Session-History badges (Phase 4).
+        // Vault cockpit (Phase 5).
         // Read-only; workers (SessionEnd hook, launchd sync) own writes.
         let vaultURL = vaultManager.currentVault.map { URL(fileURLWithPath: $0.path) }
         vaultIngestService.start(vaultPath: vaultURL)
         vaultProjectService.start(vaultPath: vaultURL)
+
+        // Session scan at launch, which also brings the transcript search
+        // index up to date off-main, so the first History search is warm.
+        Task { await sessionHistoryService.refresh() }
 
         // Unlock secrets vault — single Touch ID prompt for the whole session.
         // Services were initialized before secrets were available, so notify
