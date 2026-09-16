@@ -76,6 +76,45 @@ class TerminalService: ObservableObject {
         return launchWithCommand(command, inDirectory: NSHomeDirectory(), usingApp: app)
     }
 
+    /// Mark `dir` trusted in ~/.claude.json so a HUD launch never stops at
+    /// Claude Code's folder-trust dialog. Claude Code (2.1.273) skips the
+    /// dialog when `projects[<cwd>].hasTrustDialogAccepted` is true. Every HUD
+    /// launch goes through `launchWithCommand`, which calls this once.
+    ///
+    /// Live claude processes rewrite ~/.claude.json, so: read it immediately
+    /// before writing, change only that one key (creating a minimal project
+    /// entry if absent), skip the write when already true, write atomically
+    /// with the original permissions, and never write on a read/parse failure.
+    static func preTrustFolder(_ dir: String) {
+        let key = URL(fileURLWithPath: dir).resolvingSymlinksInPath().standardizedFileURL.path
+        let configURL = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".claude.json")
+        guard let data = try? Data(contentsOf: configURL),
+              var root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else { return }
+        var projects = root["projects"] as? [String: Any] ?? [:]
+        var entry = projects[key] as? [String: Any] ?? [:]
+        if entry["hasTrustDialogAccepted"] as? Bool == true { return }
+        entry["hasTrustDialogAccepted"] = true
+        projects[key] = entry
+        root["projects"] = projects
+        guard let out = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .withoutEscapingSlashes])
+        else { return }
+
+        let perms = (try? FileManager.default.attributesOfItem(atPath: configURL.path))?[.posixPermissions] as? NSNumber ?? 0o600
+        let tmp = configURL.deletingLastPathComponent().appending(path: ".claude.json.hud-\(UUID().uuidString.prefix(8))")
+        do {
+            try out.write(to: tmp)
+            try FileManager.default.setAttributes([.posixPermissions: perms], ofItemAtPath: tmp.path)
+            // rename(2): atomic replace on the same volume.
+            guard rename(tmp.path, configURL.path) == 0 else {
+                try? FileManager.default.removeItem(at: tmp)
+                return
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: tmp)
+        }
+    }
+
     var selectedName: String {
         TerminalService.knownTerminals.first { $0.path == selectedPath }?.name
             ?? URL(fileURLWithPath: selectedPath).deletingPathExtension().lastPathComponent
@@ -88,6 +127,7 @@ class TerminalService: ObservableObject {
     func launchWithCommand(_ command: String, inDirectory: String? = nil, usingApp overridePath: String? = nil, backgroundColor: String? = nil) -> Bool {
         let appPath = overridePath ?? selectedPath
         guard !appPath.isEmpty else { return false }
+        if let dir = inDirectory { Self.preTrustFolder(dir) }
 
         var fullCommand = command
         if let dir = inDirectory {
