@@ -6,6 +6,22 @@ import GhosttyKit
 struct ClaudeHUDApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
+    /// Command-line mode for vault-ingest.sh: `ClaudeHUD --transcript-text
+    /// <path> [maxChars]` prints the transcript's conversation text (the
+    /// same extraction the search index uses) and exits before any UI starts.
+    init() {
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--transcript-text"), i + 1 < args.count {
+            let maxChars = i + 2 < args.count ? Int(args[i + 2]) ?? 240_000 : 240_000
+            guard let text = TranscriptText.conversation(atPath: args[i + 1], maxChars: maxChars) else {
+                FileHandle.standardError.write(Data("cannot read \(args[i + 1])\n".utf8))
+                exit(1)
+            }
+            FileHandle.standardOutput.write(Data(text.utf8))
+            exit(0)
+        }
+    }
+
     var body: some Scene {
         // No visible scenes — panel is managed by AppDelegate
         Settings {

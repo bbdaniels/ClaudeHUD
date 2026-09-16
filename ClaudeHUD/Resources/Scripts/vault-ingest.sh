@@ -1,11 +1,23 @@
 #!/bin/bash
 # === Managed by ClaudeHUD ============================================
-# script-version: 1.11.0
+# script-version: 1.12.0
 # source: ClaudeHUD/Resources/Scripts/vault-ingest.sh
 # To edit, fork in the ClaudeHUD repo and rebuild. The installer
 # detects local edits to the installed copy and refuses to clobber
 # them — see Services/VaultScriptInstaller.swift.
 # =====================================================================
+# 1.12.0 (2026-09-16):
+#  * Root fix for "Prompt is too long". The digest model no longer reads
+#    raw JSONL (tool payloads, base64, attachments blew past the context
+#    even after byte truncation). The worker extracts user/assistant text
+#    with the HUD's single extractor (`ClaudeHUD --transcript-text`, the
+#    same code the History search index uses), capped at 240,000 chars
+#    (~60K tokens) head+tail, and passes it in the prompt on stdin. No
+#    tools, one turn. The byte-based truncation is removed.
+#  * --run exits 1 on failure so --backfill counts it; --backfill honors
+#    the same 6 h retry window as the SessionEnd hook, so a failing
+#    transcript is retried (ended sessions included) without re-running
+#    every 30 min and starving the rest of the queue.
 # 1.11.0 (2026-09-16):
 #  * Session titles moved out of the ingest. The HUD owns the one title
 #    generator (SessionHistoryService's Haiku titler) and writes
@@ -157,6 +169,9 @@ VAULT="/Users/bbdaniels/Documents/Obsidian"
 STATE="$HOME/.claude/ingest-state"
 PROMPT="$HOME/.claude/scripts/vault-ingest-prompt.md"
 CLAUDE="${VAULT_INGEST_CLAUDE:-$HOME/.local/bin/claude}"   # override = testability only
+# The one transcript-text extractor (shared with the HUD's search index).
+HUD_BIN="${VAULT_INGEST_HUD:-/Applications/ClaudeHUD.app/Contents/MacOS/ClaudeHUD}"
+TEXT_CAP=240000   # chars of conversation text (~60K tokens), head+tail
 LOG="/tmp/vault-ingest.out"
 FLOOR=6000
 mkdir -p "$STATE"
@@ -328,12 +343,19 @@ if [ "${1:-}" = "--backfill" ]; then
   echo "=== vault-ingest --backfill N=$limit $(date -u +%FT%TZ) ==="
   processed=0; skipped=0; failed=0
   while IFS= read -r f; do
-    [ "$processed" -ge "$limit" ] && break
+    [ $((processed+failed)) -ge "$limit" ] && break   # N model calls per tick, success or not
     [ -z "$f" ] && continue
     is_ingest_eligible_path "$f" || { skipped=$((skipped+1)); continue; }
     b=$(wc -c < "$f" 2>/dev/null | tr -d ' '); [ "${b:-0}" -lt "$FLOOR" ] && continue
     key="$(basename "$f").$b.done"
     [ -f "$STATE/$key" ] && continue
+    # Bounded retry, same window as the SessionEnd hook: a transcript that
+    # failed in the last 6 h waits, so one poison file cannot re-run every
+    # tick and starve the queue; after that it is retried, ended or not.
+    fm="$STATE/$(basename "$f").$b.failed"
+    if [ -f "$fm" ] && [ -n "$(find "$fm" -mmin -360 2>/dev/null)" ]; then
+      skipped=$((skipped+1)); continue
+    fi
     # Settle window: skip transcripts still being written (modified in the
     # last 2h). A live session re-digests on every tick otherwise — the
     # idempotency key is name+bytes — stacking near-duplicate log blocks.
@@ -366,7 +388,7 @@ if [ "${1:-}" = "--backfill" ]; then
       *) skipped=$((skipped+1)); continue ;;
     esac
     sid="$(basename "$f" .jsonl)"
-    echo "backfill [$((processed+1))/$limit] sid=$sid cwd=$cwd"
+    echo "backfill [$((processed+failed+1))/$limit] sid=$sid cwd=$cwd"
     if bash "$0" --run "$sid" "$f" "$cwd"; then
       processed=$((processed+1))
     else
@@ -435,36 +457,24 @@ fi
 mkdir -p "$target_dir"
 echo "resolved project: $proj"
 
-# Temp copy of ONLY this transcript; the agent gets read access to nothing else.
+# Conversation text only (user + assistant text; no tool payloads, base64,
+# or attachments), extracted by the HUD's shared extractor and capped
+# head+tail to a token-safe size.
 tmpd="$(mktemp -d "${TMPDIR:-/tmp}/vingest.XXXXXX")"
 trap 'rm -rf "$tmpd"' EXIT
-cp "$tpath" "$tmpd/transcript.jsonl" 2>/dev/null || { echo "copy fail"; exit 0; }
-
-# Oversized-transcript guard (1.7.0): a transcript over ~200K tokens makes
-# `claude -p` fail "prompt is too long" (rc=1), which never marks .done and
-# requeues every --backfill cycle, squatting the alphabetically-first slots
-# and starving every healthy pending session. Keep the head (task/goal) and
-# tail (decisions/outcome) — where a close-out digest's signal is — and elide
-# the middle so the prompt stays under the context limit.
-_tbytes="$(wc -c < "$tmpd/transcript.jsonl" 2>/dev/null | tr -d ' ')"
-if [ "${_tbytes:-0}" -gt 480000 ]; then
-  if { head -c 100000 "$tmpd/transcript.jsonl"
-       printf '\n\n...[%s bytes of mid-session transcript elided to fit the model context]...\n\n' "$((_tbytes-360000))"
-       tail -c 260000 "$tmpd/transcript.jsonl"
-     } > "$tmpd/transcript.trunc" 2>/dev/null; then
-    mv "$tmpd/transcript.trunc" "$tmpd/transcript.jsonl"
-    echo "truncated oversized transcript: ${_tbytes} -> ~360000 bytes (head+tail)"
-  fi
+if [ ! -x "$HUD_BIN" ] || ! "$HUD_BIN" --transcript-text "$tpath" "$TEXT_CAP" > "$tmpd/conversation.txt" 2>>"$LOG"; then
+  : > "$STATE/${key}.failed"
+  echo "INGEST FAILED — transcript text extraction unavailable ($HUD_BIN)"
+  exit 1
 fi
+echo "conversation text: $(wc -c < "$tmpd/conversation.txt" | tr -d ' ') bytes from $bytes-byte transcript"
 
-prompt_text="$(cat "$PROMPT")
-
---- RUN CONTEXT ---
-TRANSCRIPT: $tmpd/transcript.jsonl
-PROJECT: $proj
-SESSION_ID: $sid
-SESSION_CWD: $cwd
-TODAY_UTC: $(date -u +%Y-%m-%d)"
+{ cat "$PROMPT"
+  printf '\n--- RUN CONTEXT ---\nPROJECT: %s\nSESSION_ID: %s\nSESSION_CWD: %s\nTODAY_UTC: %s\n' \
+    "$proj" "$sid" "$cwd" "$(date -u +%Y-%m-%d)"
+  printf '\n--- CONVERSATION ---\n'
+  cat "$tmpd/conversation.txt"
+} > "$tmpd/prompt.txt"
 
 ## Run from inside $tmpd so this digest session's OWN transcript records
 ## cwd=$tmpd — a throwaway dir, not a real project, gone after we exit.
@@ -473,12 +483,10 @@ TODAY_UTC: $(date -u +%Y-%m-%d)"
 ## (Without this the digest inherits a real-project cwd → infinite loop.)
 out="$(cd "$tmpd" && "$CLAUDE" -p \
   --model "${VAULT_INGEST_MODEL:-claude-sonnet-4-6}" \
-  --permission-mode default \
-  --allowedTools "Read,Grep,Glob" \
+  --tools "" \
   --strict-mcp-config \
-  --add-dir "$tmpd" \
-  --max-turns 40 \
-  "$prompt_text" 2>>"$LOG")"
+  --max-turns 2 \
+  < "$tmpd/prompt.txt" 2>>"$LOG")"
 rc=$?
 echo "claude rc=$rc"
 
@@ -486,8 +494,8 @@ if [ "$rc" -ne 0 ]; then
   echo "claude output (tail):"
   printf '%s\n' "$out" | tail -c 2000
   : > "$STATE/${key}.failed"
-  echo "INGEST FAILED (rc=$rc) — marked .failed, will retry on next SessionEnd"
-  exit 0
+  echo "INGEST FAILED (rc=$rc) — marked .failed; retried after 6 h (SessionEnd or --backfill)"
+  exit 1
 fi
 
 # Extract the digest strictly between markers (model writes nothing to disk).

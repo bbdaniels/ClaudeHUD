@@ -656,7 +656,7 @@ class SessionHistoryService: ObservableObject {
     }
 
     /// Get the role from a JSONL message line.
-    nonisolated private static func messageRole(from json: [String: Any]) -> String? {
+    nonisolated fileprivate static func messageRole(from json: [String: Any]) -> String? {
         if let role = json["role"] as? String { return role }
         if let type = json["type"] as? String {
             if type == "human" { return "user" }
@@ -684,6 +684,57 @@ class SessionHistoryService: ObservableObject {
             return texts.isEmpty ? nil : texts.joined(separator: "\n")
         }
         return nil
+    }
+}
+
+// MARK: - Transcript Text
+
+/// THE extraction of a transcript's conversation text: user and assistant
+/// text only; tool_use / tool_result payloads, thinking, attachments, and
+/// base64 blobs are skipped. Used in-process by the search index, and by
+/// vault-ingest.sh through the app binary's `--transcript-text` mode, so the
+/// digest and the index read identical text from one implementation.
+enum TranscriptText {
+    private static let textBlockMarker = Data("\"type\":\"text\"".utf8)
+    private static let stringContentMarker = Data("\"content\":\"".utf8)
+
+    /// Visit each user/assistant text message in complete JSONL lines.
+    static func forEachMessage<D: DataProtocol>(in data: D, _ body: (_ role: String, _ text: String) -> Void)
+        where D.SubSequence == D {
+        for line in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
+            let bytes = Data(line)
+            // Cheap byte pre-filter: skip records with no text content
+            // (tool results, progress, snapshots) before JSON parsing.
+            guard bytes.range(of: textBlockMarker) != nil || bytes.range(of: stringContentMarker) != nil,
+                  let json = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+                  let role = SessionHistoryService.messageRole(from: json),
+                  role == "user" || role == "assistant",
+                  let text = SessionHistoryService.extractMessageContent(from: json)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !text.isEmpty
+            else { continue }
+            body(role, text)
+        }
+    }
+
+    /// The conversation as plain text for a model, capped at `maxChars`
+    /// (a token-safe budget: text runs ~4 chars per token). Over the cap it
+    /// keeps the opening (intent) and the ending (outcome) and elides the
+    /// middle, marking the cut.
+    static func conversation(atPath path: String, maxChars: Int) -> String? {
+        guard let data = FileManager.default.contents(atPath: path) else { return nil }
+        var parts: [String] = []
+        forEachMessage(in: data) { role, text in
+            parts.append("[\(role == "user" ? "User" : "Assistant")]\n\(text)")
+        }
+        let full = parts.joined(separator: "\n\n")
+        guard full.count > maxChars else { return full }
+        let headCount = maxChars * 3 / 10
+        let tailCount = maxChars - headCount
+        let elided = full.count - maxChars
+        return String(full.prefix(headCount))
+            + "\n\n[... \(elided) characters of mid-session conversation elided ...]\n\n"
+            + String(full.suffix(tailCount))
     }
 }
 
@@ -1075,16 +1126,7 @@ final class TranscriptIndex: @unchecked Sendable {
         exec("BEGIN")
         if reset { deleteSession(id) }
         if consumed > 0, let insert = prepare("INSERT INTO messages(session_id, body) VALUES(?, ?)") {
-            let complete = data.prefix(consumed)
-            for line in complete.split(separator: 0x0A, omittingEmptySubsequences: true) {
-                // Cheap byte pre-filter: skip records with no text content
-                // (tool results, progress, snapshots) before JSON parsing.
-                guard line.range(of: Self.textBlockMarker) != nil
-                        || line.range(of: Self.stringContentMarker) != nil,
-                      let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-                      let text = SessionHistoryService.extractMessageContent(from: json),
-                      !text.isEmpty
-                else { continue }
+            TranscriptText.forEachMessage(in: data.prefix(consumed)) { _, text in
                 sqlite3_reset(insert)
                 bind(insert, 1, id)
                 bind(insert, 2, text)
@@ -1106,8 +1148,6 @@ final class TranscriptIndex: @unchecked Sendable {
         return true
     }
 
-    private static let textBlockMarker = Data("\"type\":\"text\"".utf8)
-    private static let stringContentMarker = Data("\"content\":\"".utf8)
 
     // MARK: SQLite helpers
 

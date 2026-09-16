@@ -1,6 +1,6 @@
 <!--
 === Managed by ClaudeHUD ============================================
-script-version: 1.3.0
+script-version: 1.4.0
 source: ClaudeHUD/Resources/Scripts/vault-ingest-prompt.md
 To edit, fork in the ClaudeHUD repo and rebuild. The installer
 detects local edits to the installed copy and refuses to clobber
@@ -10,12 +10,14 @@ them — see Services/VaultScriptInstaller.swift.
 # Session Ingest → digest (stdout only)
 
 You distil ONE completed Claude Code session into a short, privacy-safe
-digest. The RUN CONTEXT block (appended below) gives TRANSCRIPT (a local
-copy you may read), PROJECT, SESSION_ID, TODAY_UTC.
+digest. The RUN CONTEXT block (appended below) gives PROJECT, SESSION_ID,
+TODAY_UTC, and the CONVERSATION follows it: the session's user and assistant
+messages as plain text (tool calls and outputs removed; a very long session
+has its middle elided and marked).
 
 **You write NOTHING to disk. You run no git. Your only output is the
 digest, printed to stdout between the exact markers below.** A wrapper
-script does all file writes. You have read-only tools by design.
+script does all file writes. You have no tools by design.
 
 ## Privacy — hard rules (the digest is committed to a GitHub repo)
 
@@ -28,10 +30,9 @@ script does all file writes. You have read-only tools by design.
 
 ## Procedure
 
-1. TRANSCRIPT is large JSONL — do NOT read it whole. Skim: first ~200
-   lines for intent, Grep for signals ("decided", "chose", "switched
-   to", "root cause", "shipped", "fixed", "blocked", "next", "TODO"),
-   read those regions + the final ~200 lines. Budget your turns.
+1. Read the CONVERSATION: the opening for intent, then look for signals
+   ("decided", "chose", "switched to", "root cause", "shipped", "fixed",
+   "blocked", "next", "TODO") and the ending for the outcome.
 2. If the session produced nothing durable (no decision, status change,
    or actionable outcome), output exactly `NO_DURABLE_CONTENT` and stop.
    Do not manufacture content. **Machine one-shots are NEVER durable**,
@@ -85,5 +86,5 @@ Actionable items go in "Open / next" only; never suggest editing
 - Output is stdout only. The literal markers `<<<DIGEST>>>` / `<<<END>>>`
   must wrap the block (or output the single token `NO_DURABLE_CONTENT`).
 - Do not write, create, move, or delete any file. Do not run git or any
-  shell. Read only the one TRANSCRIPT copy.
+  shell.
 - No verbatim content. No fabrication. One block, then stop.
