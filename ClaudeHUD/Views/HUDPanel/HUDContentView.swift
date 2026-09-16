@@ -963,7 +963,16 @@ func daemonizedClaudeCommand(_ argSuffix: String, remoteControlName: String? = n
         + "| grep -oE '[0-9a-f]{8}' | tail -1); "
         + "if [ -n \"$__i\" ]; then "
         + "echo \"[registered with daemon: $__i -- run 'claude agents' to supervise]\"; "
+        // Closing the window hangs up the pty: the script and attach get
+        // SIGHUP, attach exits, and the trap stops the session so it does not
+        // linger in the agents manager. attach stays a FOREGROUND child (run
+        // in the background it loses the tty and dies with kqueue EINVAL); zsh
+        // runs the trap once it returns. A normal detach (Ctrl+Z or the agent
+        // view) exits attach with no signal, the trap is cleared, and the
+        // session keeps running. Verified live in Ghostty 2026-09-16.
+        + "trap 'claude stop \"$__i\" >/dev/null 2>&1; exit 129' HUP TERM; "
         + "claude attach \"$__i\"; "
+        + "trap - HUP TERM; "
         + "else printf '%s\\n' \"$__o\"; \(plain); fi"
 }
 
