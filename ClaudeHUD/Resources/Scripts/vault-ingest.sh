@@ -1,11 +1,21 @@
 #!/bin/bash
 # === Managed by ClaudeHUD ============================================
-# script-version: 1.10.0
+# script-version: 1.11.0
 # source: ClaudeHUD/Resources/Scripts/vault-ingest.sh
 # To edit, fork in the ClaudeHUD repo and rebuild. The installer
 # detects local edits to the installed copy and refuses to clobber
 # them — see Services/VaultScriptInstaller.swift.
 # =====================================================================
+# 1.11.0 (2026-09-16):
+#  * Session titles moved out of the ingest. The HUD owns the one title
+#    generator (SessionHistoryService's Haiku titler) and writes
+#    ~/.claude/hud/session-titles/<sid>.txt itself, for every listed
+#    session, whether or not a digest ever succeeds. write_title_sidecar
+#    and --backfill-titles are removed; the digest heading stays in the
+#    Session Log only. Existing sidecars remain valid.
+#  * A failed digest call now logs the tail of claude's stdout. Every
+#    launchd --backfill digest since 2026-06-12 exited rc=1 in ~2 s with
+#    the reason discarded, so the failure was undiagnosable.
 # 1.9.0 (2026-06-09):
 #  * --backfill-titles also scans `<Project>/Session Archive/<YYYY-MM>.md`
 #    files — the cloud cleaner's monthly session-log rollover (schema.md
@@ -369,61 +379,6 @@ EOF
   exit 0
 fi
 
-# ---------------- --backfill-titles ----------------
-# Rebuild every HUD session-title sidecar from the digests already written
-# to each project's Session Log.md / Misc/Session Inbox.md. Pure text
-# parsing — NO model calls. Pairs each "## <date> — <title>" heading with
-# the "- Session: <uuid>" line that follows and writes
-# ~/.claude/hud/session-titles/<uuid>.txt. Idempotent; safe to re-run.
-if [ "${1:-}" = "--backfill-titles" ]; then
-  dir="$HOME/.claude/hud/session-titles"
-  mkdir -p "$dir"
-  n="$(VAULT_DIR="$VAULT" OUTDIR="$dir" python3 <<'PY'
-import os, re
-vault = os.environ['VAULT_DIR']; outdir = os.environ['OUTDIR']
-title_re = re.compile(r'^##\s+\d{4}-\d{2}-\d{2}\s*[—–-]+\s*(.+?)\s*$')
-dash_re  = re.compile(r'^##\s+.*?\s[—–]\s+(.+?)\s*$')
-sess_re  = re.compile(r'^-\s*Session:\s*([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})')
-written = 0
-for root, dirs, files in os.walk(vault):
-    dirs[:] = [d for d in dirs if not d.startswith('.')]
-    rel = os.path.relpath(root, vault)
-    proj = '' if rel == '.' else rel.split(os.sep)[0]   # vault folder = project name
-    for fn in files:
-        # Hot logs + the cleaner monthly rollover archives, which hold the
-        # relocated pre-current-month blocks in the same digest format.
-        # NB: no apostrophes in this heredoc — it sits inside $( ) and the
-        # macOS bash 3.2 scanner tracks quotes naively there.
-        is_archive = os.path.basename(root) == 'Session Archive' and fn.endswith('.md')
-        if fn not in ('Session Log.md', 'Session Inbox.md') and not is_archive:
-            continue
-        cur = None
-        for line in open(os.path.join(root, fn), encoding='utf-8', errors='replace'):
-            m = title_re.match(line) or dash_re.match(line)
-            if m:
-                cur = m.group(1).strip()
-                # Same "<project>: " strip as write_title_sidecar — pre-rule
-                # digests keep the prefix in the vault forever; the sidecar
-                # (a pure HUD label) need not.
-                if proj:
-                    pm = re.match(re.escape(proj) + r'[\s:—–-]+(.{8,})$', cur, re.IGNORECASE)
-                    if pm:
-                        t = pm.group(1).strip()
-                        cur = t[:1].upper() + t[1:]
-                continue
-            s = sess_re.match(line)
-            if s and cur:
-                with open(os.path.join(outdir, s.group(1).lower() + '.txt'), 'w', encoding='utf-8') as f:
-                    f.write(cur + '\n')
-                written += 1
-                cur = None
-print(written)
-PY
-)"
-  echo "backfill-titles: wrote $n sidecars to $dir"
-  exit 0
-fi
-
 # ---------------- phase 1: SessionEnd hook ----------------
 if [ "${1:-}" != "--run" ]; then
   [ -n "${VAULT_INGEST:-}" ] && exit 0          # loop guard (our own claude -p)
@@ -528,6 +483,8 @@ rc=$?
 echo "claude rc=$rc"
 
 if [ "$rc" -ne 0 ]; then
+  echo "claude output (tail):"
+  printf '%s\n' "$out" | tail -c 2000
   : > "$STATE/${key}.failed"
   echo "INGEST FAILED (rc=$rc) — marked .failed, will retry on next SessionEnd"
   exit 0
@@ -540,44 +497,6 @@ append_atomic() {  # $1=file  $2=content-to-append
   local f="$1" tmp; tmp="$(mktemp "${f}.XXXXXX.tmp")"
   { [ -f "$f" ] && cat "$f"; printf '%s\n' "$2"; } > "$tmp"
   mv -f "$tmp" "$f"
-}
-
-# HUD session-title sidecar. Pull the digest's "## <date> — <title>" heading
-# (title only) and write it, keyed by session id, where the Swift HUD reads
-# it (SessionHistoryService.loadSidecarTitles). This "what the session
-# accomplished" label beats Claude Code's ai-title, which is generated from
-# the opening turn and freezes at "context load" for every magic-launched
-# vault session. Best-effort; an unparsable heading just leaves no sidecar
-# (the HUD falls back to ai-title / first prompt). Never fatal to the ingest.
-write_title_sidecar() {
-  local s="$1" d="$2" p="${3:-}" title dir tmp
-  [ -z "$s" ] && return 0
-  title="$(printf '%s' "$d" | python3 -c '
-import sys, re
-proj = sys.argv[1] if len(sys.argv) > 1 else ""
-date = re.compile(r"^##\s+\d{4}-\d{2}-\d{2}\s*[—–-]+\s*(.+?)\s*$")
-dash = re.compile(r"^##\s+.*?\s[—–]\s+(.+?)\s*$")
-title = ""
-for line in sys.stdin:
-    m = date.match(line) or dash.match(line)
-    if m:
-        title = m.group(1).strip(); break
-# The title rule forbids leading with the project name (the HUD list and
-# the Session Log are already grouped under it); strip the prefix when a
-# pre-rule digest or a model slip includes it anyway. Keep >=8 chars so a
-# degenerate title is never stripped to a stub.
-if title and proj:
-    m = re.match(re.escape(proj) + r"[\s:—–-]+(.{8,})$", title, re.IGNORECASE)
-    if m:
-        t = m.group(1).strip()
-        title = t[:1].upper() + t[1:]
-print(title)
-' "$p" 2>/dev/null)"
-  [ -z "$title" ] && return 0
-  dir="$HOME/.claude/hud/session-titles"
-  mkdir -p "$dir" 2>/dev/null || return 0
-  tmp="$(mktemp "$dir/.tmp.XXXXXX" 2>/dev/null)" || return 0
-  printf '%s\n' "$title" > "$tmp" && mv -f "$tmp" "$dir/$s.txt"
 }
 
 # Per-target lock: real sessions ending close together run concurrent
@@ -609,7 +528,6 @@ if [ -n "$digest" ]; then
   append_atomic "$logf" "
 $digest"
   echo "digest appended to: $logf"
-  write_title_sidecar "$sid" "$digest" "$proj"
 else
   echo "no durable content${ledg:+ — ledger row only}"
 fi
