@@ -5,7 +5,7 @@ ClaudeHUD is signed with a local self-signed certificate so that macOS TCC grant
 
 ## Files
 
-- `claudehud-dev.p12` — cert + private key (password: `claudehud`)
+- `claudehud-dev.p12` — cert + private key (kept locally only; password in the login keychain, item `claudehud-dev-p12`)
 - `claudehud-dev-cert.pem` — public cert only
 
 ## Installing on a new machine
