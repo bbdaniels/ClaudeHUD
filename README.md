@@ -123,6 +123,14 @@ Or open `ClaudeHUD.xcodeproj` in Xcode and build with Cmd+B.
 
 The built app will be in `~/Library/Developer/Xcode/DerivedData/ClaudeHUD-*/Build/Products/Debug/ClaudeHUD.app`.
 
+Unit tests (the pure, Foundation-only logic such as the Claude process classifier; no host app):
+
+```bash
+xcodebuild test -scheme ClaudeHUDTests -destination 'platform=macOS'
+```
+
+`ClaudeHUD --process-report` prints the menu's Background Jobs and Orphans sections and the classification of every Claude worker, then exits. It is read-only and safe to run while the menu-bar app is running.
+
 ## How it works
 
 ClaudeHUD wraps the [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) in a native SwiftUI interface. It launches `claude` as a subprocess with `--output-format stream-json` for real-time streaming, and maintains session IDs for multi-turn conversations. The CLI handles all the heavy lifting -- authentication, tool execution, MCP connections -- while ClaudeHUD provides the UI layer.

@@ -15,6 +15,7 @@ class AppState: ObservableObject {
     let usageService = UsageService()
     let skillsService = SkillsService()
     let agentsService = AgentsService()
+    let processMonitor = ClaudeProcessMonitor()
     let vaultScriptInstaller = VaultScriptInstaller()
     let vaultIngestService = VaultIngestService()
     let vaultProjectService = VaultProjectService()
@@ -40,6 +41,11 @@ class AppState: ObservableObject {
         // awaiting input forever. Scan and delete run off-main; doing it here
         // rather than only on Agents-tab open is what makes it automatic.
         AgentsService.reapStaleAtLaunch()
+
+        // Background jobs and orphaned workers for the menu-bar menu: a scan
+        // every 15 minutes (and on each menu open). Read-only; closing an
+        // orphan is always a confirmed click.
+        processMonitor.start()
 
         // Vault scripts: observation-only at launch (Phase 1 of the vault
         // tooling consolidation; see Documents/Obsidian/ClaudeHUD/Technical
