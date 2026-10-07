@@ -713,12 +713,17 @@ class VaultManager: ObservableObject {
     /// truth, `## Active`/`## Completed`, empty `cwds:` for the human to fill),
     /// a minimal `Dashboard.md` carrying the `gen:briefing` block the cloud
     /// cleaner regenerates, and a `Technical Notes.md` stub. Non-destructive:
-    /// refuses if the folder already exists (never overwrites). Returns the new
+    /// refuses if the folder already exists (never overwrites). A non-empty
+    /// `parent` (a folder name chosen in the new-project sheet) is written as
+    /// `parent:` in the `Tasks.md` frontmatter, making the project a child of
+    /// that one; this is the app creating a file at the user's request, the
+    /// only time it writes that human-owned key. Returns the new
     /// folder URL. Caller owns the follow-up (`VaultProjectService.insertProject`
     /// to surface the row, then a background `refresh()`; the 15-min
     /// `obsidian-sync.sh` pushes the folder to `origin/main`, so it's local
     /// until then).
-    static func createProject(vaultPath: URL, name rawName: String) -> Result<URL, CreateProjectError> {
+    static func createProject(vaultPath: URL, name rawName: String,
+                              parent rawParent: String? = nil) -> Result<URL, CreateProjectError> {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return .failure(.emptyName) }
         // Folder-name hygiene: no path separators, no leading dot (hidden /
@@ -740,12 +745,15 @@ class VaultManager: ObservableObject {
             return f.string(from: Date())
         }()
 
+        let parent = rawParent?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let parentLine = parent.isEmpty ? "" : "parent: \(parent)\n"
+
         let tasks = """
         ---
         project: \(name)
         status: active
         updated: \(today)
-        cwds: []
+        \(parentLine)cwds: []
         migrated-from: []
         aka: []
         ---
@@ -822,9 +830,8 @@ class VaultManager: ObservableObject {
     /// Extract the actionable tasks from a project's task file as `TodoItem`s
     /// for the Today tab's "What's Next" rollup.
     ///
-    /// `Tasks.md` is routed through the SHARED heading-aware parser
-    /// (`VaultProjectService.parseActiveTasks`) — the same one the Projects/
-    /// Vault tab uses — so the two tabs agree: `### ` headings become
+    /// `Tasks.md` is routed through the heading-aware parser
+    /// (`VaultProjectService.parseActiveTasks`): `### ` headings become
     /// sections, the (unchecked) bullets under them become tasks, nested
     /// detail folds into its parent (counted once), `- **Title**`
     /// non-checkbox tasks are included, and done items are skipped. Each

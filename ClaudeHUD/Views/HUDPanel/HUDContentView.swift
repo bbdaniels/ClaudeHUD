@@ -1003,10 +1003,12 @@ func magicLaunchArg(projectName: String, resolvedVaultPath: String?) -> String {
 /// clipboard fallback). Enables Remote Control named after the project so each
 /// session is identifiable in the agents list.
 ///
-/// `liveSessions` are the project's live interactive sessions, most recent
-/// first (`VaultProjectService.liveSessions(forFolder:in:)`). If one of them is
-/// attached in a Ghostty window, the new session opens as a tab there instead
-/// of in a new window.
+/// `liveSessions` are the project's OWN live interactive sessions, most recent
+/// first (`VaultProjectService.liveSessions(forFolders:in:)` with that one
+/// folder). If one of them is attached in a Ghostty window, the new session
+/// opens as a tab there instead of in a new window. A parent project passes
+/// only its own sessions, never its children's, so a parent launch cannot land
+/// in a child's window.
 @MainActor
 func performMagicLaunch(projectName: String, cwd: String, resolvedVaultPath: String?,
                         liveSessions: [AgentSession] = [],

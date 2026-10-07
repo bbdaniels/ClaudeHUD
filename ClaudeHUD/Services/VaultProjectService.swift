@@ -5,65 +5,24 @@ import os
 private let logger = Logger(subsystem: "com.claudehud", category: "VaultProjectService")
 
 /// Lists projects in the Obsidian vault and surfaces their canonical
-/// per-project metadata (frontmatter + existence flags + file paths)
-/// for the Vault tab. **Eager** on metadata (status, updated, cwds);
-/// **lazy** on body content (Tasks.md, Dashboard.md, Technical Notes.md
-/// are read on demand when a row expands), so refreshing the whole
-/// list doesn't open 30 markdown files unnecessarily.
+/// per-project metadata (the `Tasks.md` frontmatter: status, updated, cwds,
+/// manuscript, parent) for the Projects tab, plus the cwd → project join the
+/// live-session badges use. It also holds the `## Active` task parser the
+/// Today tab reads.
 ///
 /// Architecture: see Documents/Obsidian/ClaudeHUD/Technical Notes.md
 /// §Vault/Projects tab redistribution. The HUD is a window over the
 /// archive; this service does no synthesis — every value rendered in
-/// the Vault tab is a verbatim slice of a vault file.
+/// the Projects tab is a verbatim slice of a vault file.
 @MainActor
 final class VaultProjectService: ObservableObject {
 
     // MARK: - Public types
 
-    struct Project: Identifiable, Hashable {
-        var id: URL { folder }
-        let folder: URL
-        let name: String                  // folder basename
-        let status: String                // raw frontmatter value (active, wrapping-up, …)
-        let updated: Date?                // parsed from frontmatter `updated:`
-        let updatedRaw: String            // raw frontmatter value, for display fallback
-        let cwds: [String]                // first non-glob is used by "New session here"
-        let manuscript: String?           // frontmatter `manuscript:` — declared paper dir
-        let hasDashboard: Bool
-        let hasTechnicalNotes: Bool
-        let hasSessions: Bool
-        let hasSessionLog: Bool
-        let otherMarkdownFiles: [URL]     // .md files in folder other than the canonical ones
-
-        var tasksPath: URL { folder.appending(path: "Tasks.md") }
-        var dashboardPath: URL { folder.appending(path: "Dashboard.md") }
-        var technicalNotesPath: URL { folder.appending(path: "Technical Notes.md") }
-        var sessionsPath: URL { folder.appending(path: "Sessions.md") }
-        var sessionLogPath: URL { folder.appending(path: "Session Log.md") }
-
-        /// First absolute non-glob `cwds:` entry (for "New session here").
-        var primaryCwd: String? {
-            cwds.first { $0.hasPrefix("/") && !$0.contains("*") }
-        }
-
-        /// Declared `manuscript:` directory when absolute — what the
-        /// Manuscriptor button hands over. Declared or absent; never guessed
-        /// (Manuscriptor's root rule resolves upward only, so a project root
-        /// would not reach a paper nested in a subdirectory).
-        var manuscriptDir: String? {
-            guard let manuscript, manuscript.hasPrefix("/") else { return nil }
-            return manuscript
-        }
-
-        /// `updated:` more than 30 days ago + status ∈ {active, wrapping-up}.
-        var isStale: Bool {
-            guard let updated, status == "active" || status == "wrapping-up" else { return false }
-            return Date().timeIntervalSince(updated) > 30 * 24 * 3600
-        }
-
-        var isActive: Bool { status == "active" || status == "wrapping-up" }
-        var isInactive: Bool { status == "done" || status == "archived" }
-    }
+    /// The project model lives in `VaultProjectTree.swift` (Foundation-only, so
+    /// the unit tests compile it directly) together with the scan and the
+    /// parent → children tree.
+    typealias Project = VaultProject
 
     // MARK: - Published state
 
@@ -73,12 +32,6 @@ final class VaultProjectService: ObservableObject {
     // MARK: - Configuration
 
     private(set) var vaultPath: URL?
-
-    /// Filenames the Notes section's "other files" listing excludes
-    /// (they have their own dedicated subsections).
-    private nonisolated static let canonicalFiles: Set<String> = [
-        "Tasks.md", "Dashboard.md", "Technical Notes.md", "Sessions.md", "Session Log.md"
-    ]
 
     /// Bumped at the start of every `refresh()`; a scan publishes only if it
     /// is still the newest, so a slow (iCloud-cold) scan that finishes after
@@ -94,7 +47,7 @@ final class VaultProjectService: ObservableObject {
 
     /// Re-scan the vault. Call from view `onAppear` or explicitly after
     /// the vault changes. NOT cheap: it reads every project's `Tasks.md` in
-    /// full and lists every folder, and the vault is iCloud-evicted, so a
+    /// full, and the vault is iCloud-evicted, so a
     /// cold scan blocks 0.5–2 s per file (a 39 s main-thread hang when this
     /// ran synchronously). The scan therefore runs detached; only the
     /// publish touches the main actor. Fire-and-forget; `await` it when
@@ -109,7 +62,7 @@ final class VaultProjectService: ObservableObject {
         }
         return Task { [weak self] in
             let out = await Task.detached(priority: .userInitiated) {
-                VaultProjectService.scan(vaultPath: vault)
+                VaultProject.scan(vaultPath: vault)
             }.value
             guard let self, generation == self.scanGeneration else { return }
             self.projects = out
@@ -120,153 +73,16 @@ final class VaultProjectService: ObservableObject {
 
     /// Insert (or replace) one project parsed from `folder`, re-sorted into
     /// place, without waiting for a full scan — used right after "New
-    /// Project" so the row exists to auto-expand. Parses via the same
-    /// `parseProject` as the scan; one small folder, so a main-actor read
+    /// Project" so the row appears at once. Parses via the same
+    /// `VaultProject.parse` as the scan; one small folder, so a main-actor read
     /// of a just-written (never evicted) file is fine. Returns the project.
     @discardableResult
     func insertProject(folder: URL) -> Project? {
-        guard let p = Self.parseProject(folder: folder) else { return nil }
+        guard let p = VaultProject.parse(folder: folder) else { return nil }
         var out = projects.filter { $0.name != p.name }
         out.append(p)
-        projects = Self.sorted(out)
+        projects = VaultProject.sorted(out)
         return p
-    }
-
-    /// The full filesystem scan: one `parseProject` per non-hidden folder,
-    /// sorted. Pure and nonisolated — run it off the main actor.
-    nonisolated static func scan(vaultPath vault: URL) -> [Project] {
-        let folders = (try? FileManager.default.contentsOfDirectory(
-            at: vault, includingPropertiesForKeys: [.isDirectoryKey]
-        )) ?? []
-        var out: [Project] = []
-        for folder in folders {
-            guard let isDir = try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory, isDir,
-                  !folder.lastPathComponent.hasPrefix(".") else { continue }
-            if let p = parseProject(folder: folder) { out.append(p) }
-        }
-        return sorted(out)
-    }
-
-    /// Sort: active+wrapping-up first (by updated desc), then everything else (by updated desc).
-    private nonisolated static func sorted(_ projects: [Project]) -> [Project] {
-        projects.sorted { lhs, rhs in
-            if lhs.isActive != rhs.isActive { return lhs.isActive }   // active first
-            let l = lhs.updated ?? .distantPast
-            let r = rhs.updated ?? .distantPast
-            return l > r
-        }
-    }
-
-    // MARK: - Per-project parse
-
-    private nonisolated static func parseProject(folder: URL) -> Project? {
-        let tasks = folder.appending(path: "Tasks.md")
-        guard let content = try? String(contentsOf: tasks, encoding: .utf8) else { return nil }
-        let fm = parseFrontmatter(content)
-
-        let status = fm["status"] ?? "unknown"
-        let updatedRaw = fm["updated"] ?? ""
-        let updated = ISO8601DateFormatter.dateOnly.date(from: updatedRaw)
-            ?? DateFormatter.iso8601Date.date(from: updatedRaw)
-        let cwds = parseFrontmatterList(content, key: "cwds")
-        let manuscript = fm["manuscript"]
-
-        let dirContents = (try? FileManager.default.contentsOfDirectory(
-            at: folder, includingPropertiesForKeys: nil
-        )) ?? []
-        let mdFiles = dirContents.filter { $0.pathExtension == "md" }
-        let canonical = canonicalFiles
-        let others = mdFiles.filter { !canonical.contains($0.lastPathComponent) }
-
-        return Project(
-            folder: folder,
-            name: folder.lastPathComponent,
-            status: status,
-            updated: updated,
-            updatedRaw: updatedRaw,
-            cwds: cwds,
-            manuscript: manuscript,
-            hasDashboard: mdFiles.contains { $0.lastPathComponent == "Dashboard.md" },
-            hasTechnicalNotes: mdFiles.contains { $0.lastPathComponent == "Technical Notes.md" },
-            hasSessions: mdFiles.contains { $0.lastPathComponent == "Sessions.md" },
-            hasSessionLog: mdFiles.contains { $0.lastPathComponent == "Session Log.md" },
-            otherMarkdownFiles: others.sorted { $0.lastPathComponent < $1.lastPathComponent }
-        )
-    }
-
-    // MARK: - Frontmatter (top-level scalars)
-
-    private nonisolated static func parseFrontmatter(_ content: String) -> [String: String] {
-        guard content.hasPrefix("---\n") else { return [:] }
-        let body = String(content.dropFirst(4))
-        guard let end = body.range(of: "\n---\n") else { return [:] }
-        let block = String(body[..<end.lowerBound])
-        var out: [String: String] = [:]
-        for line in block.components(separatedBy: "\n") {
-            // Top-level scalar: starts non-whitespace, contains `:`, value after `:`.
-            // Skip lines that begin with whitespace (list items) and lines without `:`.
-            guard !line.isEmpty, !line.hasPrefix(" "), !line.hasPrefix("\t") else { continue }
-            guard let colon = line.firstIndex(of: ":") else { continue }
-            let key = String(line[..<colon]).trimmingCharacters(in: .whitespaces)
-            var val = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
-            // Strip surrounding quotes — YAML commonly quotes dates
-            // (`updated: '2026-06-08'`), and an unquoted-only parse leaves the
-            // quotes in, so the date fails to parse (→ nil → mis-bucketed as
-            // "Older") and `status: 'active'` would miss its equality checks.
-            if val.count >= 2,
-               (val.hasPrefix("'") && val.hasSuffix("'")) ||
-               (val.hasPrefix("\"") && val.hasSuffix("\"")) {
-                val = String(val.dropFirst().dropLast())
-            }
-            if !key.isEmpty { out[key] = val }
-        }
-        return out
-    }
-
-    /// Parse a YAML-list value under a given key, e.g.
-    /// `cwds:`
-    /// `  - /Users/bbdaniels/Projects/ClaudeHUD`
-    /// Returns the bare strings (quotes stripped).
-    private nonisolated static func parseFrontmatterList(_ content: String, key: String) -> [String] {
-        guard content.hasPrefix("---\n") else { return [] }
-        let body = String(content.dropFirst(4))
-        guard let end = body.range(of: "\n---\n") else { return [] }
-        let block = String(body[..<end.lowerBound])
-        var collecting = false
-        var out: [String] = []
-        for line in block.components(separatedBy: "\n") {
-            // Begin collecting when we see `<key>:` at top level.
-            if !collecting, !line.hasPrefix(" "), !line.hasPrefix("\t"),
-               line.hasPrefix("\(key):") || line == "\(key):" {
-                collecting = true
-                // Inline scalar form (`key: [a, b]` or `key: ~`) is not list-shaped.
-                let after = String(line.dropFirst("\(key):".count)).trimmingCharacters(in: .whitespaces)
-                if !after.isEmpty && after != "~" && after != "[]" {
-                    // Non-list value on the same line; ignore for list parsing.
-                    collecting = false
-                }
-                continue
-            }
-            if collecting {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                // A list item — collect it whether indented (`  - x`) or flush-left
-                // (`- x`). YAML allows a block sequence at the key's own indent, and
-                // some serializers (e.g. the YAML lib behind property editors) emit
-                // the flush-left form; the old "non-indented line ends the list"
-                // check ran first and wrongly dropped those, leaving cwds empty
-                // (so the project showed no launch controls — primaryCwd was nil).
-                if trimmed.hasPrefix("- ") {
-                    let v = trimmed.dropFirst(2).trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
-                    out.append(String(v))
-                    continue
-                }
-                // A non-list, non-indented line is a new top-level key → list ends.
-                if !line.isEmpty, !line.hasPrefix(" "), !line.hasPrefix("\t") {
-                    collecting = false
-                }
-            }
-        }
-        return out
     }
 
     // MARK: - ActiveTask model
@@ -315,59 +131,8 @@ final class VaultProjectService: ObservableObject {
         var line: Int = -1
     }
 
-    // MARK: - Lazy parsers (called by views when expanded; nonisolated so
-    // the file read + parse can run off the main actor)
-
-    /// Drop a leading YAML frontmatter block, if any.
-    nonisolated static func stripFrontmatter(_ content: String) -> String {
-        guard content.hasPrefix("---\n") else { return content }
-        let body = String(content.dropFirst(4))
-        guard let end = body.range(of: "\n---\n") else { return content }
-        return String(body[end.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Prose between `# <H1>` and the next `## ` heading. The H1 is what
-    /// `Tasks.md` always opens with (`# <Project> Tasks`); the preamble
-    /// after it is the user-authored project description. Returns nil
-    /// if no preamble is present. Source-markdown soft line breaks (≤80
-    /// char wrapping) are reflowed to spaces; blank lines preserved as
-    /// paragraph separators, so the rendered text wraps to the panel
-    /// width instead of the markdown source width.
-    nonisolated static func extractPreamble(from content: String) -> String? {
-        let stripped = stripFrontmatter(content)
-        var inPreamble = false
-        var collected: [String] = []
-        for line in stripped.components(separatedBy: "\n") {
-            if !inPreamble {
-                if line.hasPrefix("# ") { inPreamble = true }
-                continue
-            }
-            if line.hasPrefix("## ") { break }
-            collected.append(line)
-        }
-        let result = reflowProse(collected)
-        return result.isEmpty ? nil : result
-    }
-
-    /// First non-empty paragraph of a markdown string. Skips frontmatter
-    /// and any leading headings; "paragraph" = first run of consecutive
-    /// non-empty lines, reflowed to a single line.
-    nonisolated static func extractFirstParagraph(from content: String) -> String? {
-        let stripped = stripFrontmatter(content)
-        var collected: [String] = []
-        for line in stripped.components(separatedBy: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if collected.isEmpty {
-                if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
-                collected.append(line)
-            } else {
-                if trimmed.isEmpty { break }
-                collected.append(line)
-            }
-        }
-        let result = reflowProse(collected)
-        return result.isEmpty ? nil : result
-    }
+    // MARK: - Task parsers (nonisolated so the file read + parse can run off
+    // the main actor)
 
     /// Join consecutive non-empty lines with a single space; preserve
     /// blank lines as paragraph breaks (`\n\n`). Markdown convention:
@@ -391,48 +156,12 @@ final class VaultProjectService: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Pull out the body between a `## <heading>` line and the next `## ` line.
-    /// Returns nil if the section isn't present.
-    nonisolated static func extractSection(named heading: String, from content: String) -> String? {
-        let prefix = "## \(heading)"
-        var inSection = false
-        var collected: [String] = []
-        for line in content.components(separatedBy: "\n") {
-            if !inSection {
-                if line.trimmingCharacters(in: .whitespaces) == prefix
-                    || line.hasPrefix(prefix + " ") {
-                    inSection = true
-                }
-                continue
-            }
-            if line.hasPrefix("## ") { break }
-            collected.append(line)
-        }
-        guard inSection else { return nil }
-        return collected.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// The cleaner-generated briefing block from a `Dashboard.md` body — the
-    /// text between `<!-- gen:briefing -->` and `<!-- /gen:briefing -->`. This
-    /// is the project's human surface (Now / Next / Recently done / Later),
-    /// regenerated nightly. Returns nil if absent/empty. Format-independent:
-    /// just delimiter extraction; the view renders whatever markdown is inside.
-    nonisolated static func extractBriefing(from content: String) -> String? {
-        guard let start = content.range(of: "<!-- gen:briefing -->"),
-              let end = content.range(of: "<!-- /gen:briefing -->",
-                                     range: start.upperBound..<content.endIndex)
-        else { return nil }
-        let inner = content[start.upperBound..<end.lowerBound]
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return inner.isEmpty ? nil : inner
-    }
-
     /// Split a `**Title**: body` (or `**Title** — body`) string into
     /// (title, body) without assuming the closing `**` sits on one line —
     /// it scans the whole string. Falls back to (wholeString, "") when
     /// there is no leading bold. Single source of truth for bullet-title
-    /// extraction, shared by the parser, the Vault tab's `SubBulletRow`,
-    /// and the Today tab's task mapping (`VaultManager.extractActiveTasks`).
+    /// extraction, shared by the parser and the Today tab's task mapping
+    /// (`VaultManager.extractActiveTasks`).
     nonisolated static func splitBullet(_ s: String) -> (title: String, body: String) {
         let t = s.trimmingCharacters(in: .whitespaces)
         if t.hasPrefix("**") {
@@ -671,7 +400,7 @@ final class VaultProjectService: ObservableObject {
         return tasks
     }
 
-    // MARK: - Canonical cwd → vault-folder resolution (the WORK-section join key)
+    // MARK: - Canonical cwd → vault-folder resolution (the session → project join key)
 
     /// Cache of repo working-directory → resolved vault folder NAME. The value
     /// is itself optional: `.some(nil)` records a cwd that resolves to NO
@@ -733,36 +462,20 @@ final class VaultProjectService: ObservableObject {
         return map
     }
 
-    /// One project's live sessions, most recently active first.
+    /// The live sessions of `folders`, merged, most recently active first: one
+    /// folder for a project's own sessions (a child row's badge, and every
+    /// launch), a parent's folder plus its children's for the parent row's
+    /// badge.
     ///
     /// `updatedAt` alone is not the recency: the daemon flushes `state.json`
     /// event-driven and can lag minutes behind an actively working session,
     /// while the transcript ticks on every turn — so the later of the two is
     /// the honest ordering.
-    func liveSessions(forFolder folder: String, in agents: [AgentSession]) -> [AgentSession] {
+    func liveSessions(forFolders folders: [String], in agents: [AgentSession]) -> [AgentSession] {
         func recency(_ a: AgentSession) -> Date {
             max(a.updatedAt ?? .distantPast, a.transcriptMtime ?? .distantPast)
         }
-        return (liveSessionsByFolder(in: agents)[folder] ?? []).sorted { recency($0) > recency($1) }
+        let byFolder = liveSessionsByFolder(in: agents)
+        return folders.flatMap { byFolder[$0] ?? [] }.sorted { recency($0) > recency($1) }
     }
-}
-
-// MARK: - Date helpers
-
-private extension ISO8601DateFormatter {
-    static let dateOnly: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withFullDate]
-        return f
-    }()
-}
-
-private extension DateFormatter {
-    static let iso8601Date: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(secondsFromGMT: 0)
-        return f
-    }()
 }

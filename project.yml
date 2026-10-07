@@ -66,6 +66,7 @@ targets:
     sources:
       - path: ClaudeHUDTests
       - path: ClaudeHUD/Services/ClaudeProcessClassifier.swift
+      - path: ClaudeHUD/Services/VaultProjectTree.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.claudehud.tests
