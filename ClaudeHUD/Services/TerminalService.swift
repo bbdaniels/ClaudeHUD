@@ -123,8 +123,13 @@ class TerminalService: ObservableObject {
     /// Launch an app with a command.
     /// When `usingApp` is provided, that app is used instead of the global selection.
     /// Returns `true` if auto-executed, `false` if copied to clipboard.
+    ///
+    /// `existingGhosttyPid` is the Ghostty process already hosting a session
+    /// of the same project. When given (Ghostty only), the command opens as a
+    /// new TAB in that process's window; nil, or any failure to script that
+    /// process, opens a new window exactly as before.
     @discardableResult
-    func launchWithCommand(_ command: String, inDirectory: String? = nil, usingApp overridePath: String? = nil, backgroundColor: String? = nil) -> Bool {
+    func launchWithCommand(_ command: String, inDirectory: String? = nil, usingApp overridePath: String? = nil, backgroundColor: String? = nil, existingGhosttyPid: pid_t? = nil) -> Bool {
         let appPath = overridePath ?? selectedPath
         guard !appPath.isEmpty else { return false }
         if let dir = inDirectory { Self.preTrustFolder(dir) }
@@ -161,9 +166,10 @@ class TerminalService: ObservableObject {
             return true
         }
 
-        // Ghostty: split right, paste, execute via osascript subprocess.
-        // Using Process instead of NSAppleScript for reliable execution.
-        // Command is also on clipboard as fallback if Accessibility isn't granted.
+        // Ghostty: run the command from a self-deleting temp script, as a new
+        // tab in the project's existing window when there is one, else in a
+        // new window. The clipboard is the fallback only when the script
+        // cannot be written.
         if name == "Ghostty" {
             // Write a temp script that cd's, runs the command, then drops into zsh.
             let scriptId = UUID().uuidString.prefix(8)
@@ -180,6 +186,16 @@ class TerminalService: ObservableObject {
                 NSPasteboard.general.setString(fullCommand, forType: .string)
                 launchApp(at: appPath)
                 return false
+            }
+
+            // The project already has a window: add a tab to it. The tab
+            // inherits that instance's title and background, so neither is
+            // passed. Falls through to a new window if the process is gone or
+            // will not take the scripting command.
+            if let pid = existingGhosttyPid,
+               GhosttyWindowService.newTab(inProcess: pid, command: tmpScript) {
+                NSRunningApplication(processIdentifier: pid)?.activate()
+                return true
             }
 
             // Use `open -na` as recommended by Ghostty docs for macOS.

@@ -176,6 +176,72 @@ enum GhosttyWindowService {
         return false
     }
 
+    // MARK: - Scripting (Ghostty's AppleScript dictionary, 1.3+)
+
+    private static func fourCC(_ s: String) -> FourCharCode {
+        s.utf8.reduce(0) { ($0 << 8) | FourCharCode($1) }
+    }
+
+    /// Open a new tab running `command` in the front window of ONE Ghostty
+    /// process, through Ghostty's own `new tab` scripting command (`sdef
+    /// /Applications/Ghostty.app`; needs Ghostty 1.3+ and its default
+    /// `macos-applescript = true`). No keystrokes, no Accessibility grant.
+    ///
+    /// The event is addressed by pid, not by name. Every HUD launch is its own
+    /// `open -na` Ghostty process, so `tell application "Ghostty"` (and JXA's
+    /// `Application(pid)`, verified 2026-10-02 against 1.3.1) lands on
+    /// whichever instance LaunchServices picks, which is the wrong project's
+    /// window. That is why this builds the Apple event by hand instead of
+    /// compiling AppleScript source.
+    ///
+    /// The surface configuration carries only `command`: the tab inherits the
+    /// instance's `--title` and `--background`, and the explicit command
+    /// overrides the instance's `--command`, whose launch script has already
+    /// unlinked itself.
+    ///
+    /// Returns false on every failure (process gone, scripting disabled, an
+    /// older Ghostty without the dictionary, Automation consent denied, a
+    /// timeout) so the caller can fall back to a new window. The first call
+    /// raises the system "ClaudeHUD wants to control Ghostty" prompt.
+    @discardableResult
+    static func newTab(inProcess pid: pid_t, command: String) -> Bool {
+        // `front window` of the application, as an object specifier.
+        let windowRecord = NSAppleEventDescriptor.record()
+        windowRecord.setDescriptor(NSAppleEventDescriptor(typeCode: fourCC("prop")), forKeyword: fourCC("want"))
+        windowRecord.setDescriptor(NSAppleEventDescriptor(enumCode: fourCC("prop")), forKeyword: fourCC("form"))
+        windowRecord.setDescriptor(NSAppleEventDescriptor(typeCode: fourCC("GFWn")), forKeyword: fourCC("seld"))
+        windowRecord.setDescriptor(NSAppleEventDescriptor.null(), forKeyword: fourCC("from"))
+        guard let frontWindow = windowRecord.coerce(toDescriptorType: fourCC("obj ")) else { return false }
+
+        // surface configuration {command: …}
+        let configuration = NSAppleEventDescriptor.record()
+        configuration.setDescriptor(NSAppleEventDescriptor(string: command), forKeyword: fourCC("GScC"))
+
+        // new tab in <front window> with configuration <configuration>
+        let event = NSAppleEventDescriptor(
+            eventClass: fourCC("Ghst"), eventID: fourCC("NTab"),
+            targetDescriptor: NSAppleEventDescriptor(processIdentifier: pid),
+            returnID: AEReturnID(kAutoGenerateReturnID),
+            transactionID: AETransactionID(kAnyTransactionID)
+        )
+        event.setParam(frontWindow, forKeyword: fourCC("GNtW"))
+        event.setParam(configuration, forKeyword: fourCC("GNtS"))
+
+        do {
+            let reply = try event.sendEvent(options: [.waitForReply], timeout: 5)
+            if let errn = reply.paramDescriptor(forKeyword: fourCC("errn")), errn.int32Value != 0 {
+                let message = reply.paramDescriptor(forKeyword: fourCC("errs"))?.stringValue ?? ""
+                ghosttyLog.info("new tab in pid=\(pid) refused: \(errn.int32Value) \(message, privacy: .public)")
+                return false
+            }
+            // Success returns the new tab's specifier; no result means no tab.
+            return reply.paramDescriptor(forKeyword: fourCC("----")) != nil
+        } catch {
+            ghosttyLog.info("new tab in pid=\(pid) failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
     /// Returns true if Accessibility permission is granted for this process.
     /// `prompt: true` shows the system dialog if not yet granted.
     @discardableResult

@@ -1002,8 +1002,14 @@ func magicLaunchArg(projectName: String, resolvedVaultPath: String?) -> String {
 /// `vaultFolderPath`). Returns whether the terminal auto-opened (false →
 /// clipboard fallback). Enables Remote Control named after the project so each
 /// session is identifiable in the agents list.
+///
+/// `liveSessions` are the project's live interactive sessions, most recent
+/// first (`VaultProjectService.liveSessions(forFolder:in:)`). If one of them is
+/// attached in a Ghostty window, the new session opens as a tab there instead
+/// of in a new window.
 @MainActor
 func performMagicLaunch(projectName: String, cwd: String, resolvedVaultPath: String?,
+                        liveSessions: [AgentSession] = [],
                         terminalService: TerminalService) -> Bool {
     let arg = magicLaunchArg(projectName: projectName, resolvedVaultPath: resolvedVaultPath)
     // Single-quote the arg for the shell (every ' becomes '\'' and the whole
@@ -1011,11 +1017,13 @@ func performMagicLaunch(projectName: String, cwd: String, resolvedVaultPath: Str
     // stay a single token and any ' in them cannot break out of the quoting.
     let escapedArg = arg.replacingOccurrences(of: "'", with: "'\\''")
     return launchClaudeSession(argSuffix: " '\(escapedArg)'", name: projectName, cwd: cwd,
+                               existingGhosttyPid: liveSessions.compactMap(\.attachedGhosttyPid).first,
                                terminalService: terminalService)
 }
 
-/// THE HUD launch path for a Claude session: a new Ghostty window (titled,
-/// folder pre-trusted by `launchWithCommand`) running the daemon-registered
+/// THE HUD launch path for a Claude session: a new Ghostty window, or a new
+/// tab in `existingGhosttyPid`'s window when the project already has one
+/// (titled, folder pre-trusted by `launchWithCommand`) running the daemon-registered
 /// `claude --bg … ` + `claude attach` form, so the session is in the roster
 /// and gets its Projects/Agents badges and click-to-focus. Used by the wiki
 /// launch and History's >_ resume. A foreground `claude` does NOT register
@@ -1023,13 +1031,15 @@ func performMagicLaunch(projectName: String, cwd: String, resolvedVaultPath: Str
 @MainActor
 @discardableResult
 func launchClaudeSession(argSuffix: String, name: String, cwd: String,
+                         existingGhosttyPid: pid_t? = nil,
                          terminalService: TerminalService) -> Bool {
     let command = daemonizedClaudeCommand(argSuffix, remoteControlName: name)
     let ghosttyPath = "/Applications/Ghostty.app"
     let app = FileManager.default.fileExists(atPath: ghosttyPath) ? ghosttyPath : nil
     let useColors = UserDefaults.standard.bool(forKey: "history.useColors")
     let bg = useColors ? TerminalService.projectColor(for: name) : nil
-    return terminalService.launchWithCommand(command, inDirectory: cwd, usingApp: app, backgroundColor: bg)
+    return terminalService.launchWithCommand(command, inDirectory: cwd, usingApp: app, backgroundColor: bg,
+                                             existingGhosttyPid: existingGhosttyPid)
 }
 
 // MARK: - Session Detail Row
