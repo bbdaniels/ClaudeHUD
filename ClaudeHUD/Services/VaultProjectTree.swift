@@ -1,7 +1,8 @@
 import Foundation
 
 // The Projects tab's model: one `VaultProject` per vault folder with a
-// `Tasks.md`, and the parent → children tree built from them. Foundation-only
+// `Tasks.md`, the one frontmatter reader, the cwd → project resolver, and the
+// parent → children tree. Foundation-only
 // and free of app state so the unit-test bundle compiles this file directly
 // (see project.yml → ClaudeHUDTests).
 
@@ -15,7 +16,7 @@ struct VaultProject: Identifiable, Hashable {
     let name: String                  // folder basename
     let status: String                // raw frontmatter value (active, wrapping-up, …)
     let updated: Date?                // parsed from frontmatter `updated:`
-    let cwds: [String]                // first non-glob is used by "New session here"
+    let cwds: [String]                // frontmatter `cwds:`; first absolute non-glob is the launch dir
     let manuscript: String?           // frontmatter `manuscript:` — declared paper dir
     /// Frontmatter `parent:` exactly as declared (nil when absent or empty).
     /// Declared, not validated: only `ProjectTree.build` decides whether it
@@ -70,101 +71,195 @@ extension VaultProject {
 
     /// One project from its folder; nil when the folder has no readable `Tasks.md`.
     static func parse(folder: URL) -> VaultProject? {
-        let tasks = folder.appending(path: "Tasks.md")
-        guard let content = try? String(contentsOf: tasks, encoding: .utf8) else { return nil }
+        guard let content = readTasks(inFolder: folder.path) else { return nil }
         return parse(folder: folder, tasksContent: content)
     }
 
     static func parse(folder: URL, tasksContent content: String) -> VaultProject {
-        let fm = parseFrontmatter(content)
-        let updatedRaw = fm["updated"] ?? ""
-        let updated = ISO8601DateFormatter.dateOnly.date(from: updatedRaw)
-            ?? DateFormatter.iso8601Date.date(from: updatedRaw)
-        let parent = fm["parent"].flatMap { $0.isEmpty ? nil : $0 }
+        let fm = Frontmatter(content)
+        let updatedRaw = fm.scalar("updated") ?? ""
         return VaultProject(
             folder: folder,
             name: folder.lastPathComponent,
-            status: fm["status"] ?? "unknown",
-            updated: updated,
-            cwds: parseFrontmatterList(content, key: "cwds"),
-            manuscript: fm["manuscript"],
-            parent: parent
+            status: fm.scalar("status") ?? "unknown",
+            updated: ISO8601DateFormatter.dateOnly.date(from: updatedRaw)
+                ?? DateFormatter.iso8601Date.date(from: updatedRaw),
+            cwds: fm.list("cwds"),
+            manuscript: fm.scalar("manuscript"),
+            parent: fm.scalar("parent")
         )
     }
 
-    // MARK: Frontmatter (top-level scalars)
-
-    static func parseFrontmatter(_ content: String) -> [String: String] {
-        guard content.hasPrefix("---\n") else { return [:] }
-        let body = String(content.dropFirst(4))
-        guard let end = body.range(of: "\n---\n") else { return [:] }
-        let block = String(body[..<end.lowerBound])
-        var out: [String: String] = [:]
-        for line in block.components(separatedBy: "\n") {
-            // Top-level scalar: starts non-whitespace, contains `:`, value after `:`.
-            // Skip lines that begin with whitespace (list items) and lines without `:`.
-            guard !line.isEmpty, !line.hasPrefix(" "), !line.hasPrefix("\t") else { continue }
-            guard let colon = line.firstIndex(of: ":") else { continue }
-            let key = String(line[..<colon]).trimmingCharacters(in: .whitespaces)
-            var val = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
-            // Strip surrounding quotes — YAML commonly quotes dates
-            // (`updated: '2026-06-08'`), and an unquoted-only parse leaves the
-            // quotes in, so the date fails to parse (→ nil → mis-bucketed as
-            // "Older") and `status: 'active'` would miss its equality checks.
-            if val.count >= 2,
-               (val.hasPrefix("'") && val.hasSuffix("'")) ||
-               (val.hasPrefix("\"") && val.hasSuffix("\"")) {
-                val = String(val.dropFirst().dropLast())
-            }
-            if !key.isEmpty { out[key] = val }
-        }
-        return out
+    /// THE read of a project's `Tasks.md`, shared by the scan and the
+    /// resolver. Invalid UTF-8 is replaced, not fatal (as the ingest hook's
+    /// `errors="replace"`), so one bad byte cannot hide a project.
+    static func readTasks(inFolder folderPath: String) -> String? {
+        guard let data = FileManager.default.contents(atPath: "\(folderPath)/Tasks.md") else { return nil }
+        return String(decoding: data, as: UTF8.self)
     }
+}
 
-    /// Parse a YAML-list value under a given key, e.g.
-    /// `cwds:`
-    /// `  - /Users/bbdaniels/Projects/ClaudeHUD`
-    /// Returns the bare strings (quotes stripped).
-    static func parseFrontmatterList(_ content: String, key: String) -> [String] {
-        guard content.hasPrefix("---\n") else { return [] }
-        let body = String(content.dropFirst(4))
-        guard let end = body.range(of: "\n---\n") else { return [] }
-        let block = String(body[..<end.lowerBound])
-        var collecting = false
-        var out: [String] = []
-        for line in block.components(separatedBy: "\n") {
-            // Begin collecting when we see `<key>:` at top level.
-            if !collecting, !line.hasPrefix(" "), !line.hasPrefix("\t"),
-               line.hasPrefix("\(key):") || line == "\(key):" {
-                collecting = true
-                // Inline scalar form (`key: [a, b]` or `key: ~`) is not list-shaped.
-                let after = String(line.dropFirst("\(key):".count)).trimmingCharacters(in: .whitespaces)
-                if !after.isEmpty && after != "~" && after != "[]" {
-                    // Non-list value on the same line; ignore for list parsing.
-                    collecting = false
-                }
+// MARK: - Frontmatter
+
+/// THE reader of a vault note's leading YAML frontmatter. Everything the app
+/// takes from `Tasks.md` frontmatter (`status`, `updated`, `manuscript`,
+/// `parent`, `cwds`, `migrated-from`) goes through it, so the Projects tab and
+/// the cwd resolver cannot disagree about what a file says.
+///
+/// Deliberately not a YAML parser. It accepts exactly:
+/// - a block opened by `---` on the first line and closed by a `---` line
+///   (CRLF line endings are normalized first);
+/// - top-level keys only: `key:` starting in column 0 (an indented `key:` is
+///   nested YAML and is ignored), optional spaces before the colon; a repeated
+///   key's later line wins;
+/// - a scalar: `key: value`, surrounding quotes stripped; empty and `~` are
+///   absent;
+/// - a list, in any of three forms: a block list of `- item` lines (indented
+///   or flush-left) under `key:`; an inline bracket list `key: [a, b]`; or a
+///   single inline value `key: a`. Items have surrounding quotes stripped;
+///   `[]` and `~` are empty. A block list ends at the next top-level line.
+struct Frontmatter {
+    private var inline: [String: String] = [:]
+    private var items: [String: [String]] = [:]
+
+    init(_ content: String) {
+        let text = content.replacingOccurrences(of: "\r\n", with: "\n")
+        guard text.hasPrefix("---\n") else { return }
+        let open = text.index(text.startIndex, offsetBy: 4)
+        guard let close = text.range(of: "\n---\n", range: open..<text.endIndex) else { return }
+
+        var active: String?
+        for line in text[open..<close.lowerBound].components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            // A list item belongs to the key above it, indented or not.
+            if let key = active, trimmed.hasPrefix("- ") {
+                let item = Self.unquote(String(trimmed.dropFirst(2)))
+                if !item.isEmpty { items[key, default: []].append(item) }
                 continue
             }
-            if collecting {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                // A list item — collect it whether indented (`  - x`) or flush-left
-                // (`- x`). YAML allows a block sequence at the key's own indent, and
-                // some serializers (e.g. the YAML lib behind property editors) emit
-                // the flush-left form; the old "non-indented line ends the list"
-                // check ran first and wrongly dropped those, leaving cwds empty
-                // (so the project showed no launch controls — primaryCwd was nil).
-                if trimmed.hasPrefix("- ") {
-                    let v = trimmed.dropFirst(2).trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
-                    out.append(String(v))
-                    continue
-                }
-                // A non-list, non-indented line is a new top-level key → list ends.
-                if !line.isEmpty, !line.hasPrefix(" "), !line.hasPrefix("\t") {
-                    collecting = false
+            // Indented and blank lines never start or end anything.
+            guard let first = line.first, !first.isWhitespace else { continue }
+            active = nil
+            guard first != "-", first != "#", let colon = line.firstIndex(of: ":") else { continue }
+            let key = String(line[..<colon]).trimmingCharacters(in: .whitespaces)
+            guard !key.isEmpty else { continue }
+            active = key
+            inline[key] = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+            items[key] = nil
+        }
+    }
+
+    /// `key: value` with surrounding quotes stripped; nil when the key is
+    /// absent, empty, `~`, or holds a list.
+    func scalar(_ key: String) -> String? {
+        guard let raw = inline[key], !raw.isEmpty, raw != "~", !raw.hasPrefix("[") else { return nil }
+        let value = Self.unquote(raw)
+        return value.isEmpty ? nil : value
+    }
+
+    /// The key's list in whichever form it was written (see the type's doc);
+    /// empty when the key is absent.
+    func list(_ key: String) -> [String] {
+        var out: [String] = []
+        if let raw = inline[key], !raw.isEmpty, raw != "~" {
+            if raw.hasPrefix("["), raw.hasSuffix("]") {
+                out = raw.dropFirst().dropLast().components(separatedBy: ",")
+                    .map(Self.unquote).filter { !$0.isEmpty }
+            } else {
+                out = [Self.unquote(raw)]
+            }
+        }
+        return out + (items[key] ?? [])
+    }
+
+    private static func unquote(_ s: String) -> String {
+        let t = s.trimmingCharacters(in: .whitespaces)
+        if t.count >= 2,
+           (t.hasPrefix("'") && t.hasSuffix("'")) || (t.hasPrefix("\"") && t.hasSuffix("\"")) {
+            return String(t.dropFirst().dropLast())
+        }
+        return t
+    }
+}
+
+// MARK: - Resolver (cwd → project)
+
+/// The canonical cwd → vault project resolver: the Swift side of the ONE rule
+/// shared with the ingest hook (`vault-ingest.sh` `resolve_project`) and the
+/// wiki contract (`schema.md` §"The one resolver"). Never fuzzy-matched, never
+/// guessed.
+enum ProjectResolver {
+
+    /// Resolve `cwd` against the live vault: every project folder's `cwds:`
+    /// plus `migrated-from:` entries (absolute ones) are its claims. Returns
+    /// the winning folder NAME, or nil for an unclaimed directory.
+    static func resolveFolder(cwd: String, vaultPath: String) -> String? {
+        let fm = FileManager.default
+        guard let folders = try? fm.contentsOfDirectory(atPath: vaultPath) else { return nil }
+        var claims: [String: [String]] = [:]
+        for folder in folders where !folder.hasPrefix(".") {
+            let folderPath = "\(vaultPath)/\(folder)"
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: folderPath, isDirectory: &isDir), isDir.boolValue,
+                  let content = VaultProject.readTasks(inFolder: folderPath) else { continue }
+            claims[folder] = Self.claims(tasksContent: content)
+        }
+        return resolve(cwd: cwd, claims: claims)
+    }
+
+    /// A project's claims on working directories: its `cwds:` and its
+    /// `migrated-from:` (a folder the project used to live in still
+    /// attributes to it), absolute paths and globs only.
+    static func claims(tasksContent: String) -> [String] {
+        let fm = Frontmatter(tasksContent)
+        return (fm.list("cwds") + fm.list("migrated-from")).filter { $0.hasPrefix("/") }
+    }
+
+    /// The rule itself, over folder → claims. The project whose MATCHING
+    /// claim is the LONGEST wins; between equally long matching claims the
+    /// alphabetically first folder wins (folders are visited sorted and only
+    /// a strictly longer claim displaces the leader, as in the hook's
+    /// `sorted(os.listdir(vault))`); no match → nil.
+    static func resolve(cwd: String, claims: [String: [String]]) -> String? {
+        var best: String?
+        var bestLen = -1
+        for folder in claims.keys.sorted() {
+            for pat in claims[folder] ?? [] where matches(cwd: cwd, pattern: pat) {
+                // Code points, as Python's `len`.
+                let len = pat.unicodeScalars.count
+                if len > bestLen {
+                    best = folder
+                    bestLen = len
                 }
             }
         }
-        return out
+        return best
+    }
+
+    /// The four-way match predicate, equivalent to the hook's:
+    ///   cwd == pat
+    ///   || fnmatch(cwd, pat)
+    ///   || cwd == pat.rstrip("/*")
+    ///   || cwd.startswith(pat.rstrip("*").rstrip("/") + "/")
+    static func matches(cwd: String, pattern pat: String) -> Bool {
+        if cwd == pat { return true }
+        // POSIX fnmatch(3) with the semantics of Python's `fnmatch.fnmatch`:
+        // `*`/`?`/`[…]`, `*` spans `/` (no FNM_PATHNAME), backslash literal.
+        if fnmatch(pat, cwd, FNM_NOESCAPE) == 0 { return true }
+        if cwd == rstrip(pat, of: "/*") { return true }
+        if cwd.hasPrefix(rstrip(rstrip(pat, of: "*"), of: "/") + "/") { return true }
+        return false
+    }
+
+    /// Python `str.rstrip(chars)`: drop the trailing run of any char in `set`.
+    private static func rstrip(_ s: String, of set: String) -> String {
+        let drop = Set(set)
+        var end = s.endIndex
+        while end > s.startIndex {
+            let prev = s.index(before: end)
+            if drop.contains(s[prev]) { end = prev } else { break }
+        }
+        return String(s[s.startIndex..<end])
     }
 }
 

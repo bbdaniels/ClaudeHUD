@@ -8,7 +8,7 @@ private let logger = Logger(subsystem: "com.claudehud", category: "VaultProjectS
 /// per-project metadata (the `Tasks.md` frontmatter: status, updated, cwds,
 /// manuscript, parent) for the Projects tab, plus the cwd → project join the
 /// live-session badges use. It also holds the `## Active` task parser the
-/// Today tab reads.
+/// daily-note generator reads.
 ///
 /// Architecture: see Documents/Obsidian/ClaudeHUD/Technical Notes.md
 /// §Vault/Projects tab redistribution. The HUD is a window over the
@@ -27,7 +27,6 @@ final class VaultProjectService: ObservableObject {
     // MARK: - Published state
 
     @Published private(set) var projects: [Project] = []
-    @Published private(set) var lastRefresh: Date = .distantPast
 
     // MARK: - Configuration
 
@@ -66,7 +65,6 @@ final class VaultProjectService: ObservableObject {
             }.value
             guard let self, generation == self.scanGeneration else { return }
             self.projects = out
-            self.lastRefresh = Date()
             logger.info("vault projects refreshed: \(out.count) total, \(out.filter { $0.isActive }.count) active")
         }
     }
@@ -113,7 +111,6 @@ final class VaultProjectService: ObservableObject {
         let isHeading: Bool
         /// Absolute source-file line of the opening bullet (for a flat
         /// task); nil for heading groups (a section is not a single line).
-        /// Lets a second consumer (the Today tab) toggle the task in place.
         var line: Int? = nil
 
         func hash(into hasher: inout Hasher) { hasher.combine(id) }
@@ -160,7 +157,7 @@ final class VaultProjectService: ObservableObject {
     /// (title, body) without assuming the closing `**` sits on one line —
     /// it scans the whole string. Falls back to (wholeString, "") when
     /// there is no leading bold. Single source of truth for bullet-title
-    /// extraction, shared by the parser and the Today tab's task mapping
+    /// extraction, shared by the parser and the daily note's task mapping
     /// (`VaultManager.extractActiveTasks`).
     nonisolated static func splitBullet(_ s: String) -> (title: String, body: String) {
         let t = s.trimmingCharacters(in: .whitespaces)
@@ -209,7 +206,7 @@ final class VaultProjectService: ObservableObject {
 
         // The child currently being assembled, so nested/continuation
         // lines attach to it rather than the container body. `childLine`
-        // is the file line of the child's own bullet (for in-place toggle).
+        // is the file line of the child's own bullet.
         var childText: String? = nil
         var childCont: [String] = []
         var childDone = false
@@ -312,8 +309,7 @@ final class VaultProjectService: ObservableObject {
         }
 
         // Iterate the whole file (not a trimmed `## Active` slice) so each
-        // bullet carries its absolute line number — the Today tab toggles
-        // tasks by (file, line). Gate to the `## Active` section: enter on
+        // bullet carries its absolute line number. Gate to the `## Active` section: enter on
         // the `## Active` heading, leave at the next `## ` H2 (a `### `
         // subsection does NOT match `"## "` so it stays inside Active).
         var inActive = false
@@ -410,8 +406,8 @@ final class VaultProjectService: ObservableObject {
     private var cwdFolderCache: [String: String?] = [:]
 
     /// Resolve every cwd in `cwds` to its vault folder using the ONE canonical
-    /// rule — `ProjectService.resolveProjectFolder`, the same longest-`cwds:`-
-    /// glob resolver the ingest hook (`vault-ingest.sh`) and the launcher use —
+    /// rule — `ProjectResolver.resolveFolder`, the same longest-`cwds:`-
+    /// glob rule the ingest hook (`vault-ingest.sh`) uses —
     /// caching the results. The disk scan runs off the main actor; only the
     /// small cache merge touches the actor. Call this before reading
     /// `folderName(forCwd:)` in a render path so lookups are warm. Cheap on
@@ -423,7 +419,7 @@ final class VaultProjectService: ObservableObject {
         let resolved: [String: String?] = await Task.detached(priority: .userInitiated) {
             var out: [String: String?] = [:]
             for cwd in misses {
-                out[cwd] = ProjectService.resolveProjectFolder(cwd: cwd, vaultPath: vaultRoot)
+                out[cwd] = ProjectResolver.resolveFolder(cwd: cwd, vaultPath: vaultRoot)
             }
             return out
         }.value

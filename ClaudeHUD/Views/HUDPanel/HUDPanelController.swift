@@ -77,7 +77,6 @@ class HUDPanelController {
             .environmentObject(appState.terminalService)
             .environmentObject(appState.sessionHistoryService)
             .environmentObject(appState.vaultManager)
-            .environmentObject(appState.projectService)
             .environmentObject(appState.usageService)
             .environmentObject(appState.skillsService)
 

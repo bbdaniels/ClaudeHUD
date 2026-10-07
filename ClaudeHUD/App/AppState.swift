@@ -11,7 +11,6 @@ class AppState: ObservableObject {
     let terminalService = TerminalService()
     let sessionHistoryService = SessionHistoryService()
     let vaultManager = VaultManager()
-    let projectService = ProjectService()
     let usageService = UsageService()
     let skillsService = SkillsService()
     let agentsService = AgentsService()
@@ -29,7 +28,6 @@ class AppState: ObservableObject {
 
     init() {
         self.screenCoverService = ScreenCoverService(agents: agentsService)
-        projectService.configure(vault: vaultManager, sessions: sessionHistoryService)
     }
 
     func setup() async {

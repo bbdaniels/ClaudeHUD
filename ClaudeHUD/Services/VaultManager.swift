@@ -11,8 +11,6 @@ class VaultManager: ObservableObject {
     @Published var savedVaults: [VaultSettings] = []
     @Published var vaultFiles: [NoteFile] = []
     @Published var isVaultSelected = false
-    /// Index mapping lowercased note name (without .md) to full path for wikilink resolution
-    private(set) var noteIndex: [String: String] = [:]
 
     init() {
         loadVaultSettings()
@@ -108,7 +106,6 @@ class VaultManager: ObservableObject {
                 currentVault = nil
                 isVaultSelected = false
                 vaultFiles = []
-                noteIndex = [:]
             }
         }
     }
@@ -119,13 +116,7 @@ class VaultManager: ObservableObject {
 
         if let files = loadDirectory(at: vaultURL, relativePath: "") {
             vaultFiles = files
-            rebuildNoteIndex(files)
         }
-    }
-
-    /// Resolve a wikilink name to a file path
-    func resolveWikilink(_ name: String) -> String? {
-        noteIndex[name.lowercased()]
     }
 
     // MARK: - Daily Note Generation
@@ -194,197 +185,6 @@ class VaultManager: ObservableObject {
         logger.info("Created daily note: \(dateStr) with \(sections.map(\.todos.count).reduce(0, +)) todos from \(sections.count) projects")
     }
 
-    // MARK: - Todo Scanning
-
-    /// Scan Obsidian vault for unchecked todos on the given date
-    func scanTodos(for date: Date, includeRecent: Bool = false) -> [TodoItem] {
-        guard let vault = currentVault else { return [] }
-        let vaultPath = vault.path
-        var items: [TodoItem] = []
-
-        // Primary: today's daily note
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyy-MM-dd"
-        let dateStr = fmt.string(from: date)
-        let dailyNotePath = (vaultPath as NSString).appendingPathComponent("Daily Notes/\(dateStr).md")
-        let noteName = dateStr
-
-        let dailyNoteItems = extractTodos(from: dailyNotePath, noteName: noteName)
-        items += dailyNoteItems
-
-        // Scan Tasks.md (or legacy task files) from each project folder
-        if includeRecent {
-            let fm = FileManager.default
-            let skipFolders: Set<String> = ["Templates", "Daily Notes", "Attachments", "Assets", "Archive"]
-            if let folders = try? fm.contentsOfDirectory(atPath: vaultPath) {
-                // Collect titles already in daily note to avoid duplicates
-                let existingTitles = Set(dailyNoteItems.map(\.title))
-                for folder in folders {
-                    let folderPath = (vaultPath as NSString).appendingPathComponent(folder)
-                    var isDir: ObjCBool = false
-                    guard fm.fileExists(atPath: folderPath, isDirectory: &isDir), isDir.boolValue else { continue }
-                    guard !folder.hasPrefix("."), !skipFolders.contains(folder) else { continue }
-
-                    guard let taskFile = findTaskFile(in: folderPath) else { continue }
-
-                    let taskItems = extractActiveTasks(from: taskFile, noteName: folder, projectName: folder)
-                    for item in taskItems where !existingTitles.contains(item.title) {
-                        items.append(item)
-                    }
-                }
-            }
-        }
-
-        // Tertiary (today only): recently modified .md files — but only if no daily note exists.
-        // Skip tracked task files: those are authoritative project sources already handled
-        // above by extractActiveTasks. Re-reading them through the generic extractTodos would
-        // group their `### Section` headings as top-level phantom projects.
-        if includeRecent && dailyNoteItems.isEmpty {
-            let fm = FileManager.default
-            let cutoff = Date().addingTimeInterval(-86400)
-            let excludePrefixes = ["Daily Notes/", "Templates/", ".obsidian/"]
-            let trackedTaskFileNames = Set(Self.taskFileNames)
-
-            if let enumerator = fm.enumerator(atPath: vaultPath) {
-                var recentFiles: [(path: String, mod: Date)] = []
-                while let rel = enumerator.nextObject() as? String {
-                    guard rel.hasSuffix(".md"),
-                          !rel.hasPrefix("."),
-                          !excludePrefixes.contains(where: { rel.hasPrefix($0) }) else { continue }
-                    let basename = (rel as NSString).lastPathComponent
-                    if trackedTaskFileNames.contains(basename) { continue }
-                    if basename.hasPrefix("Revisions for ") { continue }
-                    let full = (vaultPath as NSString).appendingPathComponent(rel)
-                    if let attrs = try? fm.attributesOfItem(atPath: full),
-                       let mod = attrs[.modificationDate] as? Date,
-                       mod > cutoff {
-                        recentFiles.append((full, mod))
-                    }
-                }
-                recentFiles.sort { $0.mod > $1.mod }
-                for file in recentFiles.prefix(3) {
-                    let name = URL(fileURLWithPath: file.path).deletingPathExtension().lastPathComponent
-                    let fileItems = extractTodos(from: file.path, noteName: name)
-                    items += Array(fileItems.prefix(5))
-                }
-            }
-        }
-
-        return items
-    }
-
-    /// Toggle an Obsidian todo checkbox from unchecked to checked
-    func toggleObsidianTodo(_ item: TodoItem) {
-        guard let filePath = item.obsidianFilePath,
-              let lineNumber = item.obsidianLineNumber else { return }
-
-        // An item sourced from a project's Tasks.md completes via the sanctioned
-        // Active→Completed move (date stamp + `updated:` bump) when it is a
-        // top-level task bullet. The old in-place `[x]` insert marooned the task
-        // in `## Active`: never swept to `## Completed`, invisible to the
-        // briefing's "Recently done", `updated:` never bumped. Nested detail
-        // bullets (indented) are not standalone tasks and keep the in-place
-        // toggle below.
-        if filePath.hasSuffix("/Tasks.md"),
-           let probe = try? String(contentsOf: URL(fileURLWithPath: filePath), encoding: .utf8) {
-            let probeLines = probe.components(separatedBy: "\n")
-            if lineNumber < probeLines.count, probeLines[lineNumber].hasPrefix("- "),
-               case .moved = Self.completeActiveTask(taskFile: filePath,
-                                                     expectedTitle: nil,
-                                                     lineHint: lineNumber,
-                                                     provenance: nil) {
-                return
-            }
-        }
-
-        // 1. Toggle in the daily note (or whichever file the item came from)
-        let url = URL(fileURLWithPath: filePath)
-        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return }
-
-        var lines = content.components(separatedBy: "\n")
-        guard lineNumber < lines.count else { return }
-
-        lines[lineNumber] = Self.markBulletChecked(lines[lineNumber])
-        let newContent = lines.joined(separator: "\n")
-        try? newContent.write(to: url, atomically: true, encoding: .utf8)
-
-        // 2. Cross-update the source Tasks.md (or legacy task file)
-        guard let vault = currentVault else { return }
-        if let projectName = item.projectName {
-            let projectPath = (vault.path as NSString).appendingPathComponent(projectName)
-
-            // Find the project's task file
-            guard let taskFile = findTaskFile(in: projectPath),
-                  taskFile != filePath else { return } // Don't double-update if item came from the task file itself
-
-            guard let srcContent = try? String(contentsOfFile: taskFile, encoding: .utf8) else { return }
-            var srcLines = srcContent.components(separatedBy: "\n")
-
-            // For Tasks.md: move item from ## Active to ## Completed
-            if taskFile.hasSuffix("/Tasks.md") {
-                let fmt = DateFormatter()
-                fmt.dateFormat = "yyyy-MM-dd"
-                let today = fmt.string(from: Date())
-
-                // Find and remove the matching line in ## Active
-                var removedLine: String?
-                for (srcIdx, srcLine) in srcLines.enumerated() {
-                    guard srcLine.contains("[ ] ") else { continue }
-                    guard ObsidianMarkdownView.isListLine(srcLine) else { continue }
-                    let parsed = ObsidianMarkdownView.parseListItem(srcLine, lineNumber: srcIdx)
-                    if parsed.checkState == false && parsed.text == item.title {
-                        removedLine = srcLine
-                        srcLines.remove(at: srcIdx)
-                        break
-                    }
-                }
-
-                // Append to ## Completed section
-                if let removed = removedLine {
-                    let completedLine = removed
-                        .replacingOccurrences(of: "[ ] ", with: "[x] ")
-                        + " (\(today))"
-
-                    // Find the ## Completed heading and insert after it
-                    if let completedIdx = srcLines.firstIndex(where: {
-                        $0.trimmingCharacters(in: .whitespaces).hasPrefix("## Completed")
-                    }) {
-                        srcLines.insert(completedLine, at: completedIdx + 1)
-                    } else {
-                        // No ## Completed section — append one
-                        srcLines.append("")
-                        srcLines.append("## Completed")
-                        srcLines.append(completedLine)
-                    }
-
-                    // Update the updated: field in frontmatter
-                    for (i, line) in srcLines.enumerated() {
-                        if line.hasPrefix("updated:") {
-                            srcLines[i] = "updated: \(today)"
-                            break
-                        }
-                    }
-
-                    let newSrcContent = srcLines.joined(separator: "\n")
-                    try? newSrcContent.write(toFile: taskFile, atomically: true, encoding: .utf8)
-                }
-            } else {
-                // Legacy file: just toggle in place
-                for (srcIdx, srcLine) in srcLines.enumerated() {
-                    guard srcLine.contains("[ ] ") else { continue }
-                    guard ObsidianMarkdownView.isListLine(srcLine) else { continue }
-                    let parsed = ObsidianMarkdownView.parseListItem(srcLine, lineNumber: srcIdx)
-                    if parsed.checkState == false && parsed.text == item.title {
-                        srcLines[srcIdx] = srcLine.replacingOccurrences(of: "[ ] ", with: "[x] ")
-                        let newSrcContent = srcLines.joined(separator: "\n")
-                        try? newSrcContent.write(toFile: taskFile, atomically: true, encoding: .utf8)
-                        return
-                    }
-                }
-            }
-        }
-    }
-
     // MARK: - Tasks.md Support
 
     /// Known task file names in priority order
@@ -422,269 +222,6 @@ class VaultManager: ObservableObject {
         let title = String(text[starRange.upperBound..<endRange.lowerBound])
         let rest = String(text[endRange.upperBound...]).trimmingCharacters(in: .whitespaces)
         return (title, rest.isEmpty ? title : text)
-    }
-
-    /// Mark a list line done. Flips an existing `[ ]` → `[x]`; for a
-    /// non-checkbox bullet (`- **Title**`, now surfaced on the Today tab)
-    /// it inserts a checked box right after the list marker, so completing
-    /// such a task from the Today tab actually persists (otherwise the
-    /// re-scan would resurface it). Idempotent on already-checked lines.
-    static func markBulletChecked(_ line: String) -> String {
-        if line.contains("[x] ") || line.contains("[X] ") { return line }
-        if line.contains("[ ] ") {
-            return line.replacingOccurrences(of: "[ ] ", with: "[x] ")
-        }
-        if let r = line.range(of: #"^(\s*[-*•] )"#, options: .regularExpression) {
-            return String(line[..<r.upperBound]) + "[x] " + String(line[r.upperBound...])
-        }
-        return line
-    }
-
-    /// Move any [x] items from ## Active to ## Completed in a Tasks.md file
-    func sweepCompletedFromActive(in filePath: String) {
-        guard filePath.hasSuffix("/Tasks.md") else { return }
-        guard var content = try? String(contentsOfFile: filePath, encoding: .utf8) else { return }
-        let lines = content.components(separatedBy: "\n")
-
-        // Find section boundaries
-        var activeStart: Int?
-        var activeEnd: Int?
-        var completedIdx: Int?
-        for (idx, line) in lines.enumerated() {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("## Active") { activeStart = idx }
-            else if activeStart != nil && activeEnd == nil && trimmed.hasPrefix("## ") { activeEnd = idx }
-            if trimmed.hasPrefix("## Completed") { completedIdx = idx }
-        }
-        guard let aStart = activeStart else { return }
-        let aEnd = activeEnd ?? lines.count
-
-        // Collect checked items from Active
-        var checkedLines: [String] = []
-        var keptLines = lines
-        // Walk backwards so indices stay valid during removal
-        for idx in stride(from: aEnd - 1, through: aStart + 1, by: -1) {
-            let trimmed = keptLines[idx].trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("- [x]") || trimmed.hasPrefix("- [X]") {
-                checkedLines.insert(keptLines[idx], at: 0)
-                keptLines.remove(at: idx)
-            }
-        }
-
-        guard !checkedLines.isEmpty else { return }
-
-        // Insert under ## Completed (adjust index since we removed lines above)
-        if let cIdx = completedIdx {
-            // Recalculate after removals
-            let newCompletedIdx = keptLines.firstIndex(where: {
-                $0.trimmingCharacters(in: .whitespaces).hasPrefix("## Completed")
-            }) ?? cIdx
-            for (offset, line) in checkedLines.enumerated() {
-                keptLines.insert(line, at: newCompletedIdx + 1 + offset)
-            }
-        } else {
-            // No ## Completed section — add one
-            keptLines.append("")
-            keptLines.append("## Completed")
-            keptLines.append(contentsOf: checkedLines)
-        }
-
-        let newContent = keptLines.joined(separator: "\n")
-        try? newContent.write(toFile: filePath, atomically: true, encoding: .utf8)
-    }
-
-    // MARK: - Sanctioned Tasks.md machine writes (shared by Today tab + Slack)
-
-    /// Outcome of the sanctioned Active→Completed move.
-    enum TaskCompletion {
-        case moved(String)      // the completed task's title
-        case notFound           // no matching top-level bullet in ## Active
-        case ambiguous(Int)     // several matches — never guess
-        case failed(String)     // I/O error
-    }
-
-    /// Parsed title of a TOP-LEVEL `- ` bullet line (checkbox marker stripped),
-    /// via the shared `splitBullet` so the Slack task card, the Today tab, and
-    /// this writer all agree on what a task's title is. Nil for anything else
-    /// (indented detail, headings, prose).
-    static func bulletTitle(_ line: String) -> String? {
-        guard line.hasPrefix("- ") else { return nil }
-        var inner = String(line.dropFirst(2))
-        for marker in ["[ ] ", "[x] ", "[X] "] where inner.hasPrefix(marker) {
-            inner = String(inner.dropFirst(marker.count))
-            break
-        }
-        let title = VaultProjectService.splitBullet(inner).title
-        return title.isEmpty ? nil : title
-    }
-
-    /// Two titles agree when equal, or when they share the full prefix of the
-    /// shorter one (≥16 chars) — covers `**bold**` titles that wrap across
-    /// source lines and card values truncated for Block Kit. Short strings
-    /// never prefix-match, so this is not a fuzzy search.
-    private static func titlesAgree(_ a: String, _ b: String) -> Bool {
-        if a == b { return true }
-        let n = min(a.count, b.count)
-        guard n >= 16 else { return false }
-        return a.hasPrefix(String(b.prefix(n))) || b.hasPrefix(String(a.prefix(n)))
-    }
-
-    /// The sanctioned Active→Completed move for ONE task, shared by the Today
-    /// tab's checkbox and the Slack task card. Finds the task's top-level `- `
-    /// bullet inside `## Active` (by source line when the caller has one, else
-    /// by parsed title — never a fuzzy guess), moves the bullet AND its
-    /// indented continuation/detail block to the top of `## Completed`, marks
-    /// it `[x]` with today's date (plus provenance, when given), and bumps the
-    /// frontmatter `updated:`. Matches the email-ingest completion format so
-    /// the cleaner's "Recently done" picks it up.
-    static func completeActiveTask(taskFile: String, expectedTitle: String?,
-                                   lineHint: Int?, provenance: String?) -> TaskCompletion {
-        guard taskFile.hasSuffix("/Tasks.md") else { return .failed("not a Tasks.md") }
-        guard let content = try? String(contentsOfFile: taskFile, encoding: .utf8) else {
-            return .failed("unreadable Tasks.md")
-        }
-        var lines = content.components(separatedBy: "\n")
-
-        // ## Active bounds.
-        var activeStart: Int?
-        var activeEnd = lines.count
-        for (idx, line) in lines.enumerated() {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if activeStart == nil {
-                if trimmed.hasPrefix("## Active") { activeStart = idx }
-            } else if trimmed.hasPrefix("## ") {
-                activeEnd = idx
-                break
-            }
-        }
-        guard let aStart = activeStart else { return .notFound }
-
-        // Locate the task's opening bullet: trust a line hint whose parsed
-        // title agrees with the caller's, else search by title.
-        var target: Int?
-        if let hint = lineHint, hint > aStart, hint < activeEnd, hint < lines.count,
-           let hintTitle = Self.bulletTitle(lines[hint]),
-           expectedTitle == nil || titlesAgree(hintTitle, expectedTitle ?? "") {
-            target = hint
-        } else if let expected = expectedTitle {
-            let hits = (aStart + 1..<activeEnd).filter { idx in
-                guard let t = Self.bulletTitle(lines[idx]) else { return false }
-                return titlesAgree(t, expected)
-            }
-            if hits.count == 1 { target = hits[0] }
-            else if hits.count > 1 { return .ambiguous(hits.count) }
-        }
-        guard let idx = target else { return .notFound }
-        let movedTitle = Self.bulletTitle(lines[idx]) ?? expectedTitle ?? ""
-
-        // The bullet's block: itself plus any following indented continuation
-        // or nested-detail lines (blank lines included only when more indented
-        // content follows).
-        var lastContent = idx
-        var scan = idx + 1
-        while scan < activeEnd {
-            let line = lines[scan]
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty { scan += 1; continue }
-            guard line.hasPrefix(" ") || line.hasPrefix("\t") else { break }
-            lastContent = scan
-            scan += 1
-        }
-        let blockEnd = lastContent + 1
-
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyy-MM-dd"
-        let today = fmt.string(from: Date())
-
-        var block = Array(lines[idx..<blockEnd])
-        var head = Self.markBulletChecked(block[0])
-        while head.hasSuffix(" ") { head.removeLast() }
-        head += " (\(today))"
-        if let provenance, !provenance.isEmpty { head += " ↳ \(provenance)" }
-        block[0] = head
-
-        lines.removeSubrange(idx..<blockEnd)
-
-        if let completedIdx = lines.firstIndex(where: {
-            $0.trimmingCharacters(in: .whitespaces).hasPrefix("## Completed")
-        }) {
-            lines.insert(contentsOf: block, at: completedIdx + 1)
-        } else {
-            if let last = lines.last, !last.trimmingCharacters(in: .whitespaces).isEmpty {
-                lines.append("")
-            }
-            lines.append("## Completed")
-            lines.append(contentsOf: block)
-        }
-
-        for (i, line) in lines.enumerated() where line.hasPrefix("updated:") {
-            lines[i] = "updated: \(today)"
-            break
-        }
-
-        do {
-            try lines.joined(separator: "\n").write(toFile: taskFile, atomically: true, encoding: .utf8)
-            return .moved(movedTitle)
-        } catch {
-            return .failed(error.localizedDescription)
-        }
-    }
-
-    /// Append one item to `## Triage` — the schema's sanctioned machine-intake
-    /// section (unreviewed; the human promotes items into `## Active`). Creates
-    /// the section before `## Completed` when absent. Entry format matches the
-    /// email-ingest job: `- [ ] **<title>**: <summary> ↳ <provenance>`. Does
-    /// NOT bump `updated:` (intake is not project activity).
-    @discardableResult
-    static func appendTriageItem(taskFile: String, title: String, body: String?,
-                                 provenance: String) -> Bool {
-        guard let content = try? String(contentsOfFile: taskFile, encoding: .utf8) else { return false }
-        var lines = content.components(separatedBy: "\n")
-
-        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanTitle.isEmpty else { return false }
-        let summary = (body ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "\n", with: " ")
-        var entry = "- [ ] **\(cleanTitle)**"
-        if !summary.isEmpty { entry += ": \(summary)" }
-        entry += " ↳ \(provenance)"
-
-        var triageIdx = lines.firstIndex {
-            $0.trimmingCharacters(in: .whitespaces).hasPrefix("## Triage")
-        }
-        if triageIdx == nil {
-            var insertAt = lines.firstIndex {
-                $0.trimmingCharacters(in: .whitespaces).hasPrefix("## Completed")
-            } ?? lines.count
-            if insertAt > 0, !lines[insertAt - 1].trimmingCharacters(in: .whitespaces).isEmpty {
-                lines.insert("", at: insertAt)
-                insertAt += 1
-            }
-            lines.insert("## Triage", at: insertAt)
-            lines.insert("", at: insertAt + 1)
-            triageIdx = insertAt
-        }
-        guard let tIdx = triageIdx else { return false }
-
-        // Append at the END of the Triage section (after the last entry).
-        var insertAt = lines.count
-        for i in (tIdx + 1)..<lines.count
-        where lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("## ") {
-            insertAt = i
-            break
-        }
-        while insertAt > tIdx + 1,
-              lines[insertAt - 1].trimmingCharacters(in: .whitespaces).isEmpty {
-            insertAt -= 1
-        }
-        lines.insert(entry, at: insertAt)
-
-        do {
-            try lines.joined(separator: "\n").write(toFile: taskFile, atomically: true, encoding: .utf8)
-            return true
-        } catch {
-            return false
-        }
     }
 
     // MARK: - New project scaffold
@@ -811,31 +348,15 @@ class VaultManager: ObservableObject {
         }
     }
 
-    /// Count of unchecked items in `## Triage` (0 when the section is absent).
-    static func triageCount(taskFile: String) -> Int {
-        guard let content = try? String(contentsOfFile: taskFile, encoding: .utf8) else { return 0 }
-        let lines = content.components(separatedBy: "\n")
-        guard let tIdx = lines.firstIndex(where: {
-            $0.trimmingCharacters(in: .whitespaces).hasPrefix("## Triage")
-        }) else { return 0 }
-        var count = 0
-        for i in (tIdx + 1)..<lines.count {
-            let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("## ") { break }
-            if trimmed.hasPrefix("- [ ]") { count += 1 }
-        }
-        return count
-    }
-
     /// Extract the actionable tasks from a project's task file as `TodoItem`s
-    /// for the Today tab's "What's Next" rollup.
+    /// for the generated daily note's "Open Items".
     ///
     /// `Tasks.md` is routed through the heading-aware parser
     /// (`VaultProjectService.parseActiveTasks`): `### ` headings become
     /// sections, the (unchecked) bullets under them become tasks, nested
     /// detail folds into its parent (counted once), `- **Title**`
     /// non-checkbox tasks are included, and done items are skipped. Each
-    /// emitted item keeps the source line so it can be toggled in place.
+    /// emitted item keeps its source line.
     ///
     /// Legacy flat task files (`Action Items.md`, `Revisions for *.md`, …)
     /// have no `## Active` section, so they keep the old line-by-line scan.
@@ -909,83 +430,6 @@ class VaultManager: ObservableObject {
         return items
     }
 
-    /// Extract todos from a file. For daily notes and recent-file scans, `### Heading`
-    /// is resolved against the vault's top-level folders: when it matches, the heading
-    /// becomes the canonical `projectName`; otherwise the heading is treated as a loose
-    /// display group and `projectName` remains nil.
-    private func extractTodos(from filePath: String, noteName: String) -> [TodoItem] {
-        guard let content = try? String(contentsOfFile: filePath, encoding: .utf8) else { return [] }
-        let vaultFolders = currentVaultFolderNames()
-        let lines = content.components(separatedBy: "\n")
-        var items: [TodoItem] = []
-        var currentHeading: String? = nil
-
-        for (idx, line) in lines.enumerated() {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("### ") {
-                currentHeading = String(trimmed.dropFirst(4))
-                continue
-            }
-
-            guard ObsidianMarkdownView.isListLine(line) else { continue }
-            let parsed = ObsidianMarkdownView.parseListItem(line, lineNumber: idx)
-            guard parsed.checkState == false else { continue }
-
-            let (boldTitle, _) = parseBoldTitle(parsed.text)
-
-            // Resolve heading → project folder when it matches a known folder.
-            let resolvedProject: String?
-            let grouping: String
-            if let h = currentHeading, vaultFolders.contains(h) {
-                resolvedProject = h
-                grouping = h
-            } else {
-                resolvedProject = nil
-                grouping = currentHeading ?? noteName
-            }
-
-            items.append(TodoItem(
-                title: parsed.text,
-                source: .obsidian(grouping: grouping),
-                dueDate: nil,
-                isOverdue: false,
-                priority: 0,
-                reminderIdentifier: nil,
-                obsidianFilePath: filePath,
-                obsidianLineNumber: idx,
-                projectName: resolvedProject,
-                sectionHeading: nil,
-                boldTitle: boldTitle
-            ))
-        }
-        return items
-    }
-
-    /// Cached set of top-level vault folder names (skip-filtered), used to resolve
-    /// `### Heading` in daily notes back to a canonical project identity.
-    private var _vaultFoldersCache: (vaultPath: String, folders: Set<String>)?
-    private func currentVaultFolderNames() -> Set<String> {
-        guard let vault = currentVault else { return [] }
-        if let cache = _vaultFoldersCache, cache.vaultPath == vault.path {
-            return cache.folders
-        }
-        let skipFolders: Set<String> = ["Templates", "Daily Notes", "Attachments", "Assets", "Archive"]
-        let fm = FileManager.default
-        var out: Set<String> = []
-        if let entries = try? fm.contentsOfDirectory(atPath: vault.path) {
-            for entry in entries {
-                guard !entry.hasPrefix("."), !skipFolders.contains(entry) else { continue }
-                let full = (vault.path as NSString).appendingPathComponent(entry)
-                var isDir: ObjCBool = false
-                if fm.fileExists(atPath: full, isDirectory: &isDir), isDir.boolValue {
-                    out.insert(entry)
-                }
-            }
-        }
-        _vaultFoldersCache = (vault.path, out)
-        return out
-    }
-
     // MARK: - Private
 
     private func loadDirectory(at url: URL, relativePath: String) -> [NoteFile]? {
@@ -1016,19 +460,5 @@ class VaultManager: ObservableObject {
         }
     }
 
-    private func rebuildNoteIndex(_ files: [NoteFile]) {
-        var index: [String: String] = [:]
-        func walk(_ items: [NoteFile]) {
-            for item in items {
-                if item.isDirectory {
-                    if let children = item.children { walk(children) }
-                } else if item.name.hasSuffix(".md") {
-                    let key = String(item.name.dropLast(3)).lowercased()
-                    index[key] = item.path
-                }
-            }
-        }
-        walk(files)
-        noteIndex = index
-    }
+
 }

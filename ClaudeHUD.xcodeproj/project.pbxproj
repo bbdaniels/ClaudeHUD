@@ -132,11 +132,11 @@
 		B8D06D4427A9E6FF2119DCC7 /* com.bbdaniels.obsidian-sync.plist in Resources */ = {isa = PBXBuildFile; fileRef = 2EEF39238129551C8264F8B4 /* com.bbdaniels.obsidian-sync.plist */; };
 		B9BB43007843C4DDDA76766F /* TabManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C0EBE8F166B3770D136865B /* TabManager.swift */; };
 		BB7A3F82BD20DD9B51E7177A /* Ghostty.ConfigTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9437E5E3F033E372FB247783 /* Ghostty.ConfigTypes.swift */; };
-		BEB2851E74A402D792BD5639 /* ProjectService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53F0B873471D8150D4E80657 /* ProjectService.swift */; };
 		BF445FDFA96FA2C5EFF79A90 /* NSEvent+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC1DA3F388949A5B7B055AA6 /* NSEvent+Extension.swift */; };
 		BF6ACC5B653AC80ACD988FAF /* KeyboardShortcut+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7ADA35FF9D1AED3E119C54A9 /* KeyboardShortcut+Extension.swift */; };
 		C09327D76BA0658B0776EADE /* ObjCExceptionCatcher.m in Sources */ = {isa = PBXBuildFile; fileRef = A03300B3437AA67D3BAB11EE /* ObjCExceptionCatcher.m */; };
 		C12D4780258E91B7BE5F0559 /* Carbon.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8AABA520AE64BC4FF1F3DA75 /* Carbon.framework */; };
+		CD7941AD5A6EEEDF57AED073 /* ProjectResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E196A0AEBD4F89C4DBAFB5D7 /* ProjectResolverTests.swift */; };
 		CF0BBA3BDE8358B85CE3D4F5 /* Ghostty.Shell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29B305DC96DA6EAD0CD6B335 /* Ghostty.Shell.swift */; };
 		D00889A3F1FC9FF708D7CD2C /* UUID+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = B719C4EF453E3C5D3875C915 /* UUID+Extension.swift */; };
 		D0756275787722E728214B42 /* VaultProjectTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB651537B00E2E60ED97A772 /* VaultProjectTree.swift */; };
@@ -222,7 +222,6 @@
 		4FDACE9A04CEA02436D47AD7 /* String+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "String+Extension.swift"; sourceTree = "<group>"; };
 		4FE78438CDBB1B82E2CD3203 /* ClaudeWebFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeWebFetcher.swift; sourceTree = "<group>"; };
 		50E5626B4C84084B8B14BB91 /* Tooltip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tooltip.swift; sourceTree = "<group>"; };
-		53F0B873471D8150D4E80657 /* ProjectService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectService.swift; sourceTree = "<group>"; };
 		58276C1EA3EC3682B1C6FE36 /* ClaudeHUD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeHUD.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		59E8596B647276D0A1586779 /* SecretsVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecretsVault.swift; sourceTree = "<group>"; };
 		5B7BE7892D77F7EFFC5CBD2D /* libpng.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libpng.a; sourceTree = "<group>"; };
@@ -308,6 +307,7 @@
 		DD1DCA69E56114AB8A3952EF /* AppInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInfo.swift; sourceTree = "<group>"; };
 		DFA10783C0F1F95AE790BD1B /* ObjectIdentifier+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ObjectIdentifier+Extension.swift"; sourceTree = "<group>"; };
 		DFF0598B1720C80E2E205CDE /* SurfaceDragSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceDragSource.swift; sourceTree = "<group>"; };
+		E196A0AEBD4F89C4DBAFB5D7 /* ProjectResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectResolverTests.swift; sourceTree = "<group>"; };
 		E28D16F34D7E3F7F89E3EF73 /* PermissionRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionRequest.swift; sourceTree = "<group>"; };
 		E29EA2BAC4BE95B756B86E59 /* CoreText.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreText.framework; path = System/Library/Frameworks/CoreText.framework; sourceTree = SDKROOT; };
 		E2FEBBA9082ACBA24CFC6EF7 /* Ghostty.Error.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Error.swift; sourceTree = "<group>"; };
@@ -359,7 +359,6 @@
 				D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */,
 				CE31FD7228157DC53CDE8B9E /* KeychainService.swift */,
 				DB043CB409497C537E66D2B6 /* LibraryService.swift */,
-				53F0B873471D8150D4E80657 /* ProjectService.swift */,
 				4A1004F7D0D3C5C144210C7D /* ScreenCoverService.swift */,
 				59E8596B647276D0A1586779 /* SecretsVault.swift */,
 				C97BB9EE58B0DBF8AA04FDE7 /* SessionHistoryService.swift */,
@@ -704,6 +703,7 @@
 			isa = PBXGroup;
 			children = (
 				05D7C162E33744B76D6CE257 /* ClaudeProcessClassifierTests.swift */,
+				E196A0AEBD4F89C4DBAFB5D7 /* ProjectResolverTests.swift */,
 				9EDB91A617AE82542209609C /* VaultProjectTreeTests.swift */,
 			);
 			path = ClaudeHUDTests;
@@ -853,6 +853,7 @@
 			files = (
 				5D9122BAC2CF9167B2846662 /* ClaudeProcessClassifier.swift in Sources */,
 				A48E9985D965A3F9C26A9B03 /* ClaudeProcessClassifierTests.swift in Sources */,
+				CD7941AD5A6EEEDF57AED073 /* ProjectResolverTests.swift in Sources */,
 				D0756275787722E728214B42 /* VaultProjectTree.swift in Sources */,
 				6A98FA14DF4172DDDAE335D4 /* VaultProjectTreeTests.swift in Sources */,
 			);
@@ -941,7 +942,6 @@
 				B28C401B5B93D1B0AE175BE3 /* ObsidianMarkdownView.swift in Sources */,
 				21EAD7B85DB7D4B4FCDE1D24 /* Optional+Extension.swift in Sources */,
 				F2846511D5CDD3512D19E178 /* PermissionRequest.swift in Sources */,
-				BEB2851E74A402D792BD5639 /* ProjectService.swift in Sources */,
 				716AF768A9028A0E83E447BD /* SSEMCPClient.swift in Sources */,
 				561F123A3DD19B92F6D0F233 /* ScreenCoverService.swift in Sources */,
 				476DCA2D5B58A1E489619133 /* ScreenCoverView.swift in Sources */,

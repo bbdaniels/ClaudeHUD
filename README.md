@@ -16,7 +16,7 @@ ClaudeHUD is a SwiftUI wrapper around the [Claude CLI](https://docs.anthropic.co
 
 - **History** -- full-text search across every Claude Code session on your machine, grouped by project
 - **Today** -- AI-briefed daily calendar with email + Obsidian cross-references
-- **Projects** -- dashboard linking calendar, email, sessions, and Obsidian notes by project
+- **Projects** -- one row per Obsidian vault project, with live-session badges and one-click launch; subprojects nest under their parent
 - **Obsidian** -- multi-vault note browser with floating preview windows
 - **Substack** -- inline reader for your Substack inbox
 - **Notifications** -- desktop + iPhone/Apple Watch alerts when Claude needs attention
@@ -39,7 +39,7 @@ The CLI handles auth, tool execution, and MCP connections. ClaudeHUD provides th
 - Briefings preloaded and cached to disk (instant on revisit)
 - Click email threads to expand full body content
 
-**Projects tab** -- Cross-references your Obsidian vault with Claude Code sessions, calendar events, and email threads to surface project-level intelligence.
+**Projects tab** -- One row per Obsidian vault project (a top-level folder with a `Tasks.md`), grouped by recent activity. Each row shows badges for its live Claude Code sessions (click to focus their windows) and a launch button that opens a new session with the project's vault context. A project whose `Tasks.md` frontmatter declares `parent: <folder>` is shown inset under that project, and the parent row sums its children's badges. Sessions are attributed to projects by the `cwds:` frontmatter, longest match wins.
 
 **Terminal integration** -- Launch your preferred terminal directly from the header. Long-press the terminal button to switch. Supported terminals:
 - **Auto-execute:** Ghostty, iTerm2, Terminal.app
@@ -170,8 +170,8 @@ ClaudeHUD/
       FloatingNoteWindowManager.swift # Floating note window management
     Today/
       TodayView.swift                 # Daily calendar with AI meeting briefings
-    Projects/
-      ProjectDashboardView.swift      # Project intelligence dashboard
+    Vault/
+      VaultTabView.swift              # Projects tab: project rows, nested subprojects, launch
     Substack/
       SubstackView.swift              # Inbox-style Substack reader
     Settings/
@@ -180,7 +180,8 @@ ClaudeHUD/
     CalendarService.swift          # EventKit integration, live updates
     BriefingService.swift          # AI meeting briefings with Claude
     SparkService.swift             # Spark email DB (FTS + messages)
-    ProjectService.swift           # Project discovery and cross-referencing
+    VaultProjectTree.swift         # Project model, frontmatter reader, cwd resolver, parent tree
+    VaultProjectService.swift      # Vault project list, session-to-project join
     VaultManager.swift             # Obsidian vault state, file loading
     PushNotificationManager.swift  # Hook install, settings.json management
     SubstackService.swift          # Substack API client, cookie auth, caching

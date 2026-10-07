@@ -266,14 +266,10 @@ struct HUDContentView: View {
                     VaultTabView()
                         .environmentObject(appState.vaultProjectService)
                         .environmentObject(appState.vaultIngestService)
-                        .environmentObject(appState.vaultScriptInstaller)
                         .environmentObject(vaultManager)
-                        // Harvested spine dependencies (sessions, terminal,
-                        // tabManager, cross-ProjectService, calendar come from
-                        // the panel root). Agents injected here because only the
-                        // Projects/Library tabs use the live roster. (Recent
-                        // activity reads pre-computed Session Log digests — no
-                        // LLM call at view time.)
+                        // Sessions and the terminal come from the panel root.
+                        // Agents injected here because only the Projects/
+                        // Library tabs use the live roster.
                         .environmentObject(appState.agentsService)
                 case .today:
                     TodayView()
@@ -998,8 +994,7 @@ func magicLaunchArg(projectName: String, resolvedVaultPath: String?) -> String {
 
 /// Fire a magic launch for `projectName` rooted at repo `cwd`, loading vault
 /// context. `resolvedVaultPath` non-nil → folder already resolved (the Projects
-/// spine knows it directly; Session History resolves it via the canonical
-/// `vaultFolderPath`). Returns whether the terminal auto-opened (false →
+/// tab knows it directly). Returns whether the terminal auto-opened (false →
 /// clipboard fallback). Enables Remote Control named after the project so each
 /// session is identifiable in the agents list.
 ///
