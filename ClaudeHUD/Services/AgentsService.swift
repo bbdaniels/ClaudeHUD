@@ -57,46 +57,14 @@ final class AgentsService: ObservableObject {
     /// can appear without a Ghostty parent (attached in Terminal/iTerm) —
     /// still record it as attached, just without a window pid.
     nonisolated static func scanAttaches() -> [String: AttachInfo] {
-        struct PInfo { let ppid: Int; let command: String }
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/bin/ps")
-        proc.arguments = ["-axo", "pid=,ppid=,command="]
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        proc.standardError = Pipe()
-        do { try proc.run() } catch { return [:] }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        proc.waitUntilExit()
-        guard let out = String(data: data, encoding: .utf8) else { return [:] }
-
-        var procs: [Int: PInfo] = [:]
-        for raw in out.split(separator: "\n") {
-            let line = raw.drop(while: { $0 == " " })
-            guard let sp1 = line.firstIndex(of: " ") else { continue }
-            let pidStr = line[..<sp1]
-            let afterPid = line[line.index(after: sp1)...].drop(while: { $0 == " " })
-            guard let sp2 = afterPid.firstIndex(of: " ") else { continue }
-            let ppidStr = afterPid[..<sp2]
-            let cmd = afterPid[afterPid.index(after: sp2)...].drop(while: { $0 == " " })
-            guard let pid = Int(pidStr), let ppid = Int(ppidStr) else { continue }
-            procs[pid] = PInfo(ppid: ppid, command: String(cmd))
-        }
-
-        // Regex matches `claude attach <8hex>` whether `claude` is the bare
-        // command or a path ending in `/claude`. We anchor to a word so it
-        // does not match prose inside a shell command argument.
-        guard let regex = try? NSRegularExpression(
-            pattern: #"(?:^|/)claude\s+attach\s+([0-9a-f]{8})\b"#
-        ) else { return [:] }
+        // The process table and the `claude attach <short>` recognizer are
+        // shared with the menu's process classifier, so the two can never
+        // disagree about which sessions are attached.
+        let procs = ClaudeProcessSnapshot.processTable().rows
 
         var result: [String: AttachInfo] = [:]
         for (_, info) in procs {
-            let cmd = info.command
-            let range = NSRange(cmd.startIndex..., in: cmd)
-            guard let match = regex.firstMatch(in: cmd, range: range),
-                  match.numberOfRanges >= 2,
-                  let r = Range(match.range(at: 1), in: cmd) else { continue }
-            let short = String(cmd[r])
+            guard case .attachClient(let short) = ClaudeProcKind.of(command: info.command) else { continue }
             // Already recorded by a sibling (rare — multiple attach procs for
             // the same short)? Keep the first; they pin the same window.
             guard result[short] == nil else { continue }
@@ -132,11 +100,8 @@ final class AgentsService: ObservableObject {
 
     // `nonisolated` so the off-main launch sweep can resolve these paths
     // without hopping to the main actor; they read only immutable state.
-    nonisolated static var claudeDir: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude", isDirectory: true)
-    }
-    nonisolated private static var jobsDir: URL { claudeDir.appendingPathComponent("jobs", isDirectory: true) }
-    nonisolated private static var rosterFile: URL { claudeDir.appendingPathComponent("daemon/roster.json") }
+    nonisolated static var claudeDir: URL { ClaudeProcessSnapshot.claudeDir }
+    nonisolated private static var jobsDir: URL { ClaudeProcessSnapshot.jobsDir }
     nonisolated private static var pinsFile: URL { jobsDir.appendingPathComponent("pins.json") }
 
     init() {}
@@ -178,16 +143,7 @@ final class AgentsService: ObservableObject {
     /// Daemon roster: the authoritative list of worker processes that are
     /// actually running. Absence from it is what makes a `state.json` stale.
     nonisolated static func readRoster() -> [String: (pid: Int?, cwd: String?)] {
-        var alive: [String: (pid: Int?, cwd: String?)] = [:]
-        if let data = try? Data(contentsOf: rosterFile),
-           let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-           let workers = root["workers"] as? [String: Any] {
-            for (short, raw) in workers {
-                let w = raw as? [String: Any]
-                alive[short] = (w?["pid"] as? Int, w?["cwd"] as? String)
-            }
-        }
-        return alive
+        ClaudeProcessSnapshot.readRoster().workers.mapValues { ($0.pid, $0.cwd) }
     }
 
     nonisolated static func readPins() -> Set<String> {
@@ -290,15 +246,7 @@ final class AgentsService: ObservableObject {
     }
 
     nonisolated private static func parseDate(_ any: Any?) -> Date? {
-        if let s = any as? String {
-            let iso = ISO8601DateFormatter()
-            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let d = iso.date(from: s) { return d }
-            iso.formatOptions = [.withInternetDateTime]
-            return iso.date(from: s)
-        }
-        if let ms = any as? Double { return Date(timeIntervalSince1970: ms / 1000.0) }
-        return nil
+        ClaudeProcessSnapshot.parseDate(any)
     }
 
     /// Title resolution. Bare `claude --bg` sessions have no name and no
@@ -481,6 +429,27 @@ final class AgentsService: ObservableObject {
             }
         }
         return doomed.count
+    }
+
+    /// `claude stop <id>`, awaited. The CLI's own stop verb: the daemon ends
+    /// the worker and records the session as stopped (resumable with
+    /// `claude attach`), where a bare SIGTERM leaves it recorded as crashed.
+    nonisolated static func stopAndWait(_ id: String) async -> (code: Int32, output: String) {
+        await runCapture(resolveClaude(), ["stop", id], cwd: nil)
+    }
+
+    /// THE way the HUD opens a detached daemon session: a new terminal window
+    /// (Ghostty when installed, titled after the project) running a plain
+    /// `claude attach <id>`. Deliberately NOT `daemonizedClaudeCommand`: that
+    /// wrapper's HUP trap stops the session when its window closes, which is
+    /// right for a session the HUD started and wrong for an existing
+    /// background job. Closing this window only detaches.
+    @discardableResult
+    static func openAttachWindow(id: String, cwd: String, terminalService: TerminalService) -> Bool {
+        let ghostty = "/Applications/Ghostty.app"
+        let app = FileManager.default.fileExists(atPath: ghostty) ? ghostty : nil
+        let dir = cwd.isEmpty || !FileManager.default.fileExists(atPath: cwd) ? nil : cwd
+        return terminalService.launchWithCommand("claude attach \(id)", inDirectory: dir, usingApp: app)
     }
 
     /// Fetch recent output for the logs sheet.

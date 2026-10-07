@@ -275,8 +275,7 @@ struct AgentsView: View {
             return
         }
         // Truly detached — spawn a new attached window in the session's cwd.
-        let dir = a.cwd.isEmpty ? nil : a.cwd
-        _ = terminalService.launchWithCommand("claude attach \(a.id)", inDirectory: dir)
+        AgentsService.openAttachWindow(id: a.id, cwd: a.cwd, terminalService: terminalService)
     }
 
     private func showLogs(_ a: AgentSession) {

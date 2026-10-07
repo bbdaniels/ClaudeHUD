@@ -23,9 +23,16 @@ cd "$VAULT"
 # --- single-instance lock --------------------------------------------
 # Concurrent syncers (cron + cockpit + ad-hoc sessions) racing
 # `git pull --rebase` / `git rebase --abort` is what corrupts
-# .git/rebase-merge and wedges the vault. Serialize with an atomic mkdir
-# lock; a dead holder's lock is reclaimed so we never deadlock ourselves.
-LOCKDIR="$VAULT/.git/obsidian-sync.lock"
+# the git dir's rebase-merge and wedges the vault. Serialize with an atomic
+# mkdir lock; a dead holder's lock is reclaimed so we never deadlock ourselves.
+#
+# Ask git where its directory is; never spell it as a path under the vault.
+# Since 2026-10-05 the vault's .git is a gitfile (gitdir: <local path>) and
+# the repository data lives outside iCloud, so anything written as
+# VAULT + .git + name is a path under a regular file. Asking git also stays
+# right if the data ever moves back.
+GITDIR="$(git rev-parse --absolute-git-dir)"
+LOCKDIR="$GITDIR/obsidian-sync.lock"
 if ! mkdir "$LOCKDIR" 2>/dev/null; then
   holder="$(cat "$LOCKDIR/pid" 2>/dev/null || true)"
   if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
@@ -60,10 +67,10 @@ echo "===== $(date -u +%FT%TZ) sync start ====="
 # start. We hold the lock, so no other git is active. Try a clean abort;
 # if the rebase dir is corrupt (e.g. missing head-name), force-remove it.
 # This is what turns a wedge into a self-recovering blip.
-if [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then
+if [ -d "$GITDIR/rebase-merge" ] || [ -d "$GITDIR/rebase-apply" ]; then
   echo "  clearing leftover rebase state"
   git rebase --abort 2>/dev/null || true
-  rm -rf .git/rebase-merge .git/rebase-apply
+  rm -rf "$GITDIR/rebase-merge" "$GITDIR/rebase-apply"
 fi
 
 retry git fetch origin main --quiet
@@ -89,7 +96,7 @@ if ! git pull --rebase origin main; then
   echo "REBASE CONFLICT — aborting; nothing left wedged (next run starts clean):"
   git status || true
   git rebase --abort 2>/dev/null || true
-  rm -rf .git/rebase-merge .git/rebase-apply
+  rm -rf "$GITDIR/rebase-merge" "$GITDIR/rebase-apply"
   exit 1
 fi
 

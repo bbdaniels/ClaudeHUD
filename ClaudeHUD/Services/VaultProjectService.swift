@@ -707,6 +707,44 @@ final class VaultProjectService: ObservableObject {
     func folderName(forCwd cwd: String) -> String? {
         cwdFolderCache[cwd] ?? nil
     }
+
+    // MARK: - Live sessions per project
+
+    /// folder name → the live INTERACTIVE sessions among `agents`. THE
+    /// session-to-project join for anything that acts on a project's open
+    /// windows: the Projects badges, the badge's click-to-focus, and the
+    /// launcher's window-or-tab decision all read it, so they cannot disagree
+    /// about which sessions belong to a project. Unsorted: ordering is only
+    /// needed on click, and the Projects list calls this on every body pass.
+    func liveSessionsByFolder(in agents: [AgentSession]) -> [String: [AgentSession]] {
+        var map: [String: [AgentSession]] = [:]
+        for a in agents {
+            guard a.isAlive, a.isOpen, !a.cwd.isEmpty,
+                  let folder = folderName(forCwd: a.cwd) else { continue }
+            // Only the three badged buckets: an alive+open session in an
+            // unrecognized daemon state (`.other`) must not be click-cyclable
+            // when the badge never advertised it.
+            switch a.bucket {
+            case .working, .needsInput, .idle: break
+            default: continue
+            }
+            map[folder, default: []].append(a)
+        }
+        return map
+    }
+
+    /// One project's live sessions, most recently active first.
+    ///
+    /// `updatedAt` alone is not the recency: the daemon flushes `state.json`
+    /// event-driven and can lag minutes behind an actively working session,
+    /// while the transcript ticks on every turn — so the later of the two is
+    /// the honest ordering.
+    func liveSessions(forFolder folder: String, in agents: [AgentSession]) -> [AgentSession] {
+        func recency(_ a: AgentSession) -> Date {
+            max(a.updatedAt ?? .distantPast, a.transcriptMtime ?? .distantPast)
+        }
+        return (liveSessionsByFolder(in: agents)[folder] ?? []).sorted { recency($0) > recency($1) }
+    }
 }
 
 // MARK: - Date helpers

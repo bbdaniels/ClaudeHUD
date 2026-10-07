@@ -56,3 +56,24 @@ targets:
           -Wl,-force_load,$(SRCROOT)/ClaudeHUD/Vendor/Ghostty/libglslang.a
           -Wl,-force_load,$(SRCROOT)/ClaudeHUD/Vendor/Ghostty/libsentry.a
           -Wl,-force_load,$(SRCROOT)/ClaudeHUD/Vendor/Ghostty/libbreakpad.a
+
+  # Unit tests for the pure, Foundation-only logic. No host app: the bundle
+  # compiles the sources it tests directly, so tests never launch ClaudeHUD
+  # or touch libghostty. Run: xcodebuild test -scheme ClaudeHUDTests
+  ClaudeHUDTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: ClaudeHUDTests
+      - path: ClaudeHUD/Services/ClaudeProcessClassifier.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.claudehud.tests
+        GENERATE_INFOPLIST_FILE: YES
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+    scheme:
+      testTargets:
+        - ClaudeHUDTests

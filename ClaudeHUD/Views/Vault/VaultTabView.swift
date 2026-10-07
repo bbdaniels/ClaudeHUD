@@ -221,37 +221,15 @@ struct VaultTabView: View {
 
     /// folder name → the live INTERACTIVE sessions themselves. One source for
     /// both the badge counts and the badge's click target, so what a click
-    /// raises is exactly what was counted. Unsorted: ordering is only needed
-    /// on click, and this runs on every body pass.
+    /// raises is exactly what was counted.
     private var liveSessionsByFolder: [String: [AgentSession]] {
-        var map: [String: [AgentSession]] = [:]
-        for a in agentsService.agents {
-            guard a.isAlive, a.isOpen, !a.cwd.isEmpty,
-                  let folder = projectService.folderName(forCwd: a.cwd) else { continue }
-            // Only the three badged buckets: an alive+open session in an
-            // unrecognized daemon state (`.other`) must not be click-cyclable
-            // when the badge never advertised it.
-            switch a.bucket {
-            case .working, .needsInput, .idle: break
-            default: continue
-            }
-            map[folder, default: []].append(a)
-        }
-        return map
+        projectService.liveSessionsByFolder(in: agentsService.agents)
     }
 
     /// One project's live sessions, most recently active first. Called from a
-    /// badge click only.
-    ///
-    /// `updatedAt` alone is not the recency: the daemon flushes `state.json`
-    /// event-driven and can lag minutes behind an actively working session,
-    /// while the transcript ticks on every turn — so the later of the two is
-    /// the honest ordering.
+    /// badge or launch click only.
     private func liveSessions(forFolder folder: String) -> [AgentSession] {
-        func recency(_ a: AgentSession) -> Date {
-            max(a.updatedAt ?? .distantPast, a.transcriptMtime ?? .distantPast)
-        }
-        return (liveSessionsByFolder[folder] ?? []).sorted { recency($0) > recency($1) }
+        projectService.liveSessions(forFolder: folder, in: agentsService.agents)
     }
 
     private func recencySections(live: [String: LiveSessionCounts])
@@ -635,6 +613,7 @@ private struct ProjectRowView: View {
     private func launch(cwd: String) {
         _ = performMagicLaunch(projectName: project.name, cwd: cwd,
                                resolvedVaultPath: project.folder.path,
+                               liveSessions: liveSessionsProvider(),
                                terminalService: terminalService)
         launched = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { launched = false }
@@ -1748,6 +1727,7 @@ private struct WorkSubsection: View {
         let auto = performMagicLaunch(
             projectName: project.name, cwd: cwd,
             resolvedVaultPath: project.folder.path,
+            liveSessions: vaultProjects.liveSessions(forFolder: project.name, in: agentsService.agents),
             terminalService: terminalService
         )
         feedback = auto ? "Opened!" : "Cmd+V"
