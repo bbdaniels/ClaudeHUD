@@ -72,7 +72,6 @@
 		5DE96FC3E4C95A8BCFD6B8E8 /* NSImage+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B87051A2FE60BB08D085B5D /* NSImage+Extension.swift */; };
 		5E8249E75BC7071A42BD394B /* MCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5CC94E94375F63C3B1C6D3 /* MCPClient.swift */; };
 		5F5595CBFA7B3C7816BDBD64 /* com.bbdaniels.vault-backfill.plist in Resources */ = {isa = PBXBuildFile; fileRef = 9F7E32B805364F1571248393 /* com.bbdaniels.vault-backfill.plist */; };
-		61A79D763A6AAFC36056A28C /* vault-email-ingest.sh in Resources */ = {isa = PBXBuildFile; fileRef = 0B247D259B3E01BF7ECD38BF /* vault-email-ingest.sh */; };
 		62681EDDCDBBA34D5BEC1B71 /* View+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33DB2BD0985C47EE12DA61AA /* View+Extension.swift */; };
 		62BA2D9F0205706B941FC1A1 /* GhosttyPackageMeta.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9034641E5D6BB5C261970D88 /* GhosttyPackageMeta.swift */; };
 		66BEF368C8D771EB91CCA46B /* ClaudeProcessClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99EC467878E98AC7D52F8203 /* ClaudeProcessClassifier.swift */; };
@@ -102,7 +101,6 @@
 		8BC3AFA5670E2BEE782691C7 /* CGS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 446CE71CD596514D14EAEBFA /* CGS.swift */; };
 		8C46A3A5A8F635DA6316E52D /* HUDPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39C7242E2783A2815CB305E2 /* HUDPanelController.swift */; };
 		8E4BEDBA99C6C86C2199CCB7 /* SurfaceScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F1CCAC3654CFE6A96560A4D /* SurfaceScrollView.swift */; };
-		8E8F39F1B2F4A9126B193434 /* vault-email-ingest-prompt.md in Resources */ = {isa = PBXBuildFile; fileRef = 7DC0E016BB2EFA248FF50C5D /* vault-email-ingest-prompt.md */; };
 		8FA5F9C2B51FAC76BF7CBBB7 /* hud-slack-mcp.py in Resources */ = {isa = PBXBuildFile; fileRef = 1D731581C9FAF0D35F075729 /* hud-slack-mcp.py */; };
 		952C077516A9880889016AA8 /* TabGroupCloseCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3122D5EA083D0825A7A6E8B /* TabGroupCloseCoordinator.swift */; };
 		96C997E65F697D968F12E091 /* Dock.swift in Sources */ = {isa = PBXBuildFile; fileRef = C351829385CF609EED3E826E /* Dock.swift */; };
@@ -163,7 +161,6 @@
 		F38B16FA8AEAABF25A47D668 /* libpng.a in Resources */ = {isa = PBXBuildFile; fileRef = 5B7BE7892D77F7EFFC5CBD2D /* libpng.a */; };
 		F8C18D807579CDDD96CB43E7 /* Ghostty.Event.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71E2A18C94034AA8F2D9503E /* Ghostty.Event.swift */; };
 		FBC1C732FBFB4618A99CE3C6 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 46ACBA35961D35CE59A095C9 /* MetalKit.framework */; };
-		FBEAE15A2C927762D3B358D4 /* com.bbdaniels.vault-email-ingest.plist in Resources */ = {isa = PBXBuildFile; fileRef = 2B1929B5FE9420A892A67665 /* com.bbdaniels.vault-email-ingest.plist */; };
 		FEA59D751ADDDE44989FCDAE /* GhosttyPackage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5DCFDD4BA76F95120750CF9 /* GhosttyPackage.swift */; };
 /* End PBXBuildFile section */
 
@@ -174,7 +171,6 @@
 		0566FC950C392AF39E263A41 /* Ghostty.Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Config.swift; sourceTree = "<group>"; };
 		05D7C162E33744B76D6CE257 /* ClaudeProcessClassifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeProcessClassifierTests.swift; sourceTree = "<group>"; };
 		08C85940214C84CB1A4E170C /* AgentsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsService.swift; sourceTree = "<group>"; };
-		0B247D259B3E01BF7ECD38BF /* vault-email-ingest.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "vault-email-ingest.sh"; sourceTree = "<group>"; };
 		0BAE19BEC8B3EED3E2D70A4F /* MetalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalView.swift; sourceTree = "<group>"; };
 		0C02B9BB03438B656138520C /* Backport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backport.swift; sourceTree = "<group>"; };
 		0E31186A3C56760A5BDC4FE9 /* NSScreen+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSScreen+Extension.swift"; sourceTree = "<group>"; };
@@ -197,7 +193,6 @@
 		266D9E2A1D7C837357F1A963 /* Array+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array+Extension.swift"; sourceTree = "<group>"; };
 		29B305DC96DA6EAD0CD6B335 /* Ghostty.Shell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Shell.swift; sourceTree = "<group>"; };
 		2A867396AF8AC61AC9257B54 /* CodableBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodableBridge.swift; sourceTree = "<group>"; };
-		2B1929B5FE9420A892A67665 /* com.bbdaniels.vault-email-ingest.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "com.bbdaniels.vault-email-ingest.plist"; sourceTree = "<group>"; };
 		2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalService.swift; sourceTree = "<group>"; };
 		2EEBFE2793D1BE2364B60C89 /* ObsidianMarkdownView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianMarkdownView.swift; sourceTree = "<group>"; };
 		2EEF39238129551C8264F8B4 /* com.bbdaniels.obsidian-sync.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "com.bbdaniels.obsidian-sync.plist"; sourceTree = "<group>"; };
@@ -248,7 +243,6 @@
 		780C3E8AEA8CC301D2806F1B /* CrossKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossKit.swift; sourceTree = "<group>"; };
 		7ADA35FF9D1AED3E119C54A9 /* KeyboardShortcut+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeyboardShortcut+Extension.swift"; sourceTree = "<group>"; };
 		7C833E15743B893B9F72BC7D /* SkillFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillFile.swift; sourceTree = "<group>"; };
-		7DC0E016BB2EFA248FF50C5D /* vault-email-ingest-prompt.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "vault-email-ingest-prompt.md"; sourceTree = "<group>"; };
 		7FF9DA594E9870B247A558E0 /* TerminalTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTabView.swift; sourceTree = "<group>"; };
 		80BD26429AC23FB4D918EFA3 /* Fullscreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Fullscreen.swift; sourceTree = "<group>"; };
 		847F4ED0CF27EBE50725922D /* NSMenu+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSMenu+Extension.swift"; sourceTree = "<group>"; };
@@ -437,8 +431,6 @@
 			isa = PBXGroup;
 			children = (
 				157365D3A14C1D2C45DE6A80 /* obsidian-sync.sh */,
-				7DC0E016BB2EFA248FF50C5D /* vault-email-ingest-prompt.md */,
-				0B247D259B3E01BF7ECD38BF /* vault-email-ingest.sh */,
 				11FF9297DE2CD760A7CBB416 /* vault-ingest-prompt.md */,
 				ADB00BCD4949B7069D99FB8D /* vault-ingest.sh */,
 				D83C760E0CDD4EA15F2B62C8 /* vault-reset.sh */,
@@ -524,7 +516,6 @@
 			children = (
 				2EEF39238129551C8264F8B4 /* com.bbdaniels.obsidian-sync.plist */,
 				9F7E32B805364F1571248393 /* com.bbdaniels.vault-backfill.plist */,
-				2B1929B5FE9420A892A67665 /* com.bbdaniels.vault-email-ingest.plist */,
 			);
 			path = LaunchAgents;
 			sourceTree = "<group>";
@@ -823,7 +814,6 @@
 				4AFFCB2580A983F47F0BB0A1 /* GhosttyKit.xcframework in Resources */,
 				B8D06D4427A9E6FF2119DCC7 /* com.bbdaniels.obsidian-sync.plist in Resources */,
 				5F5595CBFA7B3C7816BDBD64 /* com.bbdaniels.vault-backfill.plist in Resources */,
-				FBEAE15A2C927762D3B358D4 /* com.bbdaniels.vault-email-ingest.plist in Resources */,
 				8FA5F9C2B51FAC76BF7CBBB7 /* hud-slack-mcp.py in Resources */,
 				F2237345BD07B5AF00CC973B /* libbreakpad.a in Resources */,
 				E544C1AC11413E5F3E07E88D /* libdcimgui.a in Resources */,
@@ -841,8 +831,6 @@
 				9D1751A3FD807556940D4438 /* ntfy-notify.sh in Resources */,
 				E8AD49C87FEE8E8ADC613F66 /* obsidian-sync.sh in Resources */,
 				300F5B400249B3D84DBD6C1F /* permission-watcher.sh in Resources */,
-				8E8F39F1B2F4A9126B193434 /* vault-email-ingest-prompt.md in Resources */,
-				61A79D763A6AAFC36056A28C /* vault-email-ingest.sh in Resources */,
 				456A775AEB1CC14776BC7C28 /* vault-ingest-prompt.md in Resources */,
 				1E3745FD6B707BB75705A76A /* vault-ingest.sh in Resources */,
 				81BE1543A19F6E208A77BA5C /* vault-reset.sh in Resources */,
