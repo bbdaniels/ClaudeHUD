@@ -33,7 +33,6 @@
 		1B9D94AD63BF74BBA5872C00 /* KeyboardLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0176894F6807DCA0A7B76E /* KeyboardLayout.swift */; };
 		1C0F632F6A32BA1CD374B977 /* NSApplication+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0FDCED3FEDB326A8DFA4ED4 /* NSApplication+Extension.swift */; };
 		1C5190264D7CA34DF5381CD4 /* GameController.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1E2B6EB27428FDED67DA72B9 /* GameController.framework */; };
-		1E3745FD6B707BB75705A76A /* vault-ingest.sh in Resources */ = {isa = PBXBuildFile; fileRef = ADB00BCD4949B7069D99FB8D /* vault-ingest.sh */; };
 		21EAD7B85DB7D4B4FCDE1D24 /* Optional+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33B9100D8D4E09B3B7E405AF /* Optional+Extension.swift */; };
 		22E9986D54197F5AACE3B317 /* LibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB043CB409497C537E66D2B6 /* LibraryService.swift */; };
 		2387FF808493C91DAD2A1EB1 /* NSWorkspace+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8136CBCF0A500B74607EFE1 /* NSWorkspace+Extension.swift */; };
@@ -49,7 +48,6 @@
 		344F340CDF4EAE1B18B24EE1 /* SecretsVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E8596B647276D0A1586779 /* SecretsVault.swift */; };
 		3CCAE765C9EFE1202B3718B6 /* MarkdownBlocks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C25C90AD7421B63879BFE80 /* MarkdownBlocks.swift */; };
 		4167B772A7F89D1779F98239 /* libfreetype.a in Resources */ = {isa = PBXBuildFile; fileRef = AB8F3ADA72810AD4176731B5 /* libfreetype.a */; };
-		456A775AEB1CC14776BC7C28 /* vault-ingest-prompt.md in Resources */ = {isa = PBXBuildFile; fileRef = 11FF9297DE2CD760A7CBB416 /* vault-ingest-prompt.md */; };
 		46302138FE115BA1187EBD3D /* FloatingNoteWindowManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CF31D45958F7B287926676 /* FloatingNoteWindowManager.swift */; };
 		4652E6B3F0033AD09954F14C /* Ghostty.Surface.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5B04B18CF3CDAE6BFDB85BC /* Ghostty.Surface.swift */; };
 		4700E3BEA067D7A2D4426084 /* ObjectIdentifier+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFA10783C0F1F95AE790BD1B /* ObjectIdentifier+Extension.swift */; };
@@ -71,7 +69,6 @@
 		5D9122BAC2CF9167B2846662 /* ClaudeProcessClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99EC467878E98AC7D52F8203 /* ClaudeProcessClassifier.swift */; };
 		5DE96FC3E4C95A8BCFD6B8E8 /* NSImage+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B87051A2FE60BB08D085B5D /* NSImage+Extension.swift */; };
 		5E8249E75BC7071A42BD394B /* MCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5CC94E94375F63C3B1C6D3 /* MCPClient.swift */; };
-		5F5595CBFA7B3C7816BDBD64 /* com.bbdaniels.vault-backfill.plist in Resources */ = {isa = PBXBuildFile; fileRef = 9F7E32B805364F1571248393 /* com.bbdaniels.vault-backfill.plist */; };
 		62681EDDCDBBA34D5BEC1B71 /* View+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33DB2BD0985C47EE12DA61AA /* View+Extension.swift */; };
 		62BA2D9F0205706B941FC1A1 /* GhosttyPackageMeta.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9034641E5D6BB5C261970D88 /* GhosttyPackageMeta.swift */; };
 		66BEF368C8D771EB91CCA46B /* ClaudeProcessClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99EC467878E98AC7D52F8203 /* ClaudeProcessClassifier.swift */; };
@@ -179,7 +176,6 @@
 		0E31186A3C56760A5BDC4FE9 /* NSScreen+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSScreen+Extension.swift"; sourceTree = "<group>"; };
 		0F039EB68F8D2416F59AF489 /* GhosttyDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyDelegate.swift; sourceTree = "<group>"; };
 		116D192F995BA6063E058A7F /* Stubs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Stubs.swift; sourceTree = "<group>"; };
-		11FF9297DE2CD760A7CBB416 /* vault-ingest-prompt.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "vault-ingest-prompt.md"; sourceTree = "<group>"; };
 		1539677F5984A853CCCD2667 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = GhosttyKit.xcframework; path = ClaudeHUD/Vendor/Ghostty/GhosttyKit.xcframework; sourceTree = "<group>"; };
 		157365D3A14C1D2C45DE6A80 /* obsidian-sync.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "obsidian-sync.sh"; sourceTree = "<group>"; };
 		175F7C7BD7CB64E6EE7CF176 /* Duration+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Duration+Extension.swift"; sourceTree = "<group>"; };
@@ -265,14 +261,12 @@
 		9A39F72F605ECF71563A3E2E /* NSMenuItem+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSMenuItem+Extension.swift"; sourceTree = "<group>"; };
 		9AEA2D1DA808678730DAFAB2 /* AgentModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentModels.swift; sourceTree = "<group>"; };
 		9EDB91A617AE82542209609C /* VaultProjectTreeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultProjectTreeTests.swift; sourceTree = "<group>"; };
-		9F7E32B805364F1571248393 /* com.bbdaniels.vault-backfill.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "com.bbdaniels.vault-backfill.plist"; sourceTree = "<group>"; };
 		A03300B3437AA67D3BAB11EE /* ObjCExceptionCatcher.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ObjCExceptionCatcher.m; sourceTree = "<group>"; };
 		A2D5D690DAB6FDFE2D23AAE9 /* Ghostty.Action.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Action.swift; sourceTree = "<group>"; };
 		A72C6D575DC0E64C605D2287 /* libsentry.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libsentry.a; sourceTree = "<group>"; };
 		AB272797EF5863C22BEFFDE7 /* permission-watcher.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "permission-watcher.sh"; sourceTree = "<group>"; };
 		AB8F3ADA72810AD4176731B5 /* libfreetype.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libfreetype.a; sourceTree = "<group>"; };
 		AD95C3150FE0A4C4CFEA09D0 /* libspirv_cross.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libspirv_cross.a; sourceTree = "<group>"; };
-		ADB00BCD4949B7069D99FB8D /* vault-ingest.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "vault-ingest.sh"; sourceTree = "<group>"; };
 		AFBE827B2A3EA0BF75B317EF /* SlackFileLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlackFileLog.swift; sourceTree = "<group>"; };
 		B280310DE38541F7B2CD6849 /* VaultTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultTabView.swift; sourceTree = "<group>"; };
 		B3122D5EA083D0825A7A6E8B /* TabGroupCloseCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabGroupCloseCoordinator.swift; sourceTree = "<group>"; };
@@ -436,8 +430,6 @@
 			isa = PBXGroup;
 			children = (
 				157365D3A14C1D2C45DE6A80 /* obsidian-sync.sh */,
-				11FF9297DE2CD760A7CBB416 /* vault-ingest-prompt.md */,
-				ADB00BCD4949B7069D99FB8D /* vault-ingest.sh */,
 				D83C760E0CDD4EA15F2B62C8 /* vault-reset.sh */,
 			);
 			path = Scripts;
@@ -520,7 +512,6 @@
 			isa = PBXGroup;
 			children = (
 				2EEF39238129551C8264F8B4 /* com.bbdaniels.obsidian-sync.plist */,
-				9F7E32B805364F1571248393 /* com.bbdaniels.vault-backfill.plist */,
 			);
 			path = LaunchAgents;
 			sourceTree = "<group>";
@@ -820,7 +811,6 @@
 				10839D1BC618E406833B95CC /* Assets.xcassets in Resources */,
 				4AFFCB2580A983F47F0BB0A1 /* GhosttyKit.xcframework in Resources */,
 				B8D06D4427A9E6FF2119DCC7 /* com.bbdaniels.obsidian-sync.plist in Resources */,
-				5F5595CBFA7B3C7816BDBD64 /* com.bbdaniels.vault-backfill.plist in Resources */,
 				8FA5F9C2B51FAC76BF7CBBB7 /* hud-slack-mcp.py in Resources */,
 				F2237345BD07B5AF00CC973B /* libbreakpad.a in Resources */,
 				E544C1AC11413E5F3E07E88D /* libdcimgui.a in Resources */,
@@ -838,8 +828,6 @@
 				9D1751A3FD807556940D4438 /* ntfy-notify.sh in Resources */,
 				E8AD49C87FEE8E8ADC613F66 /* obsidian-sync.sh in Resources */,
 				300F5B400249B3D84DBD6C1F /* permission-watcher.sh in Resources */,
-				456A775AEB1CC14776BC7C28 /* vault-ingest-prompt.md in Resources */,
-				1E3745FD6B707BB75705A76A /* vault-ingest.sh in Resources */,
 				81BE1543A19F6E208A77BA5C /* vault-reset.sh in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

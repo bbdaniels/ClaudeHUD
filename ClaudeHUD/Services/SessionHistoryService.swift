@@ -182,10 +182,9 @@ class SessionHistoryService: ObservableObject {
         let fm = FileManager.default
         guard let projectDirs = try? fm.contentsOfDirectory(atPath: baseDir) else { return ([], [:], []) }
 
-        // Close-out titles written by the vault-ingest pipeline at SessionEnd
-        // (see loadSidecarTitles). When present they ARE the label — they
-        // summarize what the session accomplished, which Claude Code's
-        // ai-title never captures for magic-launched sessions.
+        // Title sidecars (see loadSidecarTitles). When present they ARE the
+        // label, which Claude Code's ai-title never gets right for
+        // magic-launched sessions.
         let sidecarTitles = loadSidecarTitles()
 
         var found: [SessionInfo] = []
@@ -216,12 +215,11 @@ class SessionHistoryService: ObservableObject {
                 let mtime = modDate.timeIntervalSince1970
 
                 // Classify every session from its transcript head FIRST — even
-                // when a digest sidecar exists. Sidecars used to win outright,
-                // which let machine one-shots that slipped past the digest's
-                // NO_DURABLE_CONTENT rule surface in history under a plausible
-                // title (Haiku digested a skill-selector query as real work:
-                // "Skill-selection query re: patient risk scoring"). The head
-                // read is off the main thread and cached per file version.
+                // when a title sidecar exists. Sidecars used to win outright,
+                // which let a machine one-shot that had been given a title
+                // surface in history under a plausible one ("Skill-selection
+                // query re: patient risk scoring"). The head read is off the
+                // main thread and cached per file version.
                 let verdict: CachedHead
                 if let cached = headCache[filePath], cached.mtime == mtime, cached.size == size {
                     verdict = cached
@@ -236,19 +234,17 @@ class SessionHistoryService: ObservableObject {
 
                 let preview: String
                 if let title = sidecarTitles[sessionId] {
-                    // Ingested, substantive session: the close-out digest title
-                    // wins. Strip a leading "<project>: " — every row already
-                    // carries a project tag, and sidecars written before the
-                    // ingest prompt's no-project-name title rule carry the
-                    // prefix forever otherwise. A sidecar also rescues .unknown
-                    // heads (e.g. a giant first record that overflows the head
-                    // window): the digest itself proves the session had
-                    // substance.
+                    // A titled session: the sidecar title wins. Strip a
+                    // leading "<project>: ", since every row already carries a
+                    // project tag and old sidecars carry the prefix forever
+                    // otherwise. A sidecar also rescues .unknown heads (e.g. a
+                    // giant first record that overflows the head window): a
+                    // title was only ever written for a session with substance.
                     preview = stripProjectPrefix(title, projectName: projectName)
                 } else if let label = verdict.label {
                     preview = label
                 } else {
-                    // No real user turn found in the head and never digested:
+                    // No real user turn found in the head and no title sidecar:
                     // abandoned shells and unparseable heads.
                     continue
                 }
@@ -269,9 +265,11 @@ class SessionHistoryService: ObservableObject {
     }
 
     /// Session titles, keyed by session id under
-    /// ~/.claude/hud/session-titles/<id>.txt. Written by the one title
-    /// generator, `SessionTitler`; sidecars from vault-ingest digests before
-    /// 1.11.0 remain valid. Loaded once per scan; an untitled session falls
+    /// ~/.claude/hud/session-titles/<id>.txt. `SessionTitler` is the only
+    /// writer. The retired per-session vault digest also wrote sidecars here;
+    /// those files still display, and nothing but `SessionTitler` writes new
+    /// ones (the daily review that replaced the digest writes none). Loaded
+    /// once per scan; an untitled session falls
     /// back to its first real prompt. A sidecar is a LABEL, not a listing
     /// decision: machine one-shots are dropped by classifyHead even when a
     /// stray sidecar exists.
@@ -290,12 +288,11 @@ class SessionHistoryService: ObservableObject {
         return map
     }
 
-    /// Strip a leading "<project>: " / "<project> — " from a digest title.
-    /// The ingest prompt's title rule forbids the project name (the history
-    /// row already carries a project tag), but sidecars written before the
-    /// rule landed — and the occasional model slip since — still carry it.
-    /// A display-level strip fixes the whole backlog without rewriting any
-    /// vault history.
+    /// Strip a leading "<project>: " / "<project> — " from a sidecar title.
+    /// The history row already carries a project tag, but sidecars left by
+    /// the retired per-session vault digest, and the occasional model slip
+    /// since, still carry the name. A display-level strip fixes the whole
+    /// backlog without rewriting any file.
     nonisolated private static func stripProjectPrefix(_ title: String, projectName: String) -> String {
         guard !projectName.isEmpty, title.count > projectName.count,
               title.lowercased().hasPrefix(projectName.lowercased()) else { return title }
@@ -436,7 +433,7 @@ class SessionHistoryService: ObservableObject {
     /// the first genuine user prompt (preview-ready); `.magicLaunch` the
     /// project name parsed from the bootstrap boilerplate; `.machine` is a
     /// programmatic one-shot (never listed); `.unknown` means the head held
-    /// no verdict (listed only if a digest sidecar vouches for it).
+    /// no verdict (listed only if a title sidecar vouches for it).
     private enum HeadClass {
         case machine
         case unknown
@@ -462,7 +459,7 @@ class SessionHistoryService: ObservableObject {
             // load", "obsidian estonia-ecm project") no matter the work that
             // followed. Label with the user's first real prompt instead. A
             // bootstrap the person never typed into is an abandoned shell,
-            // listed only if a digest sidecar titles it (like .unknown).
+            // listed only if a title sidecar exists for it (like .unknown).
             return CachedHead(mtime: mtime, size: size, kind: .listed, label: conversationOpening(in: path, promptLimit: 1, wantReply: false).prompts.first.map { String($0.prefix(100)) })
         }
     }
@@ -470,8 +467,9 @@ class SessionHistoryService: ObservableObject {
     /// Classify a session from the first 64 KB of its transcript.
     ///
     ///  * **.machine** — programmatic `claude -p` runs: skill-tip catalog
-    ///    selectors, remote-control liveness probes (PONG / SMOKE_OK), the
-    ///    vault-ingest digest pipeline. Detected STRUCTURALLY: an SDK
+    ///    selectors, remote-control liveness probes (PONG / SMOKE_OK), old
+    ///    runs of the retired per-session vault digest. Detected
+    ///    STRUCTURALLY: an SDK
     ///    one-shot's user record carries `entrypoint: "sdk-cli"`, while every
     ///    kind of real session (terminal, VSCode, desktop, magic-launch,
     ///    background job) records "cli"-family entrypoints. ~7,000 of these
@@ -485,9 +483,6 @@ class SessionHistoryService: ObservableObject {
     ///    skipped; `<command>` wrappers count as interactive evidence; only
     ///    if sdk records were seen and nothing interactive followed does the
     ///    window end as .machine.
-    ///
-    /// Mirrors `vault-ingest.sh::is_machine_transcript` (canonical; the
-    /// ingest skips the same sessions without spending a model call).
     nonisolated private static func classifyHead(from path: String) -> HeadClass {
         guard let handle = FileHandle(forReadingAtPath: path) else { return .unknown }
         defer { handle.closeFile() }
@@ -511,7 +506,7 @@ class SessionHistoryService: ObservableObject {
             // relay stamps its context preamble onto the first user message.
             // Match the marker BEFORE the sdk-cli drop or every Slack session
             // vanishes from history. Title = the user's own text after the
-            // preamble. Mirror: vault-ingest.sh::is_machine_transcript REAL.
+            // preamble.
             if content.hasPrefix("[ClaudeHUD Slack session.") {
                 let body = content.range(of: "User message: ")
                     .map { String(content[$0.upperBound...]) } ?? content
@@ -612,7 +607,7 @@ class SessionHistoryService: ObservableObject {
     /// as new probe forms appear.
     nonisolated private static func isMachineFirstPrompt(_ s: String) -> Bool {
         if s.hasPrefix("You select the single most relevant skill") { return true }  // skill-tip catalog selector
-        if s.hasPrefix("# Session Ingest") { return true }                           // vault-ingest digest pipeline
+        if s.hasPrefix("# Session Ingest") { return true }                           // old transcripts of the retired per-session vault digest
         if s.hasPrefix("<!-- === Managed by ClaudeHUD") { return true }              // managed-prompt pipelines
         if s.hasPrefix("Reply with exactly") { return true }                         // liveness probes ("…the word: PONG", "…: SMOKE_OK")
         if s.hasPrefix("Return ONLY this JSON object") { return true }               // remote-control JSON echo probe
@@ -691,9 +686,7 @@ class SessionHistoryService: ObservableObject {
 
 /// THE extraction of a transcript's conversation text: user and assistant
 /// text only; tool_use / tool_result payloads, thinking, attachments, and
-/// base64 blobs are skipped. Used in-process by the search index, and by
-/// vault-ingest.sh through the app binary's `--transcript-text` mode, so the
-/// digest and the index read identical text from one implementation.
+/// base64 blobs are skipped. Used in-process by the search index.
 enum TranscriptText {
     private static let textBlockMarker = Data("\"type\":\"text\"".utf8)
     private static let stringContentMarker = Data("\"content\":\"".utf8)
@@ -715,26 +708,6 @@ enum TranscriptText {
             else { continue }
             body(role, text)
         }
-    }
-
-    /// The conversation as plain text for a model, capped at `maxChars`
-    /// (a token-safe budget: text runs ~4 chars per token). Over the cap it
-    /// keeps the opening (intent) and the ending (outcome) and elides the
-    /// middle, marking the cut.
-    static func conversation(atPath path: String, maxChars: Int) -> String? {
-        guard let data = FileManager.default.contents(atPath: path) else { return nil }
-        var parts: [String] = []
-        forEachMessage(in: data) { role, text in
-            parts.append("[\(role == "user" ? "User" : "Assistant")]\n\(text)")
-        }
-        let full = parts.joined(separator: "\n\n")
-        guard full.count > maxChars else { return full }
-        let headCount = maxChars * 3 / 10
-        let tailCount = maxChars - headCount
-        let elided = full.count - maxChars
-        return String(full.prefix(headCount))
-            + "\n\n[... \(elided) characters of mid-session conversation elided ...]\n\n"
-            + String(full.suffix(tailCount))
     }
 }
 
@@ -804,7 +777,6 @@ actor SessionTitler {
                                      "--tools", "", "--no-session-persistence", prompt]
                 process.currentDirectoryURL = URL(fileURLWithPath: NSTemporaryDirectory())
                 var env = ProcessInfo.processInfo.environment
-                env["VAULT_INGEST"] = "1"  // the ingest hook's loop guard: never digest this call
                 env.removeValue(forKey: "CLAUDECODE")
                 process.environment = env
                 let out = Pipe()
@@ -848,8 +820,8 @@ actor SessionTitler {
 
 /// A transcript's cached listing verdict, valid while the file's mtime and
 /// size are unchanged. A machine one-shot is never listed; a listed session
-/// with no `label` (no real user turn in its head) shows only when a digest
-/// sidecar titles it.
+/// with no `label` (no real user turn in its head) shows only when a title
+/// sidecar exists for it.
 struct CachedHead {
     enum Kind: String { case machine, listed }
     let mtime: Double

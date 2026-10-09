@@ -45,16 +45,13 @@ class AppState: ObservableObject {
         // orphan is always a confirmed click.
         processMonitor.start()
 
-        // Vault scripts: observation-only at launch (Phase 1 of the vault
-        // tooling consolidation; see Documents/Obsidian/ClaudeHUD/Technical
-        // Notes.md §Vault tooling architecture). Records per-file status so
-        // the upcoming cockpit UI can surface conflicts; never writes.
+        // Vault scripts: observation-only at launch. Records per-file
+        // status in the log; never writes.
         vaultScriptInstaller.audit()
 
-        // Vault ingest state: poll every 30s for .done/.failed markers,
-        // per-project Sessions.md provenance, sync log status. Feeds the
-        // Vault cockpit (Phase 5).
-        // Read-only; workers (SessionEnd hook, launchd sync) own writes.
+        // Vault session state: poll every 30s for per-project Sessions.md
+        // provenance. Read-only; the daily review (personal repo,
+        // vault/daily_review) owns the ledger writes.
         let vaultURL = vaultManager.currentVault.map { URL(fileURLWithPath: $0.path) }
         vaultIngestService.start(vaultPath: vaultURL)
         vaultProjectService.start(vaultPath: vaultURL)

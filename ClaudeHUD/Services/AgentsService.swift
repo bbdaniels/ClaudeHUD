@@ -322,7 +322,7 @@ final class AgentsService: ObservableObject {
 
     /// How long a dead-but-non-terminal session is kept before the reaper
     /// treats it as debris. This is a retention grace, not a correctness bound:
-    /// `claude rm` leaves the transcript and the vault digest byte-identical
+    /// `claude rm` leaves the transcript and the vault's session entries byte-identical
     /// (verified 2026-07-22), so shortening it only discards `claude respawn`-
     /// ability, never the work itself.
     ///
@@ -398,7 +398,7 @@ final class AgentsService: ObservableObject {
     /// Delete every stale row via `claude rm` — the sanctioned verb, and the
     /// only one that works on an already-exited session (`stop` refuses).
     /// Verified 2026-07-22: `rm` removes `~/.claude/jobs/<id>/` but leaves the
-    /// transcript in `~/.claude/projects/` byte-identical, so vault ingest's
+    /// transcript in `~/.claude/projects/` byte-identical, so the daily review's
     /// source data and the append-only `Sessions.md` ledger are untouched.
     ///
     /// Fixing this at the source would mean the daemon flushing a terminal

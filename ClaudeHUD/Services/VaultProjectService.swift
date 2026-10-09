@@ -406,9 +406,8 @@ final class VaultProjectService: ObservableObject {
     private var cwdFolderCache: [String: String?] = [:]
 
     /// Resolve every cwd in `cwds` to its vault folder using the ONE canonical
-    /// rule — `ProjectResolver.resolveFolder`, the same longest-`cwds:`-
-    /// glob rule the ingest hook (`vault-ingest.sh`) uses —
-    /// caching the results. The disk scan runs off the main actor; only the
+    /// rule, `ProjectResolver.resolveFolder` (the longest matching `cwds:`
+    /// claim wins), caching the results. The disk scan runs off the main actor; only the
     /// small cache merge touches the actor. Call this before reading
     /// `folderName(forCwd:)` in a render path so lookups are warm. Cheap on
     /// repeat: only cache misses are scanned.

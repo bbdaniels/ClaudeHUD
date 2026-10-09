@@ -3,23 +3,18 @@ import os
 
 private let logger = Logger(subsystem: "com.claudehud", category: "VaultScriptInstaller")
 
-/// Versions, audits, and (when asked) installs the Karpathy vault-tooling
-/// scripts (SessionEnd ingest hook, 15-min sync, reset, plus the launchd
-/// plist) into their canonical locations under $HOME. Bundled copies in
-/// `Resources/Scripts/` and `Resources/LaunchAgents/` carry a managed-by
-/// header with a `script-version: X.Y.Z`; the installer reads that header
-/// from the installed copy to decide what to do without clobbering local
-/// edits.
+/// Versions, audits, and (when asked) installs the vault scripts this app
+/// still ships (the 15-minute `obsidian-sync.sh` with its launchd plist, and
+/// `vault-reset.sh`) into their canonical locations under $HOME. Bundled
+/// copies in `Resources/Scripts/` and `Resources/LaunchAgents/` carry a
+/// managed-by header with a `script-version: X.Y.Z`; the installer reads that
+/// header from the installed copy to decide what to do without clobbering
+/// local edits. It only ever writes the files listed in `managed`; it never
+/// deletes a file.
 ///
-/// Architecture rationale (cockpit / workers / cleaner three-layer split):
-/// see `Documents/Obsidian/ClaudeHUD/Technical Notes.md` §Vault tooling
-/// architecture. The HUD owns *distribution* + *view* + *manual triggers*;
-/// it does NOT own the worker runtime — the SessionEnd hook is invoked by
-/// Claude Code, the 15-min sync by launchd. This installer is purely the
-/// ship-and-stamp step.
-///
-/// Phase 1 wires `audit()` only; `install(force:)` lands once the cockpit
-/// UI exists to surface conflicts.
+/// The HUD owns distribution and view; it does not own the worker runtime
+/// (launchd runs the sync). The app calls `audit()` at launch, which never
+/// writes. `install(force:)` has no caller yet.
 @MainActor
 final class VaultScriptInstaller: ObservableObject {
 
@@ -40,7 +35,7 @@ final class VaultScriptInstaller: ObservableObject {
         let executable: Bool
         let kind: Kind
 
-        enum Kind { case sh, md, plist }
+        enum Kind { case sh, plist }
     }
 
     @Published private(set) var lastAudit: [ManagedScript: Status] = [:]
@@ -50,20 +45,13 @@ final class VaultScriptInstaller: ObservableObject {
     static let managed: [ManagedScript] = {
         let home = FileManager.default.homeDirectoryForCurrentUser
         return [
-            .init(bundleResource: "vault-ingest.sh",
-                  installPath: home.appending(path: ".claude/scripts/vault-ingest.sh"),
-                  executable: true,
-                  kind: .sh),
-            .init(bundleResource: "vault-ingest-prompt.md",
-                  installPath: home.appending(path: ".claude/scripts/vault-ingest-prompt.md"),
-                  executable: false,
-                  kind: .md),
-            // The daily email ingest (vault-email-ingest.sh, its prompt and
-            // its launchd job) is no longer shipped from here. It lives in
-            // the personal repo, vault/email_ingest/, and is installed by
-            // that repo's deploy/mac/install-vault-email-ingest.sh. Do not
-            // add it back: two installers for one job is how the dead
-            // Spark reader stayed installed.
+            // Session entries and mail notes are written by the daily review,
+            // which lives in the personal repo (vault/daily_review/) and is
+            // installed by that repo's deploy/mac/install-vault-daily-review.sh.
+            // Nothing of it ships from here, and the per-session digest it
+            // replaced (a SessionEnd hook, its prompt and a 30-minute launchd
+            // job) must never be added back: two installers for one job is
+            // how the dead Spark reader stayed installed.
             .init(bundleResource: "vault-reset.sh",
                   installPath: home.appending(path: ".claude/scripts/vault-reset.sh"),
                   executable: true,
@@ -74,14 +62,6 @@ final class VaultScriptInstaller: ObservableObject {
                   kind: .sh),
             .init(bundleResource: "com.bbdaniels.obsidian-sync.plist",
                   installPath: home.appending(path: "Library/LaunchAgents/com.bbdaniels.obsidian-sync.plist"),
-                  executable: false,
-                  kind: .plist),
-            // Periodic background drain of the ingest backlog. New in
-            // 1.2.0 — pairs with vault-ingest.sh --backfill, runs every
-            // 30 min via launchd. See com.bbdaniels.vault-backfill.plist
-            // header for cadence + pause-flag semantics.
-            .init(bundleResource: "com.bbdaniels.vault-backfill.plist",
-                  installPath: home.appending(path: "Library/LaunchAgents/com.bbdaniels.vault-backfill.plist"),
                   executable: false,
                   kind: .plist),
         ]
@@ -100,7 +80,7 @@ final class VaultScriptInstaller: ObservableObject {
         return out
     }
 
-    // MARK: - Install (writes; called from cockpit UI in Phase 3)
+    // MARK: - Install (writes; no caller yet)
 
     /// Bring all managed scripts up to the bundled version.
     /// - Parameter force: also overwrite files flagged
@@ -226,7 +206,7 @@ final class VaultScriptInstaller: ObservableObject {
     /// Strip the managed-by header (if present) so body-only comparison
     /// is stable across stamping. The header spans from the `=== Managed
     /// by ClaudeHUD ===` opener line to the next `===` closer line; for
-    /// `.md` / `.plist` files the surrounding `<!--` / `-->` are removed
+    /// `.plist` files the surrounding `<!--` / `-->` are removed
     /// too, and a trailing blank line is collapsed.
     private func stripHeader(_ content: String) -> String {
         guard content.contains("Managed by ClaudeHUD") else { return content }

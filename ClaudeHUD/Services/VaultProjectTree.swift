@@ -91,8 +91,8 @@ extension VaultProject {
     }
 
     /// THE read of a project's `Tasks.md`, shared by the scan and the
-    /// resolver. Invalid UTF-8 is replaced, not fatal (as the ingest hook's
-    /// `errors="replace"`), so one bad byte cannot hide a project.
+    /// resolver. Invalid UTF-8 is replaced, not fatal, so one bad byte cannot
+    /// hide a project.
     static func readTasks(inFolder folderPath: String) -> String? {
         guard let data = FileManager.default.contents(atPath: "\(folderPath)/Tasks.md") else { return nil }
         return String(decoding: data, as: UTF8.self)
@@ -184,10 +184,12 @@ struct Frontmatter {
 
 // MARK: - Resolver (cwd → project)
 
-/// The canonical cwd → vault project resolver: the Swift side of the ONE rule
-/// shared with the ingest hook (`vault-ingest.sh` `resolve_project`) and the
-/// wiki contract (`schema.md` §"The one resolver"). Never fuzzy-matched, never
-/// guessed.
+/// The canonical cwd → vault project resolver: the Swift side of the wiki
+/// contract (`schema.md` §"The one resolver"). Never fuzzy-matched, never
+/// guessed. The vault's daily review (personal repo,
+/// `vault.daily_review.roster.resolve_cwd`) is the other implementation of
+/// that contract, and it differs in two places: there `migrated-from:` does
+/// not attribute, and a tie between two projects resolves to the inbox.
 enum ProjectResolver {
 
     /// Resolve `cwd` against the live vault: every project folder's `cwds:`

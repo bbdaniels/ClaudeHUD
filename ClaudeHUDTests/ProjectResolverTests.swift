@@ -1,9 +1,7 @@
 import XCTest
 
 /// The one frontmatter reader (`Frontmatter`) and the cwd → project resolver
-/// (`ProjectResolver`) built on it. The last test runs the resolver against
-/// the Python `resolve_project` in the bundled `vault-ingest.sh` over the live
-/// vault: the two are the same rule and must agree.
+/// (`ProjectResolver`) built on it.
 final class ProjectResolverTests: XCTestCase {
 
     func fm(_ body: String) -> Frontmatter { Frontmatter("---\n\(body)\n---\n\n# Tasks\n") }
@@ -163,67 +161,5 @@ final class ProjectResolverTests: XCTestCase {
         XCTAssertEqual(resolve("/u/old-home"), "Moved")
         XCTAssertNil(resolve("/u/hidden"))
         XCTAssertNil(resolve("/u/nowhere"))
-    }
-
-    // MARK: Swift resolver vs the shell hook's Python, over the live vault
-
-    static let liveCwds = [
-        "/Users/bbdaniels/Projects/personal",
-        "/Users/bbdaniels/Projects/personal/runner",
-        "/Users/bbdaniels/Projects/personal/investing/x",
-        "/Users/bbdaniels/Projects/personal/job-search",
-        "/Users/bbdaniels/Projects/career/cv",
-        "/Users/bbdaniels/Projects/career/job-search/givewell",
-        "/Users/bbdaniels/Projects/givewell",
-        "/Users/bbdaniels/Documents/Career/_CV",
-        "/Users/bbdaniels/Projects/ClaudeHUD",
-        "/Users/bbdaniels/Projects/raspberry-pi",
-        "/Users/bbdaniels/Projects/qutub-patna",
-        "/Users/bbdaniels/Documents/Teaching/PPOL-5013-Thesis-Workshop/archive-2022-3",
-        "/Users/bbdaniels/nowhere",
-    ]
-
-    /// The Python body of `resolve_project` in the repo's `vault-ingest.sh`
-    /// (the heredoc between `<<'PY'` and `PY`), so the test runs the hook's
-    /// own code rather than a copy of it.
-    func shellResolverSource() throws -> String {
-        let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().appending(path: "ClaudeHUD/Resources/Scripts/vault-ingest.sh")
-        let text = try String(contentsOf: script, encoding: .utf8)
-        let fn = try XCTUnwrap(text.range(of: "resolve_project() {"))
-        let open = try XCTUnwrap(text.range(of: "<<'PY'\n", range: fn.upperBound..<text.endIndex))
-        let close = try XCTUnwrap(text.range(of: "\nPY\n", range: open.upperBound..<text.endIndex))
-        return String(text[open.upperBound..<close.lowerBound])
-    }
-
-    func shellResolve(_ source: String, cwd: String, vault: String) throws -> String {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        p.arguments = ["-c", source, cwd, vault]
-        let out = Pipe()
-        p.standardOutput = out
-        try p.run()
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        XCTAssertEqual(p.terminationStatus, 0, "python resolver failed for \(cwd)")
-        return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Read-only. Runs only when `CLAUDEHUD_VAULT` is set.
-    func testSwiftAndShellResolversAgreeOnTheLiveVault() throws {
-        guard let vault = ProcessInfo.processInfo.environment["CLAUDEHUD_VAULT"] else {
-            throw XCTSkip("set CLAUDEHUD_VAULT to compare the Swift and shell resolvers on the live vault")
-        }
-        let source = try shellResolverSource()
-        var resolved = 0
-        for cwd in Self.liveCwds {
-            let swift = ProjectResolver.resolveFolder(cwd: cwd, vaultPath: vault) ?? ""
-            let shell = try shellResolve(source, cwd: cwd, vault: vault)
-            print("RESOLVER \(swift == shell ? "agree" : "DISAGREE") | \(cwd) | swift=\(swift.isEmpty ? "(none)" : swift) | shell=\(shell.isEmpty ? "(none)" : shell)")
-            XCTAssertEqual(swift, shell, cwd)
-            if !swift.isEmpty { resolved += 1 }
-        }
-        // Guards against both sides agreeing only because both read nothing.
-        XCTAssertGreaterThan(resolved, 0, "no cwd resolved at all: wrong vault path?")
     }
 }
