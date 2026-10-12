@@ -6,15 +6,22 @@ import SwiftUI
 /// Needs `TextRenderer` (macOS 15); on 14 the text is drawn still. Off under
 /// Reduce Motion and when the "dancingText" default is false.
 @available(macOS 15.0, *)
-private struct DanceRenderer: TextRenderer {
-    var time: TimeInterval
+private struct DanceRenderer: TextRenderer, Animatable {
+    /// Position in the wave, radians. Animatable, so SwiftUI redraws the
+    /// glyphs per frame without re-evaluating the row that holds the text.
+    var phase: Double
+
+    var animatableData: Double {
+        get { phase }
+        set { phase = newValue }
+    }
 
     /// Vertical travel in points, either side of the baseline.
     private static let lift: CGFloat = 1.3
     /// Peak tilt in radians.
     private static let tilt: Double = 0.05
-    /// Radians per second.
-    private static let speed: Double = 3.2
+    /// Seconds per full bob.
+    static let period: Double = 2.0
     /// Phase lag between neighboring glyphs: the wavelength of the wave.
     private static let glyphLag: Double = 0.55
 
@@ -23,7 +30,7 @@ private struct DanceRenderer: TextRenderer {
         for line in layout {
             for run in line {
                 for glyph in run {
-                    let phase = time * Self.speed - Double(index) * Self.glyphLag
+                    let phase = self.phase - Double(index) * Self.glyphLag
                     let box = glyph.typographicBounds.rect
                     var copy = ctx
                     copy.translateBy(x: box.midX, y: box.midY + Self.lift * sin(phase))
@@ -41,14 +48,20 @@ private struct DancingText: ViewModifier {
     @AppStorage(DancingText.defaultsKey) private var enabled = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    @State private var phase: Double = 0
+
     static let defaultsKey = "dancingText"
 
     func body(content: Content) -> some View {
         if #available(macOS 15.0, *), enabled, !reduceMotion {
-            TimelineView(.animation(minimumInterval: 1.0 / 30)) { timeline in
-                content.textRenderer(
-                    DanceRenderer(time: timeline.date.timeIntervalSinceReferenceDate))
-            }
+            content
+                .textRenderer(DanceRenderer(phase: phase))
+                .onAppear {
+                    phase = 0
+                    withAnimation(.linear(duration: DanceRenderer.period).repeatForever(autoreverses: false)) {
+                        phase = 2 * .pi
+                    }
+                }
         } else {
             content
         }
