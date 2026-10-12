@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The Balatro text effect: each glyph bobs and tilts on its own phase, so a
+/// The Balatro text effect: each glyph bobs on its own phase, so a
 /// wave travels along the line. Applied with `.dancing()`.
 ///
 /// Needs `TextRenderer` (macOS 15); on 14 the text is drawn still. Off under
@@ -17,11 +17,9 @@ private struct DanceRenderer: TextRenderer, Animatable {
     }
 
     /// Vertical travel in points, either side of the baseline.
-    private static let lift: CGFloat = 1.3
-    /// Peak tilt in radians.
-    private static let tilt: Double = 0.05
+    private static let lift: CGFloat = 0.7
     /// Seconds per full bob.
-    static let period: Double = 2.0
+    static let period: Double = 2.8
     /// Phase lag between neighboring glyphs: the wavelength of the wave.
     private static let glyphLag: Double = 0.55
 
@@ -31,11 +29,10 @@ private struct DanceRenderer: TextRenderer, Animatable {
             for run in line {
                 for glyph in run {
                     let phase = self.phase - Double(index) * Self.glyphLag
-                    let box = glyph.typographicBounds.rect
+                    // Translation only. A rotated glyph misses the glyph
+                    // cache and is rasterized as a path on every frame.
                     var copy = ctx
-                    copy.translateBy(x: box.midX, y: box.midY + Self.lift * sin(phase))
-                    copy.rotate(by: .radians(Self.tilt * cos(phase)))
-                    copy.translateBy(x: -box.midX, y: -box.midY)
+                    copy.translateBy(x: 0, y: Self.lift * sin(phase))
                     copy.draw(glyph)
                     index += 1
                 }
