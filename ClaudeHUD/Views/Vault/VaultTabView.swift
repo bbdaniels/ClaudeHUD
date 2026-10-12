@@ -451,11 +451,7 @@ private struct ProjectRowView: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(project.name)
-                .font(isChild ? .smallFont(scale) : .smallMedium(scale))
-                .foregroundColor(.primary)
-                .lineLimit(1)
-                .dancing()
+            DancingText(text: project.name, size: 14 * scale, weight: isChild ? .regular : .semibold)
             if ingestedCount > 0 {
                 Text("\(ingestedCount)")
                     .font(.custom("Fira Code", size: 10 * scale))
