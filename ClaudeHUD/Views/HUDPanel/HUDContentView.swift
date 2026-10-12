@@ -1267,6 +1267,7 @@ struct InfoPopover: View {
                 InfoRow(icon: "terminal", text: "**Terminal:** Click to launch, long-press to switch. Ghostty, iTerm2, Terminal, and more")
                 // DISABLED — notifications superseded by the daemon agent handler.
                 // InfoRow(icon: "bell.fill", text: "**Notifications:** Desktop via macOS, mobile via [ntfy.sh](https://ntfy.sh)")
+                DancingTextToggle()
             }
 
             Divider()

@@ -91,6 +91,7 @@
 		81BE1543A19F6E208A77BA5C /* vault-reset.sh in Resources */ = {isa = PBXBuildFile; fileRef = D83C760E0CDD4EA15F2B62C8 /* vault-reset.sh */; };
 		81D79855CC684E2706696199 /* UsageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA7DC5B4103396ACB2B5F3F /* UsageService.swift */; };
 		833788A1F492EE5E46D352EE /* LibraryItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44C3321F95137F8014F94C16 /* LibraryItem.swift */; };
+		83E846E56832CF4D3C92053E /* DancingText.swift in Sources */ = {isa = PBXBuildFile; fileRef = A738B4887394612E7ADED77A /* DancingText.swift */; };
 		8573D1122FE20F3404D4586D /* AnySortKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB24B1C86CB6C71C50C8D452 /* AnySortKey.swift */; };
 		85D3B7318B938BAA19EB88FD /* MetalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BAE19BEC8B3EED3E2D70A4F /* MetalView.swift */; };
 		85F4F300BFAD687384973EEB /* EventModifiers+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = D777D5BC767658779B4DE8C7 /* EventModifiers+Extension.swift */; };
@@ -264,6 +265,7 @@
 		A03300B3437AA67D3BAB11EE /* ObjCExceptionCatcher.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ObjCExceptionCatcher.m; sourceTree = "<group>"; };
 		A2D5D690DAB6FDFE2D23AAE9 /* Ghostty.Action.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Action.swift; sourceTree = "<group>"; };
 		A72C6D575DC0E64C605D2287 /* libsentry.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libsentry.a; sourceTree = "<group>"; };
+		A738B4887394612E7ADED77A /* DancingText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DancingText.swift; sourceTree = "<group>"; };
 		AB272797EF5863C22BEFFDE7 /* permission-watcher.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "permission-watcher.sh"; sourceTree = "<group>"; };
 		AB8F3ADA72810AD4176731B5 /* libfreetype.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libfreetype.a; sourceTree = "<group>"; };
 		AD95C3150FE0A4C4CFEA09D0 /* libspirv_cross.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libspirv_cross.a; sourceTree = "<group>"; };
@@ -519,6 +521,7 @@
 		A7FE23A029F894F41E906CD9 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				A738B4887394612E7ADED77A /* DancingText.swift */,
 				3C25C90AD7421B63879BFE80 /* MarkdownBlocks.swift */,
 			);
 			path = Shared;
@@ -867,6 +870,7 @@
 				4D672BFFE8C2EFF795EF880A /* CodableBridge.swift in Sources */,
 				05D8507F4BD62C17646621D9 /* CrossKit.swift in Sources */,
 				E772664D2E0DC0C71818B008 /* Cursor.swift in Sources */,
+				83E846E56832CF4D3C92053E /* DancingText.swift in Sources */,
 				96C997E65F697D968F12E091 /* Dock.swift in Sources */,
 				1403F8FFB78BB809C2F07F00 /* Double+Extension.swift in Sources */,
 				4E2226AC5A3DC32CE959BD4B /* Duration+Extension.swift in Sources */,

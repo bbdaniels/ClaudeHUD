@@ -455,6 +455,7 @@ private struct ProjectRowView: View {
                 .font(isChild ? .smallFont(scale) : .smallMedium(scale))
                 .foregroundColor(.primary)
                 .lineLimit(1)
+                .dancing()
             if ingestedCount > 0 {
                 Text("\(ingestedCount)")
                     .font(.custom("Fira Code", size: 10 * scale))
