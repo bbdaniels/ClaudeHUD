@@ -22,6 +22,8 @@ struct VaultProject: Identifiable, Hashable {
     /// Declared, not validated: only `ProjectTree.build` decides whether it
     /// makes this project a child. Nothing else may interpret it.
     let parent: String?
+    /// Soonest-due open task in `## Active`, read during the scan.
+    var nextDue: ActiveTasks.NextDue? = nil
 
     /// First absolute non-glob `cwds:` entry (for "New session here").
     var primaryCwd: String? {
@@ -38,6 +40,11 @@ struct VaultProject: Identifiable, Hashable {
     }
 
     var isActive: Bool { status == "active" || status == "wrapping-up" }
+
+    /// Its soonest open task is due before today.
+    func isOverdue(now: Date = Date()) -> Bool {
+        nextDue.map { ActiveTasks.isOverdue($0.date, now: now) } ?? false
+    }
 }
 
 // MARK: - Scan + parse
@@ -86,7 +93,8 @@ extension VaultProject {
                 ?? DateFormatter.iso8601Date.date(from: updatedRaw),
             cwds: fm.list("cwds"),
             manuscript: fm.scalar("manuscript"),
-            parent: fm.scalar("parent")
+            parent: fm.scalar("parent"),
+            nextDue: ActiveTasks.nextDue(in: ActiveTasks.parse(from: content))
         )
     }
 
@@ -314,6 +322,11 @@ enum ProjectTree {
             children.reduce(activity(project)) { max($0, activity($1)) }
         }
 
+        /// The parent or any child has an overdue task.
+        func hasOverdue(now: Date) -> Bool {
+            project.isOverdue(now: now) || children.contains { $0.isOverdue(now: now) }
+        }
+
         /// Children ordered among themselves by their OWN recency, newest first.
         func childrenByRecency(_ activity: (VaultProject) -> Date) -> [VaultProject] {
             children.sorted { activity($0) > activity($1) }
@@ -350,14 +363,18 @@ enum ProjectTree {
 
     /// Order top-level rows within one recency section: a family with a
     /// session waiting on the user (the parent's own or any child's) floats
-    /// first, compared as a boolean so two waiting families keep their recency
-    /// order relative to each other; then most recent family activity first.
+    /// first, then a family with an overdue task, each compared as a boolean
+    /// so two such families keep their recency order relative to each other;
+    /// then most recent family activity first.
     static func ordered(_ nodes: [Node], live: [String: LiveSessionCounts],
-                        activity: (VaultProject) -> Date) -> [Node] {
+                        activity: (VaultProject) -> Date, now: Date = Date()) -> [Node] {
         nodes.sorted { a, b in
             let wa = a.liveCounts(in: live).blocked > 0
             let wb = b.liveCounts(in: live).blocked > 0
             if wa != wb { return wa }
+            let oa = a.hasOverdue(now: now)
+            let ob = b.hasOverdue(now: now)
+            if oa != ob { return oa }
             return a.recency(activity) > b.recency(activity)
         }
     }

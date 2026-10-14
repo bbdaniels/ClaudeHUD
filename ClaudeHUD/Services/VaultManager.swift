@@ -352,7 +352,7 @@ class VaultManager: ObservableObject {
     /// for the generated daily note's "Open Items".
     ///
     /// `Tasks.md` is routed through the heading-aware parser
-    /// (`VaultProjectService.parseActiveTasks`): `### ` headings become
+    /// (`ActiveTasks.parse`, enumerated by `ActiveTasks.openItems`): `### ` headings become
     /// sections, the (unchecked) bullets under them become tasks, nested
     /// detail folds into its parent (counted once), `- **Title**`
     /// non-checkbox tasks are included, and done items are skipped. Each
@@ -368,38 +368,20 @@ class VaultManager: ObservableObject {
             return extractLegacyTasks(content: content, filePath: filePath, project: canonicalProject)
         }
 
-        var items: [TodoItem] = []
-        func emit(rawTitle: String, display: String, line: Int?, section: String?) {
-            items.append(TodoItem(
-                title: rawTitle,
+        return ActiveTasks.openItems(in: ActiveTasks.parse(from: content)).map { item in
+            TodoItem(
+                title: item.rawTitle,
                 source: .obsidian(grouping: canonicalProject),
-                dueDate: nil, isOverdue: false, priority: 0,
+                dueDate: item.dueDate, isOverdue: item.dueDate.map { ActiveTasks.isOverdue($0) } ?? false,
+                priority: 0,
                 reminderIdentifier: nil,
                 obsidianFilePath: filePath,
-                obsidianLineNumber: line,
+                obsidianLineNumber: item.line,
                 projectName: canonicalProject,
-                sectionHeading: section,
-                boldTitle: display
-            ))
+                sectionHeading: item.section,
+                boldTitle: item.display
+            )
         }
-
-        for task in VaultProjectService.parseActiveTasks(from: content) {
-            if task.isHeading {
-                // Heading group → its (not-done) children are the tasks.
-                for child in task.subBullets where !child.isDone {
-                    emit(rawTitle: child.text,
-                         display: VaultProjectService.splitBullet(child.text).title,
-                         line: child.line >= 0 ? child.line : nil,
-                         section: task.title)
-                }
-            } else if !task.isDone {
-                // Flat top-level task (no heading); nested detail already
-                // folded in by the parser, so it counts as a single item.
-                emit(rawTitle: task.title, display: task.title,
-                     line: task.line, section: nil)
-            }
-        }
-        return items
     }
 
     /// Old scan for legacy (non-`Tasks.md`) flat task files: every unchecked

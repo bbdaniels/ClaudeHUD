@@ -409,6 +409,57 @@ private struct LiveSessionBadges: View {
     }
 }
 
+// MARK: - Due chip
+
+/// The project's soonest-due open task (`📅 YYYY-MM-DD` in `## Active`, read
+/// by `ActiveTasks`), in the `LiveSessionBadges` chip idiom: "3d late" in red,
+/// "today"/"tmrw" and anything within two days in orange, else a weekday
+/// within the week or "Oct 20" on `.secondary`. Hover names the task and the
+/// full date.
+private struct DueChip: View {
+    let due: ActiveTasks.NextDue
+    @Environment(\.fontScale) private var scale
+
+    var body: some View {
+        let days = Self.daysFromToday(due.date)
+        let tint: Color = days < 0 ? .red : days <= 2 ? .orange : .secondary
+        Text(Self.label(due.date, days: days))
+            .font(.custom("Fira Code", size: 10 * scale))
+            .foregroundColor(tint == .secondary ? .secondary.opacity(0.6) : tint.opacity(0.95))
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(RoundedRectangle(cornerRadius: 3).fill(tint.opacity(0.12)))
+            .help("\(due.title) — due \(Self.full.string(from: due.date))")
+    }
+
+    /// Whole local-calendar days from today to `date` (negative = late).
+    private static func daysFromToday(_ date: Date) -> Int {
+        let cal = Calendar.current
+        return cal.dateComponents([.day], from: cal.startOfDay(for: Date()),
+                                  to: cal.startOfDay(for: date)).day ?? 0
+    }
+
+    private static func label(_ date: Date, days: Int) -> String {
+        switch days {
+        case ..<0: return "\(-days)d late"
+        case 0:    return "today"
+        case 1:    return "tmrw"
+        case 2...6: return weekday.string(from: date)
+        default:   return monthDay.string(from: date)
+        }
+    }
+
+    private static let weekday: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "EEE"; return f
+    }()
+    private static let monthDay: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "MMM d"; return f
+    }()
+    private static let full: DateFormatter = {
+        let f = DateFormatter(); f.dateStyle = .full; return f
+    }()
+}
+
 // MARK: - Project row
 
 private struct ProjectRowView: View {
@@ -450,6 +501,9 @@ private struct ProjectRowView: View {
             DancingText(text: project.name, size: 14 * scale, weight: isChild ? .regular : .semibold)
             if !liveSessions.isEmpty {
                 LiveSessionBadges(counts: liveSessions, onTap: focusNextLiveSession)
+            }
+            if let due = project.nextDue {
+                DueChip(due: due)
             }
             Spacer()
             manuscriptorButton

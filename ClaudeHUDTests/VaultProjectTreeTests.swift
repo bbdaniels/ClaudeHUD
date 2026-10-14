@@ -124,6 +124,26 @@ final class VaultProjectTreeTests: XCTestCase {
                        ["Cayda", "Mumbai", "Personal"])
     }
 
+    func testOrderingFloatsAnOverdueFamilyBelowAWaitingOne() {
+        func due(_ name: String, _ d: Date, parent: String? = nil) -> VaultProject {
+            VaultProject(folder: URL(fileURLWithPath: "/vault/\(name)"), name: name, status: "active",
+                         updated: nil, cwds: [], manuscript: nil, parent: parent,
+                         nextDue: ActiveTasks.NextDue(date: d, title: "t"))
+        }
+        let now = day(10) + 3600
+        let nodes = ProjectTree.build([project("Cayda"), project("Personal"),
+                                       due("Investing", day(9), parent: "Personal"),
+                                       due("Mumbai", day(10)), project("Waiting")])
+        let activity = ["Cayda": day(8), "Personal": day(1), "Investing": day(2),
+                        "Mumbai": day(5), "Waiting": day(0)]
+        let live = ["Waiting": LiveSessionCounts(working: 0, blocked: 1, idle: 0)]
+        // Waiting first; then Personal, whose child is a day late; Mumbai is
+        // due today, so not late, and keeps its recency place.
+        XCTAssertEqual(ProjectTree.ordered(nodes, live: live, activity: { activity[$0.name]! }, now: now)
+                        .map(\.project.name),
+                       ["Waiting", "Personal", "Cayda", "Mumbai"])
+    }
+
     // MARK: Search
 
     func testSearchOnAChildShowsItUnderItsParent() {
