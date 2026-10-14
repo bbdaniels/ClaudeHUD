@@ -9,7 +9,6 @@ import AppKit
 /// `ProjectTree.build`, the only reader of `parent:`.
 struct VaultTabView: View {
     @EnvironmentObject var projectService: VaultProjectService
-    @EnvironmentObject var ingestService: VaultIngestService
     @EnvironmentObject var vaultManager: VaultManager
     // Sessions drive recency, the agent roster drives the live-session
     // badges. Warmed in `.onAppear`. All read-only / idempotent.
@@ -77,7 +76,6 @@ struct VaultTabView: View {
                                     ProjectRowView(
                                         project: node.project,
                                         isChild: false,
-                                        ingestService: ingestService,
                                         effectiveDate: node.recency(effectiveUpdated),
                                         liveSessions: node.liveCounts(in: live),
                                         badgeSessionsProvider: { liveSessions(forFolders: node.folderNames) },
@@ -87,7 +85,6 @@ struct VaultTabView: View {
                                         ProjectRowView(
                                             project: child,
                                             isChild: true,
-                                            ingestService: ingestService,
                                             effectiveDate: effectiveUpdated(child),
                                             liveSessions: live[child.name] ?? LiveSessionCounts(),
                                             badgeSessionsProvider: { liveSessions(forFolders: [child.name]) },
@@ -345,7 +342,7 @@ struct VaultTabView: View {
 /// `ProjectRowView.focusNextLiveSession`). Left nil the cluster is
 /// display-only.
 ///
-/// Deliberately borrows the ingested-count chip's idiom (Fira Code 10, 4/1
+/// Chip idiom: Fira Code 10, 4/1
 /// padding, radius-3 low-opacity fill) so a busy row still reads as calm; the
 /// idle segment stays on `.secondary` because it is informational, not a call
 /// to act. Hover only deepens the chip fill, so the resting appearance is
@@ -418,7 +415,6 @@ private struct ProjectRowView: View {
     let project: VaultProjectService.Project
     /// A child renders inset beneath its parent row.
     let isChild: Bool
-    let ingestService: VaultIngestService
     /// max(updated:, latest session) — the recency shown as the row's age. On
     /// a parent it spans the children too, since that is what the row is
     /// bucketed by.
@@ -452,14 +448,6 @@ private struct ProjectRowView: View {
     var body: some View {
         HStack(spacing: 6) {
             DancingText(text: project.name, size: 14 * scale, weight: isChild ? .regular : .semibold)
-            if ingestedCount > 0 {
-                Text("\(ingestedCount)")
-                    .font(.custom("Fira Code", size: 10 * scale))
-                    .foregroundColor(.secondary.opacity(0.6))
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
-            }
             if !liveSessions.isEmpty {
                 LiveSessionBadges(counts: liveSessions, onTap: focusNextLiveSession)
             }
@@ -552,12 +540,6 @@ private struct ProjectRowView: View {
                                terminalService: terminalService)
         launched = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { launched = false }
-    }
-
-    private var ingestedCount: Int {
-        ingestService.sessionStatus.values
-            .filter { $0.project == project.name && $0.kind == .ingested }
-            .count
     }
 
     private func relativeAge(_ date: Date) -> String {
