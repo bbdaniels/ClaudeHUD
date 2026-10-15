@@ -1,7 +1,8 @@
 import XCTest
 
 /// The one frontmatter reader (`Frontmatter`) and the cwd → project resolver
-/// (`ProjectResolver`) built on it.
+/// (`ProjectResolver`) built on it. The rule's shared cases, which the
+/// personal repo's roster.py runs too, are the golden-file tests at the end.
 final class ProjectResolverTests: XCTestCase {
 
     func fm(_ body: String) -> Frontmatter { Frontmatter("---\n\(body)\n---\n\n# Tasks\n") }
@@ -97,10 +98,13 @@ final class ProjectResolverTests: XCTestCase {
 
     // MARK: Resolver
 
-    func testClaimsCountMigratedFromAndDropRelativePaths() {
+    func testClaimsAreCwdsAndRepoOnly() {
+        // schema.md §"The one resolver": only `cwds:` (and, as the fallback,
+        // `repo:`) attribute; `migrated-from:` and `reads:` never do.
         let claims = ProjectResolver.claims(tasksContent:
-            "---\ncwds:\n  - /new/home\n  - relative/path\nmigrated-from: /old/home\nreads:\n  - /shared\n---\n")
-        XCTAssertEqual(claims, ["/new/home", "/old/home"])
+            "---\ncwds:\n  - /new/home\n  - relative/path\nmigrated-from: /old/home\nreads:\n  - /shared\n"
+            + "repo: [git@github.com:O/N.git]\n---\n")
+        XCTAssertEqual(claims, ProjectResolver.Claims(cwds: ["/new/home"], repos: ["github.com/o/n"]))
     }
 
     func testLongestMatchWins() {
@@ -112,9 +116,44 @@ final class ProjectResolverTests: XCTestCase {
         XCTAssertEqual(ProjectResolver.resolve(cwd: "/u/Projects/other", claims: claims), "Aardvark")
     }
 
-    func testEqualLengthTieGoesToTheAlphabeticallyFirstFolder() {
+    func testEqualLengthTieIsUnclaimed() {
+        // schema.md §"The one resolver": an ambiguous tie goes to the inbox.
         let claims = ["Zeta": ["/u/shared"], "Alpha": ["/u/shared"], "Mid": ["/u/shared"]]
-        XCTAssertEqual(ProjectResolver.resolve(cwd: "/u/shared/x", claims: claims), "Alpha")
+        XCTAssertNil(ProjectResolver.resolve(cwd: "/u/shared/x", claims: claims))
+    }
+
+    func testRepoKeyIsAskedForOnlyWhenNoCwdsClaimMatches() {
+        let claims = ["P": ProjectResolver.Claims(cwds: ["/u/p"], repos: ["github.com/o/p"])]
+        var asked: [String] = []
+        let key: (String) -> String? = { asked.append($0); return "github.com/o/p" }
+        XCTAssertEqual(ProjectResolver.resolve(cwd: "/u/p/x", claims: claims, repoKey: key), "P")
+        XCTAssertEqual(asked, [])
+        XCTAssertEqual(ProjectResolver.resolve(cwd: "/pi/clone", claims: claims, repoKey: key), "P")
+        XCTAssertEqual(asked, ["/pi/clone"])
+        // No project has a repo: claim: git is never run.
+        asked = []
+        XCTAssertNil(ProjectResolver.resolve(cwd: "/pi/clone",
+                                             claims: ["Q": ProjectResolver.Claims(cwds: ["/u/q"])], repoKey: key))
+        XCTAssertEqual(asked, [])
+    }
+
+    func testRepoLocatorReadsALiveCheckoutAndCaches() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "claudehud-repo-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sub = root.appending(path: "investing/lib")
+        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+        XCTAssertNotNil(RepoLocator.runGit(root.path, ["init", "-q"]))
+        XCTAssertNotNil(RepoLocator.runGit(root.path, ["remote", "add", "origin",
+                                                       "git@GitHub.com:BBDaniels/Personal.git"]))
+        var calls = 0
+        let locator = RepoLocator(git: { cwd, args in calls += 1; return RepoLocator.runGit(cwd, args) })
+        XCTAssertEqual(locator.key(forCwd: sub.path), "github.com/bbdaniels/personal/investing/lib")
+        let first = calls
+        XCTAssertEqual(locator.key(forCwd: sub.path), "github.com/bbdaniels/personal/investing/lib")
+        XCTAssertEqual(calls, first, "a second lookup is served from the cache")
+        XCTAssertNil(locator.key(forCwd: root.appending(path: "missing").path))
+        XCTAssertNil(locator.key(forCwd: FileManager.default.temporaryDirectory.path))
     }
 
     func testUnclaimedDirectoryResolvesToNothing() {
@@ -158,8 +197,88 @@ final class ProjectResolverTests: XCTestCase {
         XCTAssertEqual(resolve("/u/block/sub"), "Block")
         XCTAssertEqual(resolve("/u/inline"), "Inline")
         XCTAssertEqual(resolve("/u/bracket-b/x"), "Bracket")
-        XCTAssertEqual(resolve("/u/old-home"), "Moved")
+        XCTAssertNil(resolve("/u/old-home"))   // migrated-from: is not a claim
         XCTAssertNil(resolve("/u/hidden"))
         XCTAssertNil(resolve("/u/nowhere"))
+    }
+
+    // MARK: The golden file shared with the personal repo
+
+    /// `personal/lib/fixtures/resolver_cases.json`, read from the personal
+    /// checkout beside this one (or `$RESOLVER_CASES`). Missing is a failure,
+    /// never a skip: a copied snapshot could drift from the Python side.
+    static var casesURL: URL {
+        if let override = ProcessInfo.processInfo.environment["RESOLVER_CASES"], !override.isEmpty {
+            return URL(fileURLWithPath: override)
+        }
+        return URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()      // ClaudeHUDTests
+            .deletingLastPathComponent()      // ClaudeHUD checkout
+            .deletingLastPathComponent()      // Projects
+            .appending(path: "personal/lib/fixtures/resolver_cases.json")
+    }
+
+    struct Golden: Decodable {
+        struct Normalize: Decodable { let remote: String; let expected: String? }
+        struct Case: Decodable {
+            let name: String, vault: String, cwd: String
+            let remote: String?, subpath: String, expected: String?
+        }
+        let normalize: [Normalize]
+        let vaults: [String: [String: String]]
+        let cases: [Case]
+    }
+
+    func golden() throws -> Golden {
+        let url = Self.casesURL
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            XCTFail("golden resolver cases missing at \(url.path): check out bbdaniels/personal beside ClaudeHUD")
+            throw CocoaError(.fileNoSuchFile)
+        }
+        return try JSONDecoder().decode(Golden.self, from: Data(contentsOf: url))
+    }
+
+    func testGoldenNormalizeCases() throws {
+        let g = try golden()
+        XCTAssertFalse(g.normalize.isEmpty)
+        for c in g.normalize {
+            XCTAssertEqual(ProjectResolver.normalizeRemote(c.remote), c.expected, "normalize \(c.remote.debugDescription)")
+        }
+    }
+
+    func testGoldenResolverCases() throws {
+        let g = try golden()
+        XCTAssertFalse(g.cases.isEmpty)
+        let claims = g.vaults.mapValues { vault in
+            vault.mapValues { ProjectResolver.claims(tasksContent: "---\n\($0)\n---\n\n# Tasks\n") }
+        }
+        for c in g.cases {
+            guard let vault = claims[c.vault] else { XCTFail("\(c.name): no vault \(c.vault)"); continue }
+            let key = ProjectResolver.repoKey(remote: c.remote, subpath: c.subpath)
+            XCTAssertEqual(ProjectResolver.resolve(cwd: c.cwd, claims: vault, repoKey: { _ in key }),
+                           c.expected, c.name)
+        }
+    }
+
+    /// The same cases through `resolveFolder`, the disk reader the app uses.
+    func testGoldenResolverCasesFromDisk() throws {
+        let g = try golden()
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "claudehud-golden-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        for (name, vault) in g.vaults {
+            for (folder, body) in vault {
+                let dir = root.appending(path: "\(name)/\(folder)")
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                try "---\n\(body)\n---\n\n# Tasks\n".write(to: dir.appending(path: "Tasks.md"),
+                                                          atomically: true, encoding: .utf8)
+            }
+        }
+        for c in g.cases {
+            let key = ProjectResolver.repoKey(remote: c.remote, subpath: c.subpath)
+            XCTAssertEqual(ProjectResolver.resolveFolder(cwd: c.cwd, vaultPath: root.appending(path: c.vault).path,
+                                                         repoKey: { _ in key }),
+                           c.expected, c.name)
+        }
     }
 }

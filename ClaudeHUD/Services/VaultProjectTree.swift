@@ -111,7 +111,7 @@ extension VaultProject {
 
 /// THE reader of a vault note's leading YAML frontmatter. Everything the app
 /// takes from `Tasks.md` frontmatter (`status`, `updated`, `manuscript`,
-/// `parent`, `cwds`, `migrated-from`) goes through it, so the Projects tab and
+/// `parent`, `cwds`, `repo`) goes through it, so the Projects tab and
 /// the cwd resolver cannot disagree about what a file says.
 ///
 /// Deliberately not a YAML parser. It accepts exactly:
@@ -192,21 +192,38 @@ struct Frontmatter {
 
 // MARK: - Resolver (cwd → project)
 
-/// The canonical cwd → vault project resolver: the Swift side of the wiki
+/// The canonical session → vault project resolver: the Swift side of the wiki
 /// contract (`schema.md` §"The one resolver"). Never fuzzy-matched, never
-/// guessed. The vault's daily review (personal repo,
-/// `vault.daily_review.roster.resolve_cwd`) is the other implementation of
-/// that contract, and it differs in two places: there `migrated-from:` does
-/// not attribute, and a tie between two projects resolves to the inbox.
+/// guessed. The rule, with the cases BOTH implementations run (this one and
+/// the daily review's `vault.daily_review.roster` in the personal repo), is in
+/// `personal/lib/fixtures/resolver_cases.json`:
+///
+/// 1. A `cwds:` claim (absolute path or glob) matching the cwd wins, longest
+///    claim first.
+/// 2. Only when NO `cwds:` claim matches, `repo:` is consulted: the session's
+///    key is its checkout's normalized `origin` remote plus its path inside
+///    the checkout, and the longest `repo:` claim equal to the key or a
+///    `/`-bounded prefix of it wins.
+/// 3. A tie between two projects at the winning length is unclaimed, and a
+///    `cwds:` tie never falls through to `repo:`. `migrated-from:`, `reads:`,
+///    `aka:` and names never attribute.
 enum ProjectResolver {
 
-    /// Resolve `cwd` against the live vault: every project folder's `cwds:`
-    /// plus `migrated-from:` entries (absolute ones) are its claims. Returns
-    /// the winning folder NAME, or nil for an unclaimed directory.
-    static func resolveFolder(cwd: String, vaultPath: String) -> String? {
+    /// One project's attribution claims, read from its `Tasks.md`.
+    struct Claims: Equatable {
+        var cwds: [String] = []     // absolute paths and globs
+        var repos: [String] = []    // normalized `repo:` values
+    }
+
+    /// Resolve a session in `cwd` against the live vault. Returns the winning
+    /// folder NAME, or nil for an unclaimed directory. Reads the disk and, when
+    /// some project has a `repo:` claim and no `cwds:` claim matches, runs git
+    /// in `cwd` (cached by `RepoLocator`): call it off the main thread.
+    static func resolveFolder(cwd: String, vaultPath: String,
+                              repoKey: (String) -> String? = { RepoLocator.shared.key(forCwd: $0) }) -> String? {
         let fm = FileManager.default
         guard let folders = try? fm.contentsOfDirectory(atPath: vaultPath) else { return nil }
-        var claims: [String: [String]] = [:]
+        var claims: [String: Claims] = [:]
         for folder in folders where !folder.hasPrefix(".") {
             let folderPath = "\(vaultPath)/\(folder)"
             var isDir: ObjCBool = false
@@ -214,36 +231,58 @@ enum ProjectResolver {
                   let content = VaultProject.readTasks(inFolder: folderPath) else { continue }
             claims[folder] = Self.claims(tasksContent: content)
         }
-        return resolve(cwd: cwd, claims: claims)
+        return resolve(cwd: cwd, claims: claims, repoKey: repoKey)
     }
 
-    /// A project's claims on working directories: its `cwds:` and its
-    /// `migrated-from:` (a folder the project used to live in still
-    /// attributes to it), absolute paths and globs only.
-    static func claims(tasksContent: String) -> [String] {
+    /// A project's claims: its absolute `cwds:` entries and its normalized
+    /// `repo:` values. Nothing else in the frontmatter attributes.
+    static func claims(tasksContent: String) -> Claims {
         let fm = Frontmatter(tasksContent)
-        return (fm.list("cwds") + fm.list("migrated-from")).filter { $0.hasPrefix("/") }
+        return Claims(cwds: fm.list("cwds").filter { $0.hasPrefix("/") },
+                      repos: fm.list("repo").compactMap(normalizeRemote))
     }
 
-    /// The rule itself, over folder → claims. The project whose MATCHING
-    /// claim is the LONGEST wins; between equally long matching claims the
-    /// alphabetically first folder wins (folders are visited sorted and only
-    /// a strictly longer claim displaces the leader, as in the hook's
-    /// `sorted(os.listdir(vault))`); no match → nil.
-    static func resolve(cwd: String, claims: [String: [String]]) -> String? {
-        var best: String?
-        var bestLen = -1
-        for folder in claims.keys.sorted() {
-            for pat in claims[folder] ?? [] where matches(cwd: cwd, pattern: pat) {
-                // Code points, as Python's `len`.
-                let len = pat.unicodeScalars.count
-                if len > bestLen {
-                    best = folder
-                    bestLen = len
-                }
-            }
+    /// The whole rule over folder → claims. `repoKey` is asked for the
+    /// session's key only when it is needed (no `cwds:` match and at least one
+    /// `repo:` claim in the vault).
+    static func resolve(cwd: String, claims: [String: Claims],
+                        repoKey: (String) -> String?) -> String? {
+        switch winner(claims.flatMap { folder, c in
+            c.cwds.filter { matches(cwd: cwd, pattern: $0) }.map { (folder, $0) } }) {
+        case .owner(let folder): return folder
+        case .tie: return nil
+        case .none: break
         }
-        return best
+        guard claims.values.contains(where: { !$0.repos.isEmpty }),
+              let key = repoKey(cwd) else { return nil }
+        return resolve(repoKey: key, claims: claims)
+    }
+
+    /// `cwds:` alone, over folder → claimed paths: the longest matching claim
+    /// wins; no match or a tie → nil.
+    static func resolve(cwd: String, claims: [String: [String]]) -> String? {
+        resolve(cwd: cwd, claims: claims.mapValues { Claims(cwds: $0) }, repoKey: { _ in nil })
+    }
+
+    /// `repo:` alone: the longest claim equal to `key` or a `/`-bounded prefix
+    /// of it; no match or a tie → nil.
+    static func resolve(repoKey key: String, claims: [String: Claims]) -> String? {
+        guard !key.isEmpty else { return nil }
+        if case .owner(let folder) = winner(claims.flatMap { folder, c in
+            c.repos.filter { key == $0 || key.hasPrefix($0 + "/") }.map { (folder, $0) } }) {
+            return folder
+        }
+        return nil
+    }
+
+    private enum Outcome { case none, tie, owner(String) }
+
+    /// The folder holding the longest matching claim; `.tie` when two folders
+    /// hold claims of that length. Length in code points, as Python's `len`.
+    private static func winner(_ matching: [(String, String)]) -> Outcome {
+        guard let best = matching.map({ $0.1.unicodeScalars.count }).max() else { return .none }
+        let owners = Set(matching.filter { $0.1.unicodeScalars.count == best }.map(\.0))
+        return owners.count == 1 ? .owner(owners.first!) : .tie
     }
 
     /// The four-way match predicate, equivalent to the hook's:
@@ -252,6 +291,7 @@ enum ProjectResolver {
     ///   || cwd == pat.rstrip("/*")
     ///   || cwd.startswith(pat.rstrip("*").rstrip("/") + "/")
     static func matches(cwd: String, pattern pat: String) -> Bool {
+        if cwd.isEmpty { return false }
         if cwd == pat { return true }
         // POSIX fnmatch(3) with the semantics of Python's `fnmatch.fnmatch`:
         // `*`/`?`/`[…]`, `*` spans `/` (no FNM_PATHNAME), backslash literal.
@@ -261,8 +301,46 @@ enum ProjectResolver {
         return false
     }
 
+    /// A git remote URL, or a `repo:` value, in its one normal form:
+    /// `host/owner/name[/subpath]`, lower case, without scheme, user, port,
+    /// `.git` or trailing slash; nil when it is not a remote. Specified by the
+    /// "normalize" cases of the golden file; the Python twin is
+    /// `roster.normalize_remote`.
+    static func normalizeRemote(_ url: String) -> String? {
+        var s = url.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !s.isEmpty, !s.hasPrefix("#"),
+              s.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else { return nil }
+        var hadScheme = false
+        if let r = s.range(of: "^[a-z][a-z0-9+.-]*://", options: .regularExpression) {
+            s.removeSubrange(r)
+            hadScheme = true
+        }
+        if let r = s.range(of: "^[^@/]*@", options: .regularExpression) { s.removeSubrange(r) }
+        let slash = s.firstIndex(of: "/") ?? s.endIndex
+        var host = String(s[..<slash])
+        let rest = String(s[slash...])                  // "" or "/…"
+        if let colon = host.firstIndex(of: ":") {
+            let after = String(host[host.index(after: colon)...])
+            host = String(host[..<colon])
+            s = hadScheme ? host + rest : host + "/" + after + rest
+        }
+        s = rstrip(s, of: "/")
+        if s.hasSuffix(".git") { s = rstrip(String(s.dropLast(4)), of: "/") }
+        while s.contains("//") { s = s.replacingOccurrences(of: "//", with: "/") }
+        return s.contains("/") && !s.hasPrefix("/") ? s : nil
+    }
+
+    /// A session's key for `repo:` matching: its checkout's normalized origin
+    /// plus its path inside the checkout (`git rev-parse --show-prefix`).
+    static func repoKey(remote: String?, subpath: String = "") -> String? {
+        guard let remote, let base = normalizeRemote(remote) else { return nil }
+        let sub = subpath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = rstrip(String(sub.drop(while: { $0 == "/" })), of: "/").lowercased()
+        return trimmed.isEmpty ? base : base + "/" + trimmed
+    }
+
     /// Python `str.rstrip(chars)`: drop the trailing run of any char in `set`.
-    private static func rstrip(_ s: String, of set: String) -> String {
+    fileprivate static func rstrip(_ s: String, of set: String) -> String {
         let drop = Set(set)
         var end = s.endIndex
         while end > s.startIndex {
@@ -270,6 +348,58 @@ enum ProjectResolver {
             if drop.contains(s[prev]) { end = prev } else { break }
         }
         return String(s[s.startIndex..<end])
+    }
+}
+
+/// A working directory's `repo:` key, derived from git
+/// (`git remote get-url origin` and `git rev-parse --show-prefix`) and cached
+/// per directory for the life of the process, misses included. Blocking: call
+/// it off the main thread (the resolver's only caller,
+/// `VaultProjectService.primeResolution`, runs in a detached task).
+final class RepoLocator: @unchecked Sendable {
+    static let shared = RepoLocator()
+
+    private let lock = NSLock()
+    private var cache: [String: String?] = [:]
+    private let git: (_ cwd: String, _ args: [String]) -> String?
+
+    init(git: @escaping (_ cwd: String, _ args: [String]) -> String? = RepoLocator.runGit) {
+        self.git = git
+    }
+
+    func key(forCwd cwd: String) -> String? {
+        lock.lock()
+        if let hit = cache[cwd] { lock.unlock(); return hit }
+        lock.unlock()
+        let key = derive(cwd)
+        lock.lock()
+        cache[cwd] = .some(key)
+        lock.unlock()
+        return key
+    }
+
+    private func derive(_ cwd: String) -> String? {
+        var isDir: ObjCBool = false
+        guard cwd.hasPrefix("/"), FileManager.default.fileExists(atPath: cwd, isDirectory: &isDir),
+              isDir.boolValue,
+              let remote = git(cwd, ["remote", "get-url", "origin"]), !remote.isEmpty else { return nil }
+        return ProjectResolver.repoKey(remote: remote, subpath: git(cwd, ["rev-parse", "--show-prefix"]) ?? "")
+    }
+
+    /// `git -C cwd args…`, trimmed stdout, or nil on failure.
+    static func runGit(_ cwd: String, _ args: [String]) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        p.arguments = ["-C", cwd] + args
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        p.standardInput = FileHandle.nullDevice
+        do { try p.run() } catch { return nil }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else { return nil }
+        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

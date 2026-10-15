@@ -94,7 +94,9 @@ final class VaultProjectService: ObservableObject {
 
     /// Resolve every cwd in `cwds` to its vault folder using the ONE canonical
     /// rule, `ProjectResolver.resolveFolder` (the longest matching `cwds:`
-    /// claim wins), caching the results. The disk scan runs off the main actor; only the
+    /// claim wins; with none, the cwd's normalized `git remote get-url origin`
+    /// against `repo:`), caching the results. The disk scan and the git calls
+    /// (themselves cached per cwd by `RepoLocator`) run off the main actor; only the
     /// small cache merge touches the actor. Call this before reading
     /// `folderName(forCwd:)` in a render path so lookups are warm. Cheap on
     /// repeat: only cache misses are scanned.
