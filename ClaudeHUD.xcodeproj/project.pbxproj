@@ -40,12 +40,14 @@
 		27B83DF7A7CB062C69BFD2DD /* Ghostty.Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0566FC950C392AF39E263A41 /* Ghostty.Config.swift */; };
 		2808B31571DA2A54C001878A /* NoteFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94F002554690052369E931AE /* NoteFile.swift */; };
 		2C29DFF9CEB92A300E5B2FE0 /* MCPServerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F610738B5C598F62048D6D9 /* MCPServerManager.swift */; };
+		2C5A819A4AC65B3B7BFABAC1 /* VaultAccessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AA4D330DBDA52E4F3C827CF /* VaultAccessTests.swift */; };
 		2CD5392B74FE40C467099BFC /* Ghostty.Input.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36100007ADEA5D729AB5F922 /* Ghostty.Input.swift */; };
 		2DC1704ACE2F286704A1DF5C /* TerminalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */; };
 		2FF15BE2F057EDB36A54F915 /* CoreText.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E29EA2BAC4BE95B756B86E59 /* CoreText.framework */; };
 		300F5B400249B3D84DBD6C1F /* permission-watcher.sh in Resources */ = {isa = PBXBuildFile; fileRef = AB272797EF5863C22BEFFDE7 /* permission-watcher.sh */; };
 		312035615DEC2CCBF6B7578A /* Ghostty.App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33C1791B27160BFFE1B81BA5 /* Ghostty.App.swift */; };
 		344F340CDF4EAE1B18B24EE1 /* SecretsVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E8596B647276D0A1586779 /* SecretsVault.swift */; };
+		3C401FF76D8B4AA39219FBA4 /* VaultAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65E56E18D7A0EAD77100C255 /* VaultAccess.swift */; };
 		3CCAE765C9EFE1202B3718B6 /* MarkdownBlocks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C25C90AD7421B63879BFE80 /* MarkdownBlocks.swift */; };
 		4167B772A7F89D1779F98239 /* libfreetype.a in Resources */ = {isa = PBXBuildFile; fileRef = AB8F3ADA72810AD4176731B5 /* libfreetype.a */; };
 		46302138FE115BA1187EBD3D /* FloatingNoteWindowManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CF31D45958F7B287926676 /* FloatingNoteWindowManager.swift */; };
@@ -160,6 +162,7 @@
 		EE97440C9D3CA80341D0E536 /* NSMenu+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 847F4ED0CF27EBE50725922D /* NSMenu+Extension.swift */; };
 		EEC5054A3B33EBA08F1A8D24 /* JSONRPCTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 620FB4690A1A9D7786A56696 /* JSONRPCTypes.swift */; };
 		F044BE57EB32814BDF19E24B /* SurfaceGrabHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B90D1CB58E36C134CC8B152C /* SurfaceGrabHandle.swift */; };
+		F17C080B97EEB5E9D2735B14 /* VaultAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65E56E18D7A0EAD77100C255 /* VaultAccess.swift */; };
 		F2237345BD07B5AF00CC973B /* libbreakpad.a in Resources */ = {isa = PBXBuildFile; fileRef = C9CFCFABB098496D9ECFEFFB /* libbreakpad.a */; };
 		F2846511D5CDD3512D19E178 /* PermissionRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = E28D16F34D7E3F7F89E3EF73 /* PermissionRequest.swift */; };
 		F38B16FA8AEAABF25A47D668 /* libpng.a in Resources */ = {isa = PBXBuildFile; fileRef = 5B7BE7892D77F7EFFC5CBD2D /* libpng.a */; };
@@ -232,9 +235,11 @@
 		620FB4690A1A9D7786A56696 /* JSONRPCTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONRPCTypes.swift; sourceTree = "<group>"; };
 		644D06080D4C60BFCF2637FE /* VaultSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSettings.swift; sourceTree = "<group>"; };
 		64CADF92CE2A4ECE2EA81336 /* VaultProjectService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultProjectService.swift; sourceTree = "<group>"; };
+		65E56E18D7A0EAD77100C255 /* VaultAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAccess.swift; sourceTree = "<group>"; };
 		66EBB010A2FE36902DCF5EF6 /* Ghostty.Command.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Command.swift; sourceTree = "<group>"; };
 		68C16ED4C6BC5E8AE994EEC8 /* HostingWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostingWindow.swift; sourceTree = "<group>"; };
 		68D028D91836CDCCAD3E5DFF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		6AA4D330DBDA52E4F3C827CF /* VaultAccessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAccessTests.swift; sourceTree = "<group>"; };
 		6B704EFA6C1852BC574365CB /* Weak.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Weak.swift; sourceTree = "<group>"; };
 		6C0EBE8F166B3770D136865B /* TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManager.swift; sourceTree = "<group>"; };
 		6E85FBA53BC2B877A3E34EF6 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
@@ -368,6 +373,7 @@
 				AFBE827B2A3EA0BF75B317EF /* SlackFileLog.swift */,
 				2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */,
 				FAA7DC5B4103396ACB2B5F3F /* UsageService.swift */,
+				65E56E18D7A0EAD77100C255 /* VaultAccess.swift */,
 				207CDABC03F0B223AFE35A88 /* VaultIngestService.swift */,
 				ECF4D0E046CD2AE96517B5AC /* VaultManager.swift */,
 				64CADF92CE2A4ECE2EA81336 /* VaultProjectService.swift */,
@@ -705,6 +711,7 @@
 				50033B8E71A69F51D0C4867F /* ActiveTasksDueDateTests.swift */,
 				05D7C162E33744B76D6CE257 /* ClaudeProcessClassifierTests.swift */,
 				E196A0AEBD4F89C4DBAFB5D7 /* ProjectResolverTests.swift */,
+				6AA4D330DBDA52E4F3C827CF /* VaultAccessTests.swift */,
 				9EDB91A617AE82542209609C /* VaultProjectTreeTests.swift */,
 			);
 			path = ClaudeHUDTests;
@@ -854,6 +861,8 @@
 				5D9122BAC2CF9167B2846662 /* ClaudeProcessClassifier.swift in Sources */,
 				A48E9985D965A3F9C26A9B03 /* ClaudeProcessClassifierTests.swift in Sources */,
 				CD7941AD5A6EEEDF57AED073 /* ProjectResolverTests.swift in Sources */,
+				3C401FF76D8B4AA39219FBA4 /* VaultAccess.swift in Sources */,
+				2C5A819A4AC65B3B7BFABAC1 /* VaultAccessTests.swift in Sources */,
 				D0756275787722E728214B42 /* VaultProjectTree.swift in Sources */,
 				6A98FA14DF4172DDDAE335D4 /* VaultProjectTreeTests.swift in Sources */,
 			);
@@ -979,6 +988,7 @@
 				07987A717E8EEC86178C718E /* UsageModels.swift in Sources */,
 				81D79855CC684E2706696199 /* UsageService.swift in Sources */,
 				DDA2946F96AD207B375C29BA /* UserDefaults+Extension.swift in Sources */,
+				F17C080B97EEB5E9D2735B14 /* VaultAccess.swift in Sources */,
 				AB1D0A0392E8C30197A7DC11 /* VaultIngestService.swift in Sources */,
 				0525CFAB9F5770F3A9E10FBF /* VaultManager.swift in Sources */,
 				D831217733E887EEEEBCA50E /* VaultProjectService.swift in Sources */,

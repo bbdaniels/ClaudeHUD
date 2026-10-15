@@ -68,6 +68,7 @@ targets:
       - path: ClaudeHUD/Services/ClaudeProcessClassifier.swift
       - path: ClaudeHUD/Services/VaultProjectTree.swift
       - path: ClaudeHUD/Services/ActiveTasks.swift
+      - path: ClaudeHUD/Services/VaultAccess.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.claudehud.tests

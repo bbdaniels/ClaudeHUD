@@ -12,6 +12,9 @@ class VaultManager: ObservableObject {
     @Published var vaultFiles: [NoteFile] = []
     @Published var isVaultSelected = false
 
+    /// The URL whose security-scoped access is open, so it is stopped on the same URL.
+    private var scopedURL: URL?
+
     init() {
         loadVaultSettings()
     }
@@ -29,32 +32,59 @@ class VaultManager: ObservableObject {
     }
 
     func switchToVault(_ vault: VaultSettings) {
-        // Stop accessing previous vault
-        if let current = currentVault {
-            URL(fileURLWithPath: current.path).stopAccessingSecurityScopedResource()
-        }
+        // The saved path is the source of truth; the bookmark only aids access
+        // (see VaultAccess). A bad bookmark is healed, never fatal.
+        var vault = vault
+        var isDir: ObjCBool = false
+        let pathExists = FileManager.default.fileExists(atPath: vault.path, isDirectory: &isDir) && isDir.boolValue
 
-        if let bookmark = vault.bookmarkData {
+        var resolvedURL: URL?
+        var bookmark = VaultAccess.Bookmark.none
+        if let data = vault.bookmarkData {
             do {
                 var isStale = false
                 let url = try URL(
-                    resolvingBookmarkData: bookmark,
+                    resolvingBookmarkData: data,
                     options: [.withSecurityScope],
                     relativeTo: nil,
                     bookmarkDataIsStale: &isStale
                 )
-                if isStale {
-                    logger.warning("Vault bookmark is stale for \(vault.name)")
-                    return
-                }
-                guard url.startAccessingSecurityScopedResource() else {
-                    logger.error("Failed to access vault: \(vault.name)")
-                    return
-                }
+                resolvedURL = url
+                bookmark = .resolved(path: url.path, isStale: isStale)
             } catch {
-                logger.error("Failed to resolve bookmark: \(error.localizedDescription)")
-                return
+                logger.warning("Failed to resolve bookmark for \(vault.name): \(error.localizedDescription)")
+                bookmark = .failed
             }
+        }
+
+        let decision = VaultAccess.decide(savedPath: vault.path, pathExists: pathExists, bookmark: bookmark)
+        guard decision.path != nil else {
+            logger.error("Vault folder does not exist: \(vault.path) (\(vault.name))")
+            return
+        }
+
+        // Release the previous vault's scope on the URL that was started.
+        scopedURL?.stopAccessingSecurityScopedResource()
+        scopedURL = nil
+
+        var refreshBookmark = decision.refreshBookmark
+        if decision.useBookmarkScope, let url = resolvedURL {
+            if url.startAccessingSecurityScopedResource() {
+                scopedURL = url
+            } else {
+                logger.warning("Bookmark access failed for \(vault.name); using saved path")
+                refreshBookmark = true
+            }
+        }
+        if refreshBookmark {
+            if bookmark != .none {
+                logger.warning("Vault bookmark for \(vault.name) was stale or elsewhere; re-created from \(vault.path)")
+            }
+            vault.bookmarkData = try? URL(fileURLWithPath: vault.path, isDirectory: true).bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
         }
 
         currentVault = vault
@@ -78,8 +108,7 @@ class VaultManager: ObservableObject {
                     includingResourceValuesForKeys: nil,
                     relativeTo: nil
                 )
-                guard url.startAccessingSecurityScopedResource() else { return }
-
+                // switchToVault opens (and later stops) access via the bookmark.
                 var settings = VaultSettings(path: url.path, name: url.lastPathComponent)
                 settings.bookmarkData = bookmark
                 settings.saveToDefaults()
@@ -103,6 +132,8 @@ class VaultManager: ObservableObject {
             if let next = savedVaults.first {
                 switchToVault(next)
             } else {
+                scopedURL?.stopAccessingSecurityScopedResource()
+                scopedURL = nil
                 currentVault = nil
                 isVaultSelected = false
                 vaultFiles = []
