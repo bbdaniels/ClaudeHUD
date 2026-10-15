@@ -146,8 +146,8 @@ struct VaultTabView: View {
                 parentCandidates: ProjectTree.parentCandidates(projectService.projects)
             ) { folder in
                 // Parse just the new folder and insert its row so it shows
-                // immediately; a full vault scan (iCloud-cold, tens of
-                // seconds) must never gate this. The background refresh then
+                // immediately; a full vault scan reads every project and
+                // must never gate this. The background refresh then
                 // reconciles the rest of the list.
                 projectService.insertProject(folder: folder)
                 projectService.refresh()

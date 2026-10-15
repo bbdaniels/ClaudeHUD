@@ -1,6 +1,6 @@
 #!/bin/bash
 # === Managed by ClaudeHUD ============================================
-# script-version: 1.0.0
+# script-version: 1.1.0
 # source: ClaudeHUD/Resources/Scripts/vault-reset.sh
 # To edit, fork in the ClaudeHUD repo and rebuild. The installer
 # detects local edits to the installed copy and refuses to clobber
@@ -21,7 +21,7 @@
 set -euo pipefail
 export HOME="/Users/bbdaniels"
 export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
-VAULT="$HOME/Documents/Obsidian"
+VAULT="$HOME/Projects/obsidian"
 cd "$VAULT"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 MODE="${1:-safe}"

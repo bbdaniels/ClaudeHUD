@@ -10,7 +10,7 @@ private let logger = Logger(subsystem: "com.claudehud", category: "VaultProjectS
 /// live-session badges use. The `## Active` task parser lives in
 /// `ActiveTasks.swift`.
 ///
-/// Architecture: see Documents/Obsidian/ClaudeHUD/Technical Notes.md
+/// Architecture: see Projects/obsidian/ClaudeHUD/Technical Notes.md
 /// §Vault/Projects tab redistribution. The HUD is a window over the
 /// archive; this service does no synthesis — every value rendered in
 /// the Projects tab is a verbatim slice of a vault file.
@@ -33,7 +33,7 @@ final class VaultProjectService: ObservableObject {
     private(set) var vaultPath: URL?
 
     /// Bumped at the start of every `refresh()`; a scan publishes only if it
-    /// is still the newest, so a slow (iCloud-cold) scan that finishes after
+    /// is still the newest, so a slow scan that finishes after
     /// a later one can never overwrite fresher results.
     private var scanGeneration = 0
 
@@ -46,9 +46,9 @@ final class VaultProjectService: ObservableObject {
 
     /// Re-scan the vault. Call from view `onAppear` or explicitly after
     /// the vault changes. NOT cheap: it reads every project's `Tasks.md` in
-    /// full, and the vault is iCloud-evicted, so a
-    /// cold scan blocks 0.5–2 s per file (a 39 s main-thread hang when this
-    /// ran synchronously). The scan therefore runs detached; only the
+    /// full. While the vault lived in iCloud (until 2026-10-15) a cold scan
+    /// blocked 0.5–2 s per file (a 39 s main-thread hang when this ran
+    /// synchronously). The scan therefore runs detached; only the
     /// publish touches the main actor. Fire-and-forget; `await` it when
     /// the caller needs the fresh list.
     @discardableResult

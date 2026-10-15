@@ -1,6 +1,6 @@
 #!/bin/bash
 # === Managed by ClaudeHUD ============================================
-# script-version: 1.1.0
+# script-version: 1.2.0
 # source: ClaudeHUD/Resources/Scripts/obsidian-sync.sh
 # To edit, fork in the ClaudeHUD repo and rebuild. The installer
 # detects local edits to the installed copy and refuses to clobber
@@ -11,13 +11,15 @@
 #   - Commits and pushes any local changes from the laptop
 # Daily Notes are agent-managed: local untracked versions are scratch and get
 # replaced by the agent's cleaned versions when origin has them.
-# Retries on transient APFS "Resource deadlock avoided" from Spotlight/Dropbox
-# racing with git on file reads.
+# A failed fetch or push is not retried in-run: launchd runs this every 15
+# minutes and the next run picks up where this one stopped. (The in-run
+# retry loop existed for iCloud's EDEADLK on dataless files; the vault left
+# iCloud on 2026-10-15 and the loop was removed.)
 
 set -e
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
-VAULT="/Users/bbdaniels/Documents/Obsidian"
+VAULT="/Users/bbdaniels/Projects/obsidian"
 cd "$VAULT"
 
 # --- single-instance lock --------------------------------------------
@@ -26,11 +28,8 @@ cd "$VAULT"
 # the git dir's rebase-merge and wedges the vault. Serialize with an atomic
 # mkdir lock; a dead holder's lock is reclaimed so we never deadlock ourselves.
 #
-# Ask git where its directory is; never spell it as a path under the vault.
-# Since 2026-10-05 the vault's .git is a gitfile (gitdir: <local path>) and
-# the repository data lives outside iCloud, so anything written as
-# VAULT + .git + name is a path under a regular file. Asking git also stays
-# right if the data ever moves back.
+# Ask git where its directory is rather than spelling VAULT/.git, so the
+# script stays right whether .git is a directory or a gitfile.
 GITDIR="$(git rev-parse --absolute-git-dir)"
 LOCKDIR="$GITDIR/obsidian-sync.lock"
 if ! mkdir "$LOCKDIR" 2>/dev/null; then
@@ -44,22 +43,8 @@ fi
 echo $$ > "$LOCKDIR/pid"
 trap 'rm -rf "$LOCKDIR"' EXIT
 
-# NOTE: launchd self-heal is now its own job (com.bbdaniels.ensure-launchagents),
-# decoupled from this sync script because sync is exactly what dies in a
-# macOS migration (it touches TCC-protected ~/Documents and loses FDA).
-
-retry() {
-  local n=0 max=4
-  while ! "$@"; do
-    n=$((n+1))
-    if [ $n -ge $max ]; then
-      echo "FAILED after $max attempts: $*"
-      return 1
-    fi
-    echo "  retry $n/$max after failure..."
-    sleep 3
-  done
-}
+# NOTE: launchd self-heal is its own job (com.bbdaniels.ensure-launchagents),
+# decoupled from this sync script so a failing sync cannot take it down.
 
 echo "===== $(date -u +%FT%TZ) sync start ====="
 
@@ -73,7 +58,7 @@ if [ -d "$GITDIR/rebase-merge" ] || [ -d "$GITDIR/rebase-apply" ]; then
   rm -rf "$GITDIR/rebase-merge" "$GITDIR/rebase-apply"
 fi
 
-retry git fetch origin main --quiet
+git fetch origin main --quiet
 
 # Pre-clean: drop any local untracked Daily Note that origin has a version of.
 git ls-tree -r --name-only -z origin/main -- "Daily Notes/" \
@@ -85,7 +70,7 @@ git ls-tree -r --name-only -z origin/main -- "Daily Notes/" \
     done
 
 # Stage everything (modifications + new files + deletions) and commit if non-empty.
-retry git add -A
+git add -A
 if ! git diff --cached --quiet; then
   git commit -m "Local vault sync: $(date -u +%Y-%m-%dT%H:%MZ)"
 fi
@@ -100,6 +85,6 @@ if ! git pull --rebase origin main; then
   exit 1
 fi
 
-retry git push origin main
+git push origin main
 
 echo "===== $(date -u +%FT%TZ) sync ok ====="

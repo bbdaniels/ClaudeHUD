@@ -245,7 +245,7 @@ class VaultManager: ObservableObject {
     }
 
     /// Create a new vault project folder, scaffolded to schema conventions
-    /// (see Documents/Obsidian/schema.md §Vault structure / §Canonical project
+    /// (see Projects/obsidian/schema.md §Vault structure / §Canonical project
     /// model): `<vault>/<name>/` with `Tasks.md` (the human-owned source of
     /// truth, `## Active`/`## Completed`, empty `cwds:` for the human to fill),
     /// a minimal `Dashboard.md` carrying the `gen:briefing` block the cloud
