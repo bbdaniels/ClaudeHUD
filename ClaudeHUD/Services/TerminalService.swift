@@ -177,7 +177,11 @@ class TerminalService: ObservableObject {
             // The script unlinks itself first (zsh keeps its open fd), so it
             // is cleaned up even when the command exits via a trap on window
             // close and never reaches the end.
-            let scriptContent = "#!/bin/zsh\nrm -f \"$0\"\nsource ~/.zshrc 2>/dev/null\nunset CLAUDECODE\n\(fullCommand)\nexec zsh\n"
+            // Both shells are login shells (-l) so ~/.zprofile runs, as it
+            // does in any Ghostty window: PATH entries live there (~/.local/bin,
+            // which holds `claude`), and a plain `#!/bin/zsh` + `exec zsh`
+            // left the command and the fallback shell with "command not found".
+            let scriptContent = "#!/bin/zsh -l\nrm -f \"$0\"\nsource ~/.zshrc 2>/dev/null\nunset CLAUDECODE\n\(fullCommand)\nexec zsh -l\n"
 
             guard (try? scriptContent.write(toFile: tmpScript, atomically: true, encoding: .utf8)) != nil,
                   (try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tmpScript)) != nil
