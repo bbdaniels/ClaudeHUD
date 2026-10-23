@@ -15,7 +15,6 @@ class AppState: ObservableObject {
     let skillsService = SkillsService()
     let agentsService = AgentsService()
     let processMonitor = ClaudeProcessMonitor()
-    let vaultScriptInstaller = VaultScriptInstaller()
     let vaultIngestService = VaultIngestService()
     let vaultProjectService = VaultProjectService()
     let screenCoverService: ScreenCoverService
@@ -44,10 +43,6 @@ class AppState: ObservableObject {
         // every 15 minutes (and on each menu open). Read-only; closing an
         // orphan is always a confirmed click.
         processMonitor.start()
-
-        // Vault scripts: observation-only at launch. Records per-file
-        // status in the log; never writes.
-        vaultScriptInstaller.audit()
 
         // Vault session state: poll every 30s for per-project Sessions.md
         // provenance. Read-only; the daily review (personal repo,

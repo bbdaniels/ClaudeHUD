@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import Combine
 import os
@@ -15,9 +14,9 @@ private let logger = Logger(subsystem: "com.claudehud", category: "VaultIngestSe
 ///   2. `sync`: last `obsidian-sync.sh` start/end and result, parsed from
 ///      `~/Library/Logs/obsidian-sync.log`.
 ///
-/// The polling is read-only. Polls every 30s. The one action, `triggerSync`,
-/// starts the same sync script launchd runs. Nothing here starts, pauses or
-/// retries the daily review.
+/// Read-only: it polls every 30s and has no actions. The sync script and its
+/// launchd job are installed from the personal repo (`deploy/mac`), and
+/// nothing here starts, pauses or retries the sync or the daily review.
 @MainActor
 final class VaultIngestService: ObservableObject {
 
@@ -207,35 +206,5 @@ final class VaultIngestService: ObservableObject {
               let match = regex.firstMatch(in: line, options: [], range: NSRange(line.startIndex..., in: line)),
               let range = Range(match.range, in: line) else { return nil }
         return formatter.date(from: String(line[range]))
-    }
-
-    // MARK: - Actions
-
-    /// Fire `~/.local/bin/obsidian-sync.sh` in the background — this is
-    /// where `VaultScriptInstaller` installs it and what the launchd job
-    /// runs, so the "Sync now" button hits the same script as the cron.
-    /// Best-effort — failures land in `~/Library/Logs/obsidian-sync.log`
-    /// and surface via `parseSyncLog()` on the next refresh.
-    func triggerSync() {
-        let script = home.appending(path: ".local/bin/obsidian-sync.sh").path
-        guard FileManager.default.isExecutableFile(atPath: script) else {
-            logger.warning("obsidian-sync.sh not installed at \(script)")
-            return
-        }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [script]
-        do {
-            try process.run()
-        } catch {
-            logger.error("failed to launch obsidian-sync.sh: \(error.localizedDescription)")
-        }
-    }
-
-    /// Open `~/.claude/scripts/` in Finder so the user can inspect the
-    /// managed scripts directly.
-    func revealScriptsInFinder() {
-        let scriptsDir = home.appending(path: ".claude/scripts")
-        NSWorkspace.shared.activateFileViewerSelecting([scriptsDir])
     }
 }
