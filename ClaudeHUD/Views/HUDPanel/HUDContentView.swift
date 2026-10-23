@@ -189,13 +189,12 @@ enum FixedTab: String, CaseIterable {
 
 struct HUDContentView: View {
     @EnvironmentObject var appState: AppState
-    @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var terminalService: TerminalService
     @EnvironmentObject var sessionHistory: SessionHistoryService
     @EnvironmentObject var vaultManager: VaultManager
     @State private var showTerminalPopover = false
     @State private var showInfoPopover = false
-    @State private var activeFixedTab: FixedTab? = .vault
+    @State private var activeFixedTab: FixedTab = .vault
     @State private var fontScale: CGFloat = 1.0
 
     var body: some View {
@@ -253,47 +252,34 @@ struct HUDContentView: View {
                 .opacity(0.5)
 
             // Main content
-            if let fixedTab = activeFixedTab {
-                switch fixedTab {
-                case .history:
-                    SessionHistoryView()
-                        .environmentObject(sessionHistory)
-                        .environmentObject(terminalService)
-                        // For the project tag and its unclaimed marker: same canonical resolver
-                        // cache the Projects spine uses (inverse of the WORK filter).
-                        .environmentObject(appState.vaultProjectService)
-                case .vault:
-                    VaultTabView()
-                        .environmentObject(appState.vaultProjectService)
-                        .environmentObject(appState.vaultIngestService)
-                        .environmentObject(vaultManager)
-                        // Sessions and the terminal come from the panel root.
-                        // Agents injected here because only the Projects/
-                        // Library tabs use the live roster.
-                        .environmentObject(appState.agentsService)
-                case .today:
-                    TodayView()
-                        .environmentObject(vaultManager)
-                case .library:
-                    LibraryView()
-                        .environmentObject(appState.libraryService)
-                        .environmentObject(terminalService)
-                }
-            } else {
-                TerminalTabView(sessionId: tabManager.selectedTabId)
-                    .id(tabManager.selectedTabId)
-                    .environmentObject(appState)
+            switch activeFixedTab {
+            case .history:
+                SessionHistoryView()
+                    .environmentObject(sessionHistory)
+                    .environmentObject(terminalService)
+                    // For the project tag and its unclaimed marker: same canonical resolver
+                    // cache the Projects spine uses (inverse of the WORK filter).
+                    .environmentObject(appState.vaultProjectService)
+            case .vault:
+                VaultTabView()
+                    .environmentObject(appState.vaultProjectService)
+                    .environmentObject(appState.vaultIngestService)
+                    .environmentObject(vaultManager)
+                    // Sessions and the terminal come from the panel root.
+                    // Agents injected here because only the Projects/
+                    // Library tabs use the live roster.
+                    .environmentObject(appState.agentsService)
+            case .today:
+                TodayView()
+                    .environmentObject(vaultManager)
+            case .library:
+                LibraryView()
+                    .environmentObject(appState.libraryService)
+                    .environmentObject(terminalService)
             }
         }
         .frame(minWidth: 380, minHeight: 420)
         .environment(\.fontScale, fontScale)
-        .onChange(of: tabManager.tabs.isEmpty) { _, isEmpty in
-            // Closing the last terminal tab leaves nothing for the `nil`
-            // (tab-selected) state to render, so fall back to a fixed tab.
-            if isEmpty && activeFixedTab == nil {
-                activeFixedTab = FixedTab.orderedTabs().first { !FixedTab.isHidden($0) } ?? .vault
-            }
-        }
         .onGeometryChange(for: CGFloat.self) { geo in
             geo.size.width
         } action: { width in
@@ -304,14 +290,6 @@ struct HUDContentView: View {
                 fontScale = newScale
             }
         }
-        .overlay(
-            Button("") {
-                tabManager.closeTab(tabManager.selectedTabId)
-            }
-            .keyboardShortcut("w", modifiers: .command)
-            .frame(width: 0, height: 0)
-            .hidden()
-        )
         .hudTooltipLayer()
     }
 }
@@ -319,8 +297,7 @@ struct HUDContentView: View {
 // MARK: - Tab Bar
 
 struct TabBar: View {
-    @Binding var activeFixedTab: FixedTab?
-    @EnvironmentObject var tabManager: TabManager
+    @Binding var activeFixedTab: FixedTab
     @Environment(\.fontScale) private var scale
     @AppStorage("hiddenTabs") private var hiddenTabsRaw: String = ""
     // Read the persisted order so the bar re-renders when it changes.
@@ -360,33 +337,14 @@ struct TabBar: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Fixed view tabs. Deliberately NOT inside the horizontal ScrollView
+            // Fixed view tabs. Deliberately NOT inside a horizontal ScrollView
             // (its pan gesture swallowed the reorder drag) and NOT Buttons (the
             // button press gesture competed with it). Plain tappable icons + a
             // manual DragGesture: a click switches tab, a >6pt sideways drag
             // reorders. (Also needs the panel's isMovableByWindowBackground off
             // — see HUDPanelController — so window-move doesn't eat the drag.)
-            HStack(spacing: 0) {
-                ForEach(visibleTabs, id: \.rawValue) { tab in
-                    fixedTab(tab)
-                }
-            }
-
-            if !tabManager.tabs.isEmpty {
-                Divider()
-                    .frame(height: 16)
-                    .padding(.horizontal, 4)
-            }
-
-            // Terminal tabs can overflow, so they keep the horizontal scroll.
-            // Empty when no session has been resumed into the HUD, in which
-            // case the scroll view is just the header's flexible gap.
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 0) {
-                    ForEach(tabManager.tabs) { tab in
-                        TabButton(tab: tab, activeFixedTab: $activeFixedTab)
-                    }
-                }
+            ForEach(visibleTabs, id: \.rawValue) { tab in
+                fixedTab(tab)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -437,64 +395,6 @@ struct TabBar: View {
                     dragOffset = 0
                 }
         )
-    }
-}
-
-struct TabButton: View {
-    let tab: ConversationTab
-    @Binding var activeFixedTab: FixedTab?
-    @EnvironmentObject var tabManager: TabManager
-    @Environment(\.fontScale) private var scale
-
-    private var isSelected: Bool {
-        activeFixedTab == nil && tabManager.selectedTabId == tab.id
-    }
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "terminal")
-                .font(.smallFont(scale))
-                .foregroundColor(isSelected ? .accentColor : .secondary)
-
-            if let subtitle = tab.subtitle, !subtitle.isEmpty {
-                HStack(spacing: 2) {
-                    Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: 8 * scale, weight: .semibold))
-                    Text(subtitle)
-                        .font(.custom("Fira Code", size: 10 * scale))
-                        .lineLimit(1)
-                }
-                .foregroundColor(.purple)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
-                .background(RoundedRectangle(cornerRadius: 3).fill(Color.purple.opacity(0.15)))
-                .hudTip("Worktree: \(subtitle)")
-            }
-
-            Text(tab.title)
-                .font(.smallFont(scale))
-                .lineLimit(1)
-                .foregroundColor(isSelected ? .primary : .secondary)
-
-            Button(action: { tabManager.closeTab(tab.id) }) {
-                Image(systemName: "xmark")
-                    .font(.custom("Fira Sans", size: 8 * scale).weight(.bold))
-                    .foregroundColor(.secondary.opacity(0.6))
-            }
-            .buttonStyle(.borderless)
-            .hudTip("Close tab")
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(
-            RoundedRectangle(cornerRadius: 5)
-                .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture {
-            activeFixedTab = nil
-            tabManager.selectedTabId = tab.id
-        }
     }
 }
 

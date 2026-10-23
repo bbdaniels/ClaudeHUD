@@ -6,7 +6,6 @@ private let logger = Logger(subsystem: "com.claudehud", category: "AppState")
 @MainActor
 class AppState: ObservableObject {
     let serverManager = MCPServerManager()
-    let tabManager = TabManager()
     let hotkeyService = HotkeyService()
     let terminalService = TerminalService()
     let sessionHistoryService = SessionHistoryService()
@@ -19,11 +18,6 @@ class AppState: ObservableObject {
     let vaultProjectService = VaultProjectService()
     let screenCoverService: ScreenCoverService
     lazy var libraryService = LibraryService(skillsService: skillsService)
-
-    /// Lazy-initialized Ghostty application. Only created the first time the
-    /// workspace window is opened, so users who never touch the workspace pay
-    /// zero libghostty cost.
-    lazy var ghosttyApp: Ghostty.App = .init()
 
     init() {
         self.screenCoverService = ScreenCoverService(agents: agentsService)

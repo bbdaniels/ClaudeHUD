@@ -73,7 +73,6 @@ class HUDPanelController {
 
         let contentView = HUDContentView()
             .environmentObject(appState)
-            .environmentObject(appState.tabManager)
             .environmentObject(appState.terminalService)
             .environmentObject(appState.sessionHistoryService)
             .environmentObject(appState.vaultManager)
@@ -87,17 +86,6 @@ class HUDPanelController {
         // is no controller, so every `.help(...)` in the app silently no-ops
         // and no tooltip ever appears.
         panel.contentViewController = NSHostingController(rootView: contentView)
-
-        // Cancel running requests when window closes
-        NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: panel,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.appState.tabManager.cancelAll()
-            }
-        }
 
         self.panel = panel
     }

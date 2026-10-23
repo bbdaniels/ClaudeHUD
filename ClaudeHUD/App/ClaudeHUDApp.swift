@@ -1,6 +1,5 @@
 import SwiftUI
 import Cocoa
-import GhosttyKit
 
 @main
 struct ClaudeHUDApp: App {
@@ -35,12 +34,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-
-        // libghostty requires global init before any ghostty_* API is called.
-        // Must run before WorkspaceWindowController touches Ghostty.App.
-        if ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) != GHOSTTY_SUCCESS {
-            NSLog("ClaudeHUD: ghostty_init failed — workspace terminal disabled")
-        }
 
         panelController = HUDPanelController(appState: appState)
         setupStatusItem()

@@ -150,9 +150,6 @@ ClaudeHUD/
   App/
     ClaudeHUDApp.swift     # App entry, menu bar setup
     AppState.swift         # Global state, services
-  Claude/
-    TabManager.swift       # HUD terminal tabs
-    TerminalSession.swift  # Ghostty surface owner for a terminal tab
   Models/
     NoteFile.swift         # Obsidian file tree model
     SubstackModels.swift   # Substack publication, post, API response types
