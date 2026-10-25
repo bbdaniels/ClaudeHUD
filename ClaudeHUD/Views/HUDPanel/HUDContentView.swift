@@ -791,12 +791,12 @@ func permissionModeFlag() -> String { LaunchPermissionMode.current.cliFlag }
 /// Header picker: one global control for the mode every launch uses.
 struct PermissionModeMenu: View {
     @AppStorage(LaunchPermissionMode.defaultsKey) private var raw: String = ""
-    @Environment(\.fontScale) private var scale
 
     private var mode: LaunchPermissionMode { LaunchPermissionMode(rawValue: raw) ?? .inherit }
 
     var body: some View {
-        Menu {
+        HeaderGlyphMenu(systemName: "shield.fill", color: mode.color,
+                        tip: "Permission mode: \(mode.title)") {
             ForEach(LaunchPermissionMode.allCases) { m in
                 Button {
                     raw = m.rawValue
@@ -808,38 +808,47 @@ struct PermissionModeMenu: View {
                     }
                 }
             }
-        } label: {
-            // Hit target only: AppKit paints a Menu label opaque in its own
-            // tint (ignoring opacity), so the label carries no glyph at all.
-            Color.clear
+        }
+    }
+}
+
+/// A header Menu whose label is a colored glyph, sized by the glyph. The
+/// `.borderlessButton` style repaints a label in its own tint and sizes the
+/// control by its AppKit cell (about 6 pt wide for an empty label, so the
+/// glyph drawn behind it was mostly unclickable); the plain button style
+/// draws the label as given, so the glyph is both the paint and the target.
+struct HeaderGlyphMenu<Content: View>: View {
+    let systemName: String
+    let color: Color
+    let tip: String
+    @ViewBuilder let content: () -> Content
+    @Environment(\.fontScale) private var scale
+
+    var body: some View {
+        Menu(content: content) {
+            Image(systemName: systemName)
+                .font(.system(size: 12 * scale, weight: .semibold))
+                .foregroundColor(color)
                 .frame(width: 16 * scale, height: 16 * scale)
                 .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
-        // Glyph only — the header has no room for a label, so the mode is
-        // carried by color (user directive 2026-09-03). Drawn BEHIND the
-        // menu because a Menu label's foreground color is stripped on macOS.
-        .background(glyph)
-        .hudTip("Permission mode: \(mode.title)")
-    }
-
-    private var glyph: some View {
-        Image(systemName: "shield.fill")
-            .font(.system(size: 12 * scale, weight: .semibold))
-            .foregroundColor(mode.color)
+        .hudTip(tip)
     }
 }
+
 /// Header control for the persistent Remote Control server
 /// (`RemoteControlServerService`): the glyph's color carries its state
 /// (green running, orange enabled but down, gray off), the menu turns it on
 /// or off. Its permission mode follows `PermissionModeMenu`.
 struct RemoteControlMenu: View {
     @EnvironmentObject var server: RemoteControlServerService
-    @Environment(\.fontScale) private var scale
     var body: some View {
-        Menu {
+        HeaderGlyphMenu(systemName: "dot.radiowaves.left.and.right", color: color,
+                        tip: "Remote Control: \(status)") {
             Text(status)
             Divider()
             Toggle("Remote Control", isOn: Binding(
@@ -847,17 +856,7 @@ struct RemoteControlMenu: View {
                 set: { server.setEnabled($0) }
             ))
             .disabled(server.isBusy)
-        } label: {
-            // Hit target only, as in PermissionModeMenu.
-            Color.clear
-                .frame(width: 16 * scale, height: 16 * scale)
-                .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .background(glyph)
-        .hudTip("Remote Control: \(status)")
     }
     private var status: String {
         if server.isBusy { return "Restarting" }
@@ -867,11 +866,6 @@ struct RemoteControlMenu: View {
     private var color: Color {
         if server.pid != nil { return .green }
         return server.isEnabled ? .orange : .secondary
-    }
-    private var glyph: some View {
-        Image(systemName: "dot.radiowaves.left.and.right")
-            .font(.system(size: 12 * scale, weight: .semibold))
-            .foregroundColor(color)
     }
 }
 

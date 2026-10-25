@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Compact pill badge in the header: session %, its reset clock, and weekly %,
-/// e.g. `18% · 5h→2:40pm · 64% wk`. Every segment is optional and drops out
+/// Compact pill badge in the header: session % and weekly %, e.g.
+/// `18% · 64% wk`; the reset times live in the tooltip and the popover, since
+/// the header has no room for them. Every segment is optional and drops out
 /// when its field is missing, so the pill collapses to the bare gauge icon
 /// rather than showing placeholders. Click opens the full breakdown.
 struct UsageBadge: View {
@@ -49,21 +50,12 @@ struct UsageBadge: View {
         var out: [String] = []
         if let fh = u.fiveHour {
             out.append("\(Int(fh.utilization.rounded()))%")
-            if let reset = fh.resetsAt, reset > Date() {
-                out.append("5h→" + Self.clock.string(from: reset))
-            }
         }
         if let wd = u.sevenDay {
             out.append("\(Int(wd.utilization.rounded()))% wk")
         }
         return out
     }
-
-    private static let clock: DateFormatter = {
-        let f = DateFormatter()
-        f.setLocalizedDateFormatFromTemplate("jmm")
-        return f
-    }()
 
     private var tint: Color {
         guard usageService.hasCookie else { return .secondary }
