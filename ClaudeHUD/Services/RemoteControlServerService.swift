@@ -27,7 +27,7 @@ final class RemoteControlServerService: ObservableObject {
 
     nonisolated static let label = "com.bbdaniels.claude-remote-control"
     nonisolated static let serverName = "Mac"
-    nonisolated static let capacity = 4
+    nonisolated static let capacity = 8
     /// Matches the Pi's RestartSec: a crash-looping server retries every 30 s.
     nonisolated static let throttleInterval = 30
 
@@ -85,7 +85,9 @@ final class RemoteControlServerService: ObservableObject {
             "EnvironmentVariables": [
                 "PATH": "\(home)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
             ],
-            "StandardOutPath": logPath,
+            // Standard output is the server's status screen, redrawn
+            // continuously (about 34 MB a day); only errors are kept.
+            "StandardOutPath": "/dev/null",
             "StandardErrorPath": logPath,
         ]
     }
