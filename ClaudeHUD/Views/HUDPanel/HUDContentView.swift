@@ -874,8 +874,8 @@ func daemonizedClaudeCommand(_ argSuffix: String, remoteControlName: String? = n
 
 // MARK: - Magic launch (Projects spine)
 
-/// Build the magic-launch argument: a `/vault-bootstrap` slash-command
-/// invocation whose expansion (see ~/.claude/commands/vault-bootstrap.md)
+/// Build the magic-launch argument: a `/project` slash-command
+/// invocation whose expansion (see ~/.claude/commands/project.md)
 /// loads context from the Obsidian vault (the source of truth), not a lossy
 /// chat recap. Delivering the bootstrap as a slash command instead of a
 /// wall-of-text positional prompt keeps the session's first turn tidy while
@@ -887,9 +887,9 @@ func daemonizedClaudeCommand(_ argSuffix: String, remoteControlName: String? = n
 /// Terminal/iTerm AppleScript `do script`, clipboard).
 func magicLaunchArg(projectName: String, resolvedVaultPath: String?) -> String {
     if let vaultPath = resolvedVaultPath, !vaultPath.isEmpty {
-        return "/vault-bootstrap \(projectName) :: \(vaultPath)"
+        return "/project \(projectName) :: \(vaultPath)"
     }
-    return "/vault-bootstrap \(projectName)"
+    return "/project \(projectName)"
 }
 
 /// Fire a magic launch for `projectName` rooted at repo `cwd`, loading vault

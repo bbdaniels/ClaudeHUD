@@ -518,7 +518,7 @@ class SessionHistoryService: ObservableObject {
 
             let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty { continue }
-            // Magic-launch bootstrap is delivered as the `/vault-bootstrap`
+            // Magic-launch bootstrap is delivered as the `/project`
             // slash command, whose recorded first turn starts with the
             // `<command-name>…` wrapper — so it must be recognised BEFORE the
             // generic `<`-wrapper skip below, or it would be swallowed as a
@@ -615,9 +615,9 @@ class SessionHistoryService: ObservableObject {
     }
 
     /// Project name carried by a magic-launch bootstrap, or nil if the message
-    /// isn't one. The bootstrap is delivered as the `/vault-bootstrap` slash
-    /// command (see `magicLaunchArg` in HUDContentView + the command file at
-    /// ~/.claude/commands/vault-bootstrap.md). Handles both ways Claude Code
+    /// isn't one. The bootstrap is delivered as the `/project` slash command
+    /// (`/vault-bootstrap` before 2026-10-25; see `magicLaunchArg` in
+    /// HUDContentView + the command file at ~/.claude/commands/project.md). Handles both ways Claude Code
     /// may record that first turn: the usual `<command-name>/vault-bootstrap
     /// </command-name>…<command-args>…</command-args>` wrapper, and a raw
     /// `/vault-bootstrap <args>` line (fallback). The args are `<project>`
@@ -633,17 +633,23 @@ class SessionHistoryService: ObservableObject {
     /// swallowed it and the session was labelled `.normal` off the user's
     /// second message, which is exactly what recognising it here prevents.
     nonisolated private static func magicLaunchProject(_ s: String) -> String? {
-        let args: String
-        if let nameTag = s.range(of: "<command-name>/vault-bootstrap</command-name>") {
-            guard let open = s.range(of: "<command-args>", range: nameTag.upperBound..<s.endIndex),
-                  let close = s.range(of: "</command-args>", range: open.upperBound..<s.endIndex)
-            else { return nil }
-            args = String(s[open.upperBound..<close.lowerBound])
-        } else if s.hasPrefix("/vault-bootstrap") {
-            args = String(s.dropFirst("/vault-bootstrap".count))
-        } else {
-            return nil
+        // `/project` since 2026-10-25; older transcripts carry `/vault-bootstrap`.
+        for command in ["project", "vault-bootstrap"] {
+            if let nameTag = s.range(of: "<command-name>/\(command)</command-name>") {
+                guard let open = s.range(of: "<command-args>", range: nameTag.upperBound..<s.endIndex),
+                      let close = s.range(of: "</command-args>", range: open.upperBound..<s.endIndex)
+                else { return nil }
+                return projectName(fromArgs: String(s[open.upperBound..<close.lowerBound]))
+            }
+            let raw = "/\(command)"
+            if s == raw || s.hasPrefix(raw + " ") || s.hasPrefix(raw + "\n") {
+                return projectName(fromArgs: String(s.dropFirst(raw.count)))
+            }
         }
+        return nil
+    }
+
+    nonisolated private static func projectName(fromArgs args: String) -> String? {
         var name = args.trimmingCharacters(in: .whitespacesAndNewlines)
         if let sep = name.range(of: " :: ") { name = String(name[..<sep.lowerBound]) }
         name = name.trimmingCharacters(in: .whitespaces)
