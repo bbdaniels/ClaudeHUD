@@ -14,6 +14,11 @@ struct ClaudeHUDApp: App {
             FileHandle.standardOutput.write(Data(ProcessMenuText.dump(ClaudeProcessSnapshot.capture()).utf8))
             exit(0)
         }
+        // `ClaudeHUD --remote-control on|off|status`: the header toggle's
+        // load and unload, for use over ssh. Prints the server state, exits.
+        if let i = args.firstIndex(of: "--remote-control") {
+            exit(RemoteControlServerService.commandLine(args.indices.contains(i + 1) ? args[i + 1] : "status"))
+        }
     }
 
     var body: some Scene {

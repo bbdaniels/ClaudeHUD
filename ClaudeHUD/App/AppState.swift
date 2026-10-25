@@ -16,6 +16,7 @@ class AppState: ObservableObject {
     let processMonitor = ClaudeProcessMonitor()
     let vaultIngestService = VaultIngestService()
     let vaultProjectService = VaultProjectService()
+    let remoteControlServer = RemoteControlServerService()
     let screenCoverService: ScreenCoverService
     lazy var libraryService = LibraryService(skillsService: skillsService)
 
@@ -44,6 +45,11 @@ class AppState: ObservableObject {
         let vaultURL = vaultManager.currentVault.map { URL(fileURLWithPath: $0.path) }
         vaultIngestService.start(vaultPath: vaultURL)
         vaultProjectService.start(vaultPath: vaultURL)
+
+        // Remote Control server: observe the launchd agent, and keep its
+        // permission mode in step with the header picker. Never starts a
+        // server that is turned off.
+        remoteControlServer.start()
 
         // Session scan at launch, which also brings the transcript search
         // index up to date off-main, so the first History search is warm.

@@ -30,6 +30,7 @@
 		46302138FE115BA1187EBD3D /* FloatingNoteWindowManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CF31D45958F7B287926676 /* FloatingNoteWindowManager.swift */; };
 		476DCA2D5B58A1E489619133 /* ScreenCoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94762C41278E36F6CF3E32C3 /* ScreenCoverView.swift */; };
 		492BC7653640FF9128AA1571 /* ClaudeProcessMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89B4EC6274B95DFA33E0C571 /* ClaudeProcessMonitor.swift */; };
+		49C5ED6B9CE798547957F5B3 /* RemoteControlServerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B94D0D82CF1A2E7920DEE61 /* RemoteControlServerService.swift */; };
 		4DEA00856BE8FFB74E36A917 /* NoteContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9236DD5E1930C1B92335C9C5 /* NoteContentView.swift */; };
 		4EEC58697576EEABDCDC19D2 /* ActiveTasks.swift in Sources */ = {isa = PBXBuildFile; fileRef = B41B2701679A6FA57B239A02 /* ActiveTasks.swift */; };
 		561F123A3DD19B92F6D0F233 /* ScreenCoverService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A1004F7D0D3C5C144210C7D /* ScreenCoverService.swift */; };
@@ -116,6 +117,7 @@
 		94F002554690052369E931AE /* NoteFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteFile.swift; sourceTree = "<group>"; };
 		99EC467878E98AC7D52F8203 /* ClaudeProcessClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeProcessClassifier.swift; sourceTree = "<group>"; };
 		9AEA2D1DA808678730DAFAB2 /* AgentModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentModels.swift; sourceTree = "<group>"; };
+		9B94D0D82CF1A2E7920DEE61 /* RemoteControlServerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteControlServerService.swift; sourceTree = "<group>"; };
 		9EDB91A617AE82542209609C /* VaultProjectTreeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultProjectTreeTests.swift; sourceTree = "<group>"; };
 		A738B4887394612E7ADED77A /* DancingText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DancingText.swift; sourceTree = "<group>"; };
 		AB272797EF5863C22BEFFDE7 /* permission-watcher.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "permission-watcher.sh"; sourceTree = "<group>"; };
@@ -165,6 +167,7 @@
 				D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */,
 				CE31FD7228157DC53CDE8B9E /* KeychainService.swift */,
 				DB043CB409497C537E66D2B6 /* LibraryService.swift */,
+				9B94D0D82CF1A2E7920DEE61 /* RemoteControlServerService.swift */,
 				4A1004F7D0D3C5C144210C7D /* ScreenCoverService.swift */,
 				59E8596B647276D0A1586779 /* SecretsVault.swift */,
 				C97BB9EE58B0DBF8AA04FDE7 /* SessionHistoryService.swift */,
@@ -503,6 +506,7 @@
 				4DEA00856BE8FFB74E36A917 /* NoteContentView.swift in Sources */,
 				2808B31571DA2A54C001878A /* NoteFile.swift in Sources */,
 				B28C401B5B93D1B0AE175BE3 /* ObsidianMarkdownView.swift in Sources */,
+				49C5ED6B9CE798547957F5B3 /* RemoteControlServerService.swift in Sources */,
 				716AF768A9028A0E83E447BD /* SSEMCPClient.swift in Sources */,
 				561F123A3DD19B92F6D0F233 /* ScreenCoverService.swift in Sources */,
 				476DCA2D5B58A1E489619133 /* ScreenCoverView.swift in Sources */,

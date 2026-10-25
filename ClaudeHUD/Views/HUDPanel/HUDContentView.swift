@@ -209,6 +209,8 @@ struct HUDContentView: View {
 
                 PermissionModeMenu()
 
+                RemoteControlMenu()
+
                 Button(action: {
                     terminalService.launchClaudeAtHome()
                 }) {
@@ -771,6 +773,16 @@ enum LaunchPermissionMode: String, CaseIterable, Identifiable {
     var cliFlag: String {
         rawValue.isEmpty ? "" : " --permission-mode \(rawValue)"
     }
+    /// The same mode as `claude remote-control` arguments, empty for
+    /// `.inherit`. The server's vocabulary differs from a session's in one
+    /// name: it calls manual mode `default` (`claude remote-control --help`).
+    var remoteControlArguments: [String] {
+        switch self {
+        case .inherit: return []
+        case .manual: return ["--permission-mode", "default"]
+        default: return ["--permission-mode", rawValue]
+        }
+    }
 }
 
 /// The `--permission-mode` fragment for the currently selected global mode.
@@ -817,6 +829,49 @@ struct PermissionModeMenu: View {
         Image(systemName: "shield.fill")
             .font(.system(size: 12 * scale, weight: .semibold))
             .foregroundColor(mode.color)
+    }
+}
+/// Header control for the persistent Remote Control server
+/// (`RemoteControlServerService`): the glyph's color carries its state
+/// (green running, orange enabled but down, gray off), the menu turns it on
+/// or off. Its permission mode follows `PermissionModeMenu`.
+struct RemoteControlMenu: View {
+    @EnvironmentObject var server: RemoteControlServerService
+    @Environment(\.fontScale) private var scale
+    var body: some View {
+        Menu {
+            Text(status)
+            Divider()
+            Toggle("Remote Control", isOn: Binding(
+                get: { server.isEnabled },
+                set: { server.setEnabled($0) }
+            ))
+            .disabled(server.isBusy)
+        } label: {
+            // Hit target only, as in PermissionModeMenu.
+            Color.clear
+                .frame(width: 16 * scale, height: 16 * scale)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .background(glyph)
+        .hudTip("Remote Control: \(status)")
+    }
+    private var status: String {
+        if server.isBusy { return "Restarting" }
+        if let pid = server.pid { return "Running as \(RemoteControlServerService.serverName) (pid \(pid))" }
+        return server.isEnabled ? "Enabled, not running" : "Off"
+    }
+    private var color: Color {
+        if server.pid != nil { return .green }
+        return server.isEnabled ? .orange : .secondary
+    }
+    private var glyph: some View {
+        Image(systemName: "dot.radiowaves.left.and.right")
+            .font(.system(size: 12 * scale, weight: .semibold))
+            .foregroundColor(color)
     }
 }
 
