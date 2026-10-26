@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import CoreServices
 import os
 
 private let logger = Logger(subsystem: "com.claudehud", category: "VaultProjectService")
@@ -42,6 +43,54 @@ final class VaultProjectService: ObservableObject {
     func start(vaultPath: URL?) {
         self.vaultPath = vaultPath
         refresh()
+        watch(vaultPath)
+    }
+
+    // MARK: - Watching the vault
+
+    /// FSEvents stream over the vault. Any write to a `Tasks.md` (a session
+    /// ticking a task, the 15-minute sync pulling another machine's edits, the
+    /// daily review) re-scans, so the Projects tab never shows an overdue task
+    /// that the vault has already closed or re-dated. Before 2026-10-26 the
+    /// list refreshed only when the tab appeared.
+    private var eventStream: FSEventStreamRef?
+
+    private func watch(_ vault: URL?) {
+        if let stream = eventStream {
+            FSEventStreamStop(stream)
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+            eventStream = nil
+        }
+        guard let vault else { return }
+        var context = FSEventStreamContext(
+            version: 0, info: Unmanaged.passUnretained(self).toOpaque(),
+            retain: nil, release: nil, copyDescription: nil)
+        let callback: FSEventStreamCallback = { _, info, _, paths, _, _ in
+            guard let info,
+                  let changed = unsafeBitCast(paths, to: NSArray.self) as? [String],
+                  changed.contains(where: VaultProjectService.isTasksFile) else { return }
+            let service = Unmanaged<VaultProjectService>.fromOpaque(info).takeUnretainedValue()
+            Task { @MainActor in service.refresh() }
+        }
+        // A one-second latency coalesces a sync's burst of writes into one
+        // scan; `refresh()`'s generation guard handles any overlap.
+        guard let stream = FSEventStreamCreate(
+            nil, callback, &context, [vault.path] as CFArray,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 1.0,
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes)
+        ) else {
+            logger.error("could not watch the vault at \(vault.path, privacy: .public)")
+            return
+        }
+        FSEventStreamSetDispatchQueue(stream, .main)
+        FSEventStreamStart(stream)
+        eventStream = stream
+    }
+
+    /// A project's `Tasks.md`, not a copy inside `.git` or `.obsidian`.
+    nonisolated static func isTasksFile(_ path: String) -> Bool {
+        path.hasSuffix("/Tasks.md") && !path.contains("/.git/") && !path.contains("/.obsidian/")
     }
 
     /// Re-scan the vault. Call from view `onAppear` or explicitly after
