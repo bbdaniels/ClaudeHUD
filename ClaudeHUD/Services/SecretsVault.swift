@@ -41,13 +41,19 @@ final class SecretsVault: @unchecked Sendable {
         lock.withLock { cached?[keyPath: keyPath] }
     }
 
-    /// Update a secret and persist to Keychain.
+    /// Update a secret and persist to Keychain. Refused while the vault is
+    /// locked: the Keychain item holds every secret in one blob, so a write
+    /// built from an empty cache would erase the others.
     func write(_ keyPath: WritableKeyPath<Secrets, String?>, _ value: String?) {
-        let snapshot: Secrets = lock.withLock {
-            var s = cached ?? Secrets()
+        let snapshot: Secrets? = lock.withLock {
+            guard var s = cached else { return nil }
             s[keyPath: keyPath] = value
             cached = s
             return s
+        }
+        guard let snapshot else {
+            logger.error("Write refused: vault is locked")
+            return
         }
         persist(snapshot)
     }
@@ -74,8 +80,16 @@ final class SecretsVault: @unchecked Sendable {
             return
         }
 
-        let loaded = await Self.loadFromKeychain()
-        lock.withLock { cached = loaded ?? Secrets() }
+        switch await Self.loadFromKeychain() {
+        case .found(let loaded):
+            lock.withLock { cached = loaded }
+        case .notFound:
+            lock.withLock { cached = Secrets() }
+        case .failed:
+            // Cancelled Touch ID, a Keychain error or an undecodable blob:
+            // stay locked so no write can replace the stored secrets.
+            logger.error("Vault stays locked: Keychain load failed")
+        }
     }
 
     // MARK: - Keychain I/O
@@ -115,8 +129,14 @@ final class SecretsVault: @unchecked Sendable {
         return true
     }
 
-    private static func loadFromKeychain() async -> Secrets? {
-        await Task.detached { () -> Secrets? in
+    private enum LoadResult {
+        case found(Secrets)
+        case notFound
+        case failed
+    }
+
+    private static func loadFromKeychain() async -> LoadResult {
+        await Task.detached { () -> LoadResult in
             let query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: SecretsVault.service,
@@ -127,13 +147,16 @@ final class SecretsVault: @unchecked Sendable {
 
             var result: AnyObject?
             let status = SecItemCopyMatching(query as CFDictionary, &result)
+            if status == errSecItemNotFound { return .notFound }
             guard status == errSecSuccess, let data = result as? Data else {
-                if status != errSecItemNotFound {
-                    NSLog("[SecretsVault] Vault load failed: \(status)")
-                }
-                return nil
+                NSLog("[SecretsVault] Vault load failed: \(status)")
+                return .failed
             }
-            return try? JSONDecoder().decode(Secrets.self, from: data)
+            guard let secrets = try? JSONDecoder().decode(Secrets.self, from: data) else {
+                NSLog("[SecretsVault] Vault blob did not decode")
+                return .failed
+            }
+            return .found(secrets)
         }.value
     }
 
