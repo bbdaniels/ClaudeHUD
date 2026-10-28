@@ -1370,7 +1370,7 @@ private struct ClaudeAICookieSection: View {
                     .foregroundColor(.red)
                 }
             } else {
-                Text("Paste your claude.ai sessionKey cookie to track your 5-hour and weekly usage:")
+                Text("Read from Arc automatically when it expires; or paste your claude.ai sessionKey cookie:")
                     .font(.custom("Fira Sans", size: 11))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

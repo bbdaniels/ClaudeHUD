@@ -5,7 +5,8 @@ private let logger = Logger(subsystem: "com.claudehud", category: "UsageService"
 
 /// Fetches claude.ai subscription usage (5-hour and weekly windows) from the
 /// same private endpoint backing https://claude.ai/settings/usage. Authenticates
-/// via the `sessionKey` cookie stored in Keychain.
+/// via the `sessionKey` cookie stored in Keychain, refreshed from Arc when it
+/// is missing or expired.
 @MainActor
 class UsageService: ObservableObject {
     @Published var usage: UsageResponse?
@@ -42,8 +43,10 @@ class UsageService: ObservableObject {
     // MARK: - Fetch
 
     func refresh() async {
-        guard let cookie = Self.loadCookie() else {
-            errorMessage = "No claude.ai cookie configured."
+        var cookie = Self.loadCookie()
+        if cookie == nil { cookie = await Self.adoptArcCookie(replacing: nil) }
+        guard var cookie else {
+            errorMessage = "No claude.ai cookie configured, and none could be read from Arc."
             hasCookie = false
             return
         }
@@ -52,34 +55,54 @@ class UsageService: ObservableObject {
         errorMessage = nil
         defer { isLoading = false }
 
-        do {
-            if orgUUID == nil {
-                orgUUID = try await Self.discoverOrgUUID(cookie: cookie)
-            }
-            guard let uuid = orgUUID else {
-                errorMessage = "Could not discover organization."
+        var triedArc = false
+        while true {
+            do {
+                try await fetchAndStore(cookie: cookie)
                 return
+            } catch let error where Self.isAuthFailure(error) {
+                // The stored cookie expired. Arc stays logged in to claude.ai,
+                // so take its current sessionKey and retry once.
+                if !triedArc, let fresh = await Self.adoptArcCookie(replacing: cookie) {
+                    triedArc = true
+                    cookie = fresh
+                    orgUUID = nil  // force re-discovery with new cookie
+                    continue
+                }
+                errorMessage = "claude.ai session expired and Arc had no newer cookie. Log in to claude.ai in Arc, or paste a cookie in the info popover."
+                logger.error("Auth failed: \(error.localizedDescription)")
+            } catch ClaudeWebError.cloudflareChallenge {
+                errorMessage = "Blocked by a claude.ai Cloudflare check. Open claude.ai in your browser, then refresh."
+                logger.error("Cloudflare challenge unresolved")
+            } catch ClaudeWebError.timeout {
+                errorMessage = "claude.ai timed out. Will retry on the next poll."
+                logger.error("Fetch timed out")
+            } catch {
+                errorMessage = "Failed: \(error.localizedDescription)"
+                logger.error("Fetch failed: \(error.localizedDescription)")
             }
-            let fetched = try await Self.fetchUsage(cookie: cookie, orgUUID: uuid)
-            usage = fetched
-            lastFetched = Date()
-            Self.saveCachedUsage(CachedUsage(usage: fetched, orgUUID: uuid, fetchedAt: Date()))
-            logger.info("Usage refreshed: 5h=\(fetched.fiveHour?.utilization ?? -1)% 7d=\(fetched.sevenDay?.utilization ?? -1)%")
-        } catch ClaudeWebError.authExpired {
-            errorMessage = "claude.ai session expired. Re-import your cookie in the info popover."
-            logger.error("Auth expired")
-        } catch ClaudeWebError.cloudflareChallenge {
-            errorMessage = "Blocked by a claude.ai Cloudflare check. Open claude.ai in your browser, then refresh."
-            logger.error("Cloudflare challenge unresolved")
-        } catch ClaudeWebError.timeout {
-            errorMessage = "claude.ai timed out. Will retry on the next poll."
-            logger.error("Fetch timed out")
-        } catch UsageError.httpError(let code) where code == 401 || code == 403 {
-            errorMessage = "claude.ai session expired. Re-import your cookie in the info popover."
-            logger.error("Auth failed (HTTP \(code))")
-        } catch {
-            errorMessage = "Failed: \(error.localizedDescription)"
-            logger.error("Fetch failed: \(error.localizedDescription)")
+            return
+        }
+    }
+
+    private func fetchAndStore(cookie: String) async throws {
+        if orgUUID == nil {
+            orgUUID = try await Self.discoverOrgUUID(cookie: cookie)
+        }
+        guard let uuid = orgUUID else { throw UsageError.noOrganization }
+        let fetched = try await Self.fetchUsage(cookie: cookie, orgUUID: uuid)
+        usage = fetched
+        lastFetched = Date()
+        Self.saveCachedUsage(CachedUsage(usage: fetched, orgUUID: uuid, fetchedAt: Date()))
+        logger.info("Usage refreshed: 5h=\(fetched.fiveHour?.utilization ?? -1)% 7d=\(fetched.sevenDay?.utilization ?? -1)%")
+    }
+
+    nonisolated private static func isAuthFailure(_ error: Error) -> Bool {
+        switch error {
+        case ClaudeWebError.authExpired: return true
+        case ClaudeWebError.httpError(let code), UsageError.httpError(let code):
+            return code == 401 || code == 403
+        default: return false
         }
     }
 
@@ -195,6 +218,61 @@ class UsageService: ObservableObject {
     static func deleteCookie() {
         SecretsVault.shared.write(\.claudeAiCookie, nil)
         logger.info("claude.ai cookie deleted from vault")
+    }
+
+    /// Save Arc's claude.ai `sessionKey` when it differs from `current`, and
+    /// return it. Nil when Arc is not reachable, has no cookie, or has the same
+    /// one. Skipped while the vault is locked, because a write then would
+    /// persist a blob holding only this cookie and drop the other secrets.
+    private static func adoptArcCookie(replacing current: String?) async -> String? {
+        guard SecretsVault.shared.isUnlocked else { return nil }
+        guard let fresh = await sessionKeyFromArc(), fresh != current else { return nil }
+        saveCookie(fresh)
+        logger.info("claude.ai cookie imported from Arc")
+        return fresh
+    }
+
+    /// Reads claude.ai's `sessionKey` from the running Arc over its DevTools
+    /// port (`Storage.getCookies` on the browser target). Arc is the browser
+    /// Ben stays logged in to claude.ai with, so its cookie is the current one.
+    nonisolated static func sessionKeyFromArc() async -> String? {
+        struct Version: Decodable { let webSocketDebuggerUrl: String }
+        struct Cookie: Decodable { let name: String; let value: String; let domain: String; let expires: Double }
+        struct Reply: Decodable {
+            struct Result: Decodable { let cookies: [Cookie] }
+            let id: Int?
+            let result: Result?
+        }
+        do {
+            // `localhost`, not 127.0.0.1: Arc binds the port to [::1] only.
+            let versionURL = URL(string: "http://localhost:9222/json/version")!
+            let (data, _) = try await URLSession.shared.data(for: URLRequest(url: versionURL, timeoutInterval: 3))
+            let version = try JSONDecoder().decode(Version.self, from: data)
+            guard let wsURL = URL(string: version.webSocketDebuggerUrl) else { return nil }
+
+            let socket = URLSession.shared.webSocketTask(with: wsURL)
+            socket.maximumMessageSize = 64 << 20  // the full cookie jar exceeds the 1 MB default
+            socket.resume()
+            defer { socket.cancel(with: .normalClosure, reason: nil) }
+            try await socket.send(.string(#"{"id":1,"method":"Storage.getCookies"}"#))
+            while true {
+                let message = try await socket.receive()
+                let body: Data
+                switch message {
+                case .string(let text): body = Data(text.utf8)
+                case .data(let raw): body = raw
+                @unknown default: continue
+                }
+                guard let reply = try? JSONDecoder().decode(Reply.self, from: body), reply.id == 1 else { continue }
+                return reply.result?.cookies
+                    .filter { $0.name == "sessionKey" && $0.domain.hasSuffix("claude.ai") }
+                    .max { $0.expires < $1.expires }?
+                    .value
+            }
+        } catch {
+            logger.info("Arc cookie read failed: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     /// Allow external UI to notify the service that cookie state changed.

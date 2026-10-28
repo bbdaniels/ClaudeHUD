@@ -72,7 +72,7 @@ struct UsageBadge: View {
 
     private var tooltipText: String {
         if !usageService.hasCookie {
-            return "Set claude.ai cookie in info popover to enable usage tracking"
+            return "Log in to claude.ai in Arc, or set the cookie in the info popover, to enable usage tracking"
         }
         guard let u = usageService.usage else { return "Fetching usage…" }
         var parts: [String] = []
@@ -130,7 +130,7 @@ struct UsagePopover: View {
                     Text("No cookie configured.")
                         .font(.custom("Fira Sans", size: 11))
                         .foregroundColor(.secondary)
-                    Text("Open the info popover (i) and paste your claude.ai sessionKey cookie to enable usage tracking.")
+                    Text("Log in to claude.ai in Arc and the HUD reads the cookie itself, or paste your claude.ai sessionKey cookie in the info popover (i).")
                         .font(.custom("Fira Sans", size: 11))
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
