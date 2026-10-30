@@ -37,6 +37,12 @@ enum ClaudeProcKind: Equatable {
     case ptyHost
     case worker
     case attachClient(String)
+    /// `claude remote-control`: the host that lets claude.ai and the phone
+    /// app reach this Mac. Run by a KeepAlive launch agent with no terminal,
+    /// so it is a service, never a session: flagging it as an orphan only got
+    /// it closed and relaunched (Ben, 2026-10-30). Its `--print` session
+    /// children sit under it and are skipped as part of it.
+    case remoteControl
     /// Any other `claude …` invocation: an interactive session in a terminal,
     /// `claude -p`, an MCP server, `claude agents`.
     case cli
@@ -56,6 +62,7 @@ enum ClaudeProcKind: Equatable {
         case "daemon": return .daemon
         case "bg-pty-host": return .ptyHost
         case "bg-spare": return .worker
+        case "remote-control": return .remoteControl
         case "attach":
             if parts.count > 2 {
                 let id = String(parts[2])

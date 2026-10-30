@@ -184,6 +184,15 @@ final class ClaudeProcessClassifierTests: XCTestCase {
         XCTAssertNil(unit(r, root: 61001))
     }
 
+    func testRemoteControlHostIsAServiceNotAnOrphan() {
+        let ps = basePS + "\n 62000     1  90000 7-00:00:00 ??       /Users/u/.local/bin/claude remote-control --name Mac --capacity 8\n 62001 62000 200000    00:19 ??       /Users/u/.local/share/claude/versions/2.1.314 --print --sdk-url https://api.anthropic.com/v1/code/sessions/x"
+        let r = classify(ps: ps)
+        XCTAssertNil(unit(r, root: 62000))
+        XCTAssertNil(unit(r, root: 62001))
+        XCTAssertEqual(r.orphans.count, 0)
+        XCTAssertEqual(ClaudeProcKind.of(command: "claude remote-control --name Mac"), .remoteControl)
+    }
+
     // MARK: - Ended jobs are never orphans
 
     func testCrashedJobWithNoWorkerIsEndedNotOrphan() {
