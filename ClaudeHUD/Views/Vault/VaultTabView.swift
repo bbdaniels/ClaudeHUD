@@ -29,6 +29,11 @@ struct VaultTabView: View {
     /// this is what re-renders the rows with warm badges instead of waiting on
     /// the next 2s roster republish.
     @State private var agentResolutionTick = 0
+    /// The day every row's due chip and age are read against. A row redraws
+    /// only when its inputs change, so the day is an input, advanced at
+    /// midnight, on a clock change and on wake (2026-11-02: a chip drawn on
+    /// Oct 31 still read "tmrw" for a Nov 1 deadline two days later).
+    @State private var today = Date()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -77,6 +82,7 @@ struct VaultTabView: View {
                                         project: node.project,
                                         isChild: false,
                                         effectiveDate: node.recency(effectiveUpdated),
+                                        today: today,
                                         liveSessions: node.liveCounts(in: live),
                                         badgeSessionsProvider: { liveSessions(forFolders: node.folderNames) },
                                         ownSessionsProvider: { liveSessions(forFolders: [node.project.name]) }
@@ -86,6 +92,7 @@ struct VaultTabView: View {
                                             project: child,
                                             isChild: true,
                                             effectiveDate: effectiveUpdated(child),
+                                            today: today,
                                             liveSessions: live[child.name] ?? LiveSessionCounts(),
                                             badgeSessionsProvider: { liveSessions(forFolders: [child.name]) },
                                             ownSessionsProvider: { liveSessions(forFolders: [child.name]) }
@@ -139,6 +146,9 @@ struct VaultTabView: View {
             await projectService.primeResolution(forCwds: cwds)
             agentResolutionTick &+= 1
         }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in today = Date() }
+        .onReceive(NotificationCenter.default.publisher(for: .NSSystemClockDidChange)) { _ in today = Date() }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in today = Date() }
         .sheet(isPresented: $showNewProject) {
             NewProjectSheet(
                 vaultPath: vaultPath,
@@ -234,7 +244,7 @@ struct VaultTabView: View {
     private func recencySections(live: [String: LiveSessionCounts])
         -> [(title: String, nodes: [ProjectTree.Node])] {
         let cal = Calendar.current
-        let startOfToday = cal.startOfDay(for: Date())
+        let startOfToday = cal.startOfDay(for: today)
         let startOfWeek = cal.date(byAdding: .day, value: -7, to: startOfToday)!
         let startOfMonth = cal.date(byAdding: .day, value: -30, to: startOfToday)!
 
@@ -418,12 +428,14 @@ private struct LiveSessionBadges: View {
 /// full date.
 private struct DueChip: View {
     let due: ActiveTasks.NextDue
+    /// Passed in, never read from the clock here: see `VaultTabView.today`.
+    let today: Date
     @Environment(\.fontScale) private var scale
 
     var body: some View {
-        let days = Self.daysFromToday(due.date)
+        let days = ActiveTasks.daysUntil(due.date, today: today)
         let tint: Color = days < 0 ? .red : days <= 2 ? .orange : .secondary
-        Text(Self.label(due.date, days: days))
+        Text(ActiveTasks.dueLabel(due.date, today: today))
             .font(.custom("Fira Code", size: 10 * scale))
             .foregroundColor(tint == .secondary ? .secondary.opacity(0.6) : tint.opacity(0.95))
             .padding(.horizontal, 4)
@@ -432,29 +444,6 @@ private struct DueChip: View {
             .help("\(due.title) — due \(Self.full.string(from: due.date))")
     }
 
-    /// Whole local-calendar days from today to `date` (negative = late).
-    private static func daysFromToday(_ date: Date) -> Int {
-        let cal = Calendar.current
-        return cal.dateComponents([.day], from: cal.startOfDay(for: Date()),
-                                  to: cal.startOfDay(for: date)).day ?? 0
-    }
-
-    private static func label(_ date: Date, days: Int) -> String {
-        switch days {
-        case ..<0: return "\(-days)d late"
-        case 0:    return "today"
-        case 1:    return "tmrw"
-        case 2...6: return weekday.string(from: date)
-        default:   return monthDay.string(from: date)
-        }
-    }
-
-    private static let weekday: DateFormatter = {
-        let f = DateFormatter(); f.dateFormat = "EEE"; return f
-    }()
-    private static let monthDay: DateFormatter = {
-        let f = DateFormatter(); f.dateFormat = "MMM d"; return f
-    }()
     private static let full: DateFormatter = {
         let f = DateFormatter(); f.dateStyle = .full; return f
     }()
@@ -470,6 +459,8 @@ private struct ProjectRowView: View {
     /// a parent it spans the children too, since that is what the row is
     /// bucketed by.
     let effectiveDate: Date
+    /// The day the chip and the age are read against (`VaultTabView.today`).
+    let today: Date
     /// Live interactive-session counts for this row: a project's own, or on a
     /// parent its own plus its children's. Passed by value (not read off
     /// `AgentsService` here) so the row does not subscribe to the 2s roster
@@ -503,7 +494,7 @@ private struct ProjectRowView: View {
                 LiveSessionBadges(counts: liveSessions, onTap: focusNextLiveSession)
             }
             if let due = project.nextDue {
-                DueChip(due: due)
+                DueChip(due: due, today: today)
             }
             Spacer()
             manuscriptorButton
@@ -597,7 +588,7 @@ private struct ProjectRowView: View {
     }
 
     private func relativeAge(_ date: Date) -> String {
-        let days = Int(Date().timeIntervalSince(date) / 86400)
+        let days = Int(today.timeIntervalSince(date) / 86400)
         if days <= 0 { return "today" }
         if days < 7 { return "\(days)d" }
         if days < 30 { return "\(days / 7)w" }

@@ -85,4 +85,17 @@ final class ActiveTasksDueDateTests: XCTestCase {
         """)
         XCTAssertEqual(p.nextDue, ActiveTasks.NextDue(date: date(2026, 10, 21), title: "Ship it"))
     }
+
+    /// The chip's label is a function of the day it is read on, never of the
+    /// day the row was first drawn (2026-11-02: a task due Nov 1, drawn on
+    /// Oct 31, still read "tmrw" two days later).
+    func testDueLabelFollowsTheDayItIsReadOn() {
+        let due = date(2026, 11, 1)
+        let evening = Calendar.current.date(byAdding: .hour, value: 22, to: date(2026, 10, 31))!
+        XCTAssertEqual(ActiveTasks.dueLabel(due, today: evening), "tmrw")
+        XCTAssertEqual(ActiveTasks.dueLabel(due, today: date(2026, 11, 1)), "today")
+        XCTAssertEqual(ActiveTasks.dueLabel(due, today: date(2026, 11, 2)), "1d late")
+        XCTAssertEqual(ActiveTasks.daysUntil(due, today: date(2026, 11, 4)), -3)
+        XCTAssertEqual(ActiveTasks.dueLabel(date(2026, 11, 20), today: date(2026, 11, 2)), "Nov 20")
+    }
 }

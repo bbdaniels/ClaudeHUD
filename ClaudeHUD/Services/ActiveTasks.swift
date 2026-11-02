@@ -121,6 +121,36 @@ enum ActiveTasks {
         due < Calendar.current.startOfDay(for: now)
     }
 
+    /// Whole local-calendar days from `today` to `due` (negative = late).
+    /// `today` is always passed in, never read from the clock here: the
+    /// Projects list redraws a row only when its inputs change, so a day
+    /// read at draw time freezes (2026-11-02: "tmrw" two days after).
+    static func daysUntil(_ due: Date, today: Date) -> Int {
+        let cal = Calendar.current
+        return cal.dateComponents([.day], from: cal.startOfDay(for: today),
+                                  to: cal.startOfDay(for: due)).day ?? 0
+    }
+
+    /// The due chip's text: "3d late", "today", "tmrw", a weekday within
+    /// the week, else "Oct 20".
+    static func dueLabel(_ due: Date, today: Date) -> String {
+        let days = daysUntil(due, today: today)
+        switch days {
+        case ..<0:  return "\(-days)d late"
+        case 0:     return "today"
+        case 1:     return "tmrw"
+        case 2...6: return weekdayFormatter.string(from: due)
+        default:    return monthDayFormatter.string(from: due)
+        }
+    }
+
+    private static let weekdayFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "EEE"; return f
+    }()
+    private static let monthDayFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "MMM d"; return f
+    }()
+
     private static let duePattern = try? NSRegularExpression(
         pattern: #"📅\s*(\d{4})-(\d{2})-(\d{2})"#)
     private static let dueTokenPattern = try? NSRegularExpression(
