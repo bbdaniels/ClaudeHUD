@@ -11,6 +11,12 @@ import CoreText
 /// a core with the panel open, because every frame went through the hosting
 /// view's layout pass.
 ///
+/// The cost lands in WindowServer, which composites every moving glyph layer
+/// on every display frame (2026-11-03: WindowServer at 60 to 75% of a core).
+/// So the wave runs only while ClaudeHUD is focused (its window is key or the
+/// app is active), and at most 30 frames a second; unfocused, the glyphs rest
+/// on the baseline and nothing is redrawn.
+///
 /// Drawn as plain `Text` under Reduce Motion and when the "dancingText"
 /// default is false.
 struct DancingText: View {
@@ -88,6 +94,8 @@ private final class GlyphDanceView: NSView {
     private var text = ""
     private var font = NSFont.systemFont(ofSize: 12)
     private var builtFor: (text: String, font: NSFont, width: CGFloat)?
+    /// The focus observers of the current window, removed when it changes.
+    private var focusObservers: [NSObjectProtocol] = []
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -97,6 +105,8 @@ private final class GlyphDanceView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    deinit { focusObservers.forEach(NotificationCenter.default.removeObserver) }
 
     func set(text: String, font: NSFont) {
         guard text != self.text || font != self.font else { return }
@@ -129,7 +139,41 @@ private final class GlyphDanceView: NSView {
     /// A layer loses its animations when its view leaves the window.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        observeFocus()
         if window != nil { rebuild() }
+    }
+
+    /// Focused: this view's window is key, or ClaudeHUD is the active app.
+    private var isFocused: Bool {
+        guard let window else { return false }
+        return window.isKeyWindow || NSApp.isActive
+    }
+
+    private func observeFocus() {
+        focusObservers.forEach(NotificationCenter.default.removeObserver)
+        focusObservers = []
+        guard let window else { return }
+        let center = NotificationCenter.default
+        let changed: (Notification) -> Void = { [weak self] _ in self?.updateDance() }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            focusObservers.append(center.addObserver(forName: name, object: window, queue: .main, using: changed))
+        }
+        for name in [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
+            focusObservers.append(center.addObserver(forName: name, object: NSApp, queue: .main, using: changed))
+        }
+    }
+
+    /// Starts or stops the wave on every glyph to match focus. The fixed
+    /// `beginTime` of `bob` means a restarted glyph rejoins the wave in step.
+    private func updateDance() {
+        let focused = isFocused
+        for (index, glyphLayer) in (layer?.sublayers ?? []).enumerated() {
+            if focused {
+                if glyphLayer.animation(forKey: "bob") == nil { glyphLayer.add(Self.bob(index: index), forKey: "bob") }
+            } else {
+                glyphLayer.removeAnimation(forKey: "bob")
+            }
+        }
     }
 
     private func rebuild() {
@@ -171,7 +215,7 @@ private final class GlyphDanceView: NSView {
                                           width: advances[i].width + 2 * Self.pad,
                                           height: bounds.height + 2 * Self.pad)
                 glyphLayer.setNeedsDisplay()
-                glyphLayer.add(Self.bob(index: index), forKey: "bob")
+                if isFocused { glyphLayer.add(Self.bob(index: index), forKey: "bob") }
                 layer.addSublayer(glyphLayer)
                 index += 1
             }
@@ -190,6 +234,8 @@ private final class GlyphDanceView: NSView {
         bob.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         bob.beginTime = 1 + Double(index) * glyphLag
         bob.isRemovedOnCompletion = false
+        // A gentle bob reads the same at 30 frames a second as at 120, at a quarter of the compositing.
+        bob.preferredFrameRateRange = CAFrameRateRange(minimum: 15, maximum: 30, preferred: 30)
         return bob
     }
 }
