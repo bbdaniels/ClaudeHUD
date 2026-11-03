@@ -352,7 +352,8 @@ struct VaultTabView: View {
 // MARK: - Live session badges
 
 /// Compact state cluster on the project row: green dot = running a turn,
-/// amber dot = waiting on you, clock = alive but idle. On a parent row the
+/// amber dot = blocked on you (a question or a permission), red clock = its
+/// turn is done and it waits for your next message. On a parent row the
 /// counts are its own plus its children's.
 ///
 /// With `onTap` supplied the whole cluster is one button that raises the
@@ -361,9 +362,10 @@ struct VaultTabView: View {
 /// display-only.
 ///
 /// Chip idiom: Fira Code 10, 4/1
-/// padding, radius-3 low-opacity fill) so a busy row still reads as calm; the
-/// idle segment stays on `.secondary` because it is informational, not a call
-/// to act. Hover only deepens the chip fill, so the resting appearance is
+/// padding, radius-3 low-opacity fill) so a busy row still reads as calm. The
+/// clock is red, not `.secondary`: a session waiting for its next message needs
+/// you (Ben, 2026-11-03: "waiting (clock) is deemphasized and should be red
+/// cause that means it needs something"). Hover only deepens the chip fill, so the resting appearance is
 /// unchanged.
 private struct LiveSessionBadges: View {
     let counts: LiveSessionCounts
@@ -395,10 +397,10 @@ private struct LiveSessionBadges: View {
                 }
             }
             if counts.idle > 0 {
-                chip(count: counts.idle, tint: .secondary, text: .secondary.opacity(0.6)) {
+                chip(count: counts.idle, tint: .red, text: .red.opacity(0.95)) {
                     Image(systemName: "clock")
                         .font(.system(size: 8 * scale))
-                        .foregroundColor(.secondary.opacity(0.6))
+                        .foregroundColor(.red)
                 }
             }
         }
@@ -422,7 +424,7 @@ private struct LiveSessionBadges: View {
         var parts: [String] = []
         if counts.working > 0 { parts.append("\(counts.working) working") }
         if counts.blocked > 0 { parts.append("\(counts.blocked) waiting on you") }
-        if counts.idle > 0 { parts.append("\(counts.idle) idle") }
+        if counts.idle > 0 { parts.append("\(counts.idle) waiting for your next message") }
         return "Open sessions — " + parts.joined(separator: " · ")
     }
 }
