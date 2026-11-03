@@ -15,7 +15,7 @@ struct GhosttyWindow: Identifiable {
 enum GhosttyWindowService {
     /// All running Ghostty processes, including helper instances spawned via `open -n`
     /// that don't always show up in `NSWorkspace.runningApplications`.
-    private static func ghosttyPIDs() -> [pid_t] {
+    static func ghosttyPIDs() -> [pid_t] {
         var pids = [pid_t](repeating: 0, count: 4096)
         let bytes = proc_listpids(
             UInt32(PROC_ALL_PIDS), 0,
@@ -125,7 +125,9 @@ enum GhosttyWindowService {
     /// owning process the window comes forward on a Space the user is not
     /// looking at and the click appears to do nothing.
     static func raise(_ window: GhosttyWindow) {
-        NSRunningApplication(processIdentifier: window.pid)?.activate()
+        let app = NSRunningApplication(processIdentifier: window.pid)
+        app?.unhide()   // `GhosttyStackManager` may have hidden it under another window
+        app?.activate()
         if let ax = window.axWindow {
             AXUIElementSetAttributeValue(ax, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
             AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
@@ -171,7 +173,9 @@ enum GhosttyWindowService {
     @discardableResult
     static func activateApp() -> Bool {
         for pid in ghosttyPIDs() {
-            if NSRunningApplication(processIdentifier: pid)?.activate() == true { return true }
+            guard let app = NSRunningApplication(processIdentifier: pid) else { continue }
+            app.unhide()
+            if app.activate() { return true }
         }
         return false
     }

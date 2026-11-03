@@ -42,7 +42,9 @@
 		60A5A6AF8A8EF5B15282BE5C /* ActiveTasks.swift in Sources */ = {isa = PBXBuildFile; fileRef = B41B2701679A6FA57B239A02 /* ActiveTasks.swift */; };
 		66BEF368C8D771EB91CCA46B /* ClaudeProcessClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99EC467878E98AC7D52F8203 /* ClaudeProcessClassifier.swift */; };
 		6A98FA14DF4172DDDAE335D4 /* VaultProjectTreeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EDB91A617AE82542209609C /* VaultProjectTreeTests.swift */; };
+		6C7BC806028E0F23736C3278 /* GhosttyStackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C61D113AA90FEF30717CAB03 /* GhosttyStackTests.swift */; };
 		6E76C3600929761BFCF83639 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E85FBA53BC2B877A3E34EF6 /* LibraryView.swift */; };
+		7011AB8022733BB88DC8A40D /* GhosttyStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F8DF109D37F16025DE5337 /* GhosttyStack.swift */; };
 		716AF768A9028A0E83E447BD /* SSEMCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B9601851634E06856B4D47D /* SSEMCPClient.swift */; };
 		749DC764D831EF175567E9FC /* VaultTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B280310DE38541F7B2CD6849 /* VaultTabView.swift */; };
 		763D915CF0FBE368DEE6A12F /* HotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */; };
@@ -55,6 +57,7 @@
 		85FAE3D9A1FB9C99E73D9A64 /* SessionHistoryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97BB9EE58B0DBF8AA04FDE7 /* SessionHistoryService.swift */; };
 		87955102C6B35861A4BF4F93 /* TranscriptHead.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD67EC652572F4A5C555BDEC /* TranscriptHead.swift */; };
 		8992F9EEB5269203DC7AFD21 /* VaultSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 644D06080D4C60BFCF2637FE /* VaultSettings.swift */; };
+		8AA2E3E7B2DC226AB468C4A9 /* GhosttyStackManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39ACFAE369472D788A304B29 /* GhosttyStackManager.swift */; };
 		8C46A3A5A8F635DA6316E52D /* HUDPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39C7242E2783A2815CB305E2 /* HUDPanelController.swift */; };
 		8FA5F9C2B51FAC76BF7CBBB7 /* hud-slack-mcp.py in Resources */ = {isa = PBXBuildFile; fileRef = 1D731581C9FAF0D35F075729 /* hud-slack-mcp.py */; };
 		9092A413B34B317EF735C5AB /* TranscriptHead.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD67EC652572F4A5C555BDEC /* TranscriptHead.swift */; };
@@ -64,6 +67,7 @@
 		A48E9985D965A3F9C26A9B03 /* ClaudeProcessClassifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05D7C162E33744B76D6CE257 /* ClaudeProcessClassifierTests.swift */; };
 		A6CE6F13DE90FD2DB48C69A2 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CFD163F5056F20A18D23477 /* AppState.swift */; };
 		A71658DD4D0B31D25606F7AB /* SessionFiling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FAE66E99EB85A66B1E4DFDD /* SessionFiling.swift */; };
+		A9C018B14809179F9123AB2F /* GhosttyStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F8DF109D37F16025DE5337 /* GhosttyStack.swift */; };
 		AA1830B8C3DD8D346BBF9895 /* KeychainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE31FD7228157DC53CDE8B9E /* KeychainService.swift */; };
 		AB1D0A0392E8C30197A7DC11 /* VaultIngestService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 207CDABC03F0B223AFE35A88 /* VaultIngestService.swift */; };
 		ABB72147FFBF17F0076E58DC /* ClaudeWebFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FE78438CDBB1B82E2CD3203 /* ClaudeWebFetcher.swift */; };
@@ -93,6 +97,7 @@
 		2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalService.swift; sourceTree = "<group>"; };
 		2EEBFE2793D1BE2364B60C89 /* ObsidianMarkdownView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianMarkdownView.swift; sourceTree = "<group>"; };
 		330288F7F0E1F56443C80A74 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
+		39ACFAE369472D788A304B29 /* GhosttyStackManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyStackManager.swift; sourceTree = "<group>"; };
 		39C7242E2783A2815CB305E2 /* HUDPanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUDPanelController.swift; sourceTree = "<group>"; };
 		3B9601851634E06856B4D47D /* SSEMCPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEMCPClient.swift; sourceTree = "<group>"; };
 		3C25C90AD7421B63879BFE80 /* MarkdownBlocks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownBlocks.swift; sourceTree = "<group>"; };
@@ -137,7 +142,9 @@
 		BD67EC652572F4A5C555BDEC /* TranscriptHead.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptHead.swift; sourceTree = "<group>"; };
 		BD87037F81301BEE1808859F /* AgentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsView.swift; sourceTree = "<group>"; };
 		C3FD414E7E6143261B99F81F /* ClaudeHUDTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeHUDTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C4F8DF109D37F16025DE5337 /* GhosttyStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyStack.swift; sourceTree = "<group>"; };
 		C53EC70F3DA9CDD0CC4EA24F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		C61D113AA90FEF30717CAB03 /* GhosttyStackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyStackTests.swift; sourceTree = "<group>"; };
 		C6D82DD1759F543B48C98E52 /* ntfy-notify.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "ntfy-notify.sh"; sourceTree = "<group>"; };
 		C97BB9EE58B0DBF8AA04FDE7 /* SessionHistoryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionHistoryService.swift; sourceTree = "<group>"; };
 		CDFA4853FA49C5845C653FC5 /* UsageBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageBadge.swift; sourceTree = "<group>"; };
@@ -173,6 +180,8 @@
 				99EC467878E98AC7D52F8203 /* ClaudeProcessClassifier.swift */,
 				89B4EC6274B95DFA33E0C571 /* ClaudeProcessMonitor.swift */,
 				4FE78438CDBB1B82E2CD3203 /* ClaudeWebFetcher.swift */,
+				C4F8DF109D37F16025DE5337 /* GhosttyStack.swift */,
+				39ACFAE369472D788A304B29 /* GhosttyStackManager.swift */,
 				48D9389B80C07D234779F5AF /* GhosttyWindowService.swift */,
 				D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */,
 				CE31FD7228157DC53CDE8B9E /* KeychainService.swift */,
@@ -362,6 +371,7 @@
 			children = (
 				50033B8E71A69F51D0C4867F /* ActiveTasksDueDateTests.swift */,
 				05D7C162E33744B76D6CE257 /* ClaudeProcessClassifierTests.swift */,
+				C61D113AA90FEF30717CAB03 /* GhosttyStackTests.swift */,
 				E196A0AEBD4F89C4DBAFB5D7 /* ProjectResolverTests.swift */,
 				A21A11D410B9F5296C55F5F7 /* SessionFilingTests.swift */,
 				29A820821CF961958265C819 /* TranscriptHeadTests.swift */,
@@ -480,6 +490,8 @@
 				7A03189EDE7B0B322909FCCC /* ActiveTasksDueDateTests.swift in Sources */,
 				5D9122BAC2CF9167B2846662 /* ClaudeProcessClassifier.swift in Sources */,
 				A48E9985D965A3F9C26A9B03 /* ClaudeProcessClassifierTests.swift in Sources */,
+				A9C018B14809179F9123AB2F /* GhosttyStack.swift in Sources */,
+				6C7BC806028E0F23736C3278 /* GhosttyStackTests.swift in Sources */,
 				CD7941AD5A6EEEDF57AED073 /* ProjectResolverTests.swift in Sources */,
 				A71658DD4D0B31D25606F7AB /* SessionFiling.swift in Sources */,
 				268809B34C1257D1DD4FBCA4 /* SessionFilingTests.swift in Sources */,
@@ -507,6 +519,8 @@
 				ABB72147FFBF17F0076E58DC /* ClaudeWebFetcher.swift in Sources */,
 				83E846E56832CF4D3C92053E /* DancingText.swift in Sources */,
 				46302138FE115BA1187EBD3D /* FloatingNoteWindowManager.swift in Sources */,
+				7011AB8022733BB88DC8A40D /* GhosttyStack.swift in Sources */,
+				8AA2E3E7B2DC226AB468C4A9 /* GhosttyStackManager.swift in Sources */,
 				09F41069A4BB4FC3ECCC9C57 /* GhosttyWindowService.swift in Sources */,
 				100D1AE5FEA20720849E25EE /* HUDContentView.swift in Sources */,
 				8C46A3A5A8F635DA6316E52D /* HUDPanelController.swift in Sources */,

@@ -36,12 +36,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let appState = AppState()
     private var panelController: HUDPanelController?
     private var statusItem: NSStatusItem?
+    private let ghosttyStack = GhosttyStackManager()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
         panelController = HUDPanelController(appState: appState)
         setupStatusItem()
+        ghosttyStack.start()
         appState.processMonitor.onUpdate = { [weak self] report in
             self?.updateOrphanBadge(report.orphans.count)
         }
