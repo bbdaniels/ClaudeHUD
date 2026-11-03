@@ -115,20 +115,9 @@ struct LibraryRow: View {
         } else {
             dir = item.path.deletingLastPathComponent().path
         }
-        let command = "claude" + permissionModeFlag() + " \"\(Self.shellQuote(prompt))\""
-        let ghostty = "/Applications/Ghostty.app"
-        let app = FileManager.default.fileExists(atPath: ghostty) ? ghostty : nil
-        let auto = terminalService.launchWithCommand(command, inDirectory: dir, usingApp: app)
+        let auto = launchClaudeSession(prompt: prompt, name: item.displayName, cwd: dir,
+                                       terminalService: terminalService)
         feedback = auto ? "Opened!" : "Cmd+V"
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
-    }
-
-    /// Escape characters with special meaning inside shell double-quotes.
-    private static func shellQuote(_ s: String) -> String {
-        s
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "$", with: "\\$")
-            .replacingOccurrences(of: "`", with: "\\`")
-            .replacingOccurrences(of: "\"", with: "\\\"")
     }
 }
