@@ -177,14 +177,16 @@ final class VaultProjectService: ObservableObject {
     /// `primeFiling`; read through `folder(forSession:cwd:)`.
     private var sessionFolderCache: [String: String?] = [:]
 
-    /// Resolve the filing of each `(sessionId, cwd)` by the one rule in
-    /// `SessionFiling`: the claim record, else the project most of its
-    /// transcript's records ran in (`cwdCounts`, from the transcript index),
-    /// else its start directory. The claim files and every directory
-    /// resolution are read off the main actor. Re-run whenever the sessions,
-    /// the index's tallies or the claims directory change; each call
-    /// re-reads the claims, so the latest write wins.
-    func primeFiling(sessions: [(sessionId: String, cwd: String)],
+    /// Resolve the filing of each `(sessionId, cwd, host)` by the one rule in
+    /// `SessionFiling`: the claim record (from the claims of the host the
+    /// session ran on), else the project most of its transcript's records
+    /// ran in (`cwdCounts`, from the transcript index), else its start
+    /// directory; an iMac session's directories are mapped onto this Mac
+    /// first. The claim files and every directory resolution are read off
+    /// the main actor. Re-run whenever the sessions, the index's tallies or
+    /// either claims directory change; each call re-reads the claims, so the
+    /// latest write wins.
+    func primeFiling(sessions: [(sessionId: String, cwd: String, host: SessionHost)],
                      cwdCounts: [String: [String: Int]]) async {
         guard let vaultRoot = vaultPath?.path, !sessions.isEmpty else { return }
         let known = cwdFolderCache
@@ -201,9 +203,9 @@ final class VaultProjectService: ObservableObject {
                 var filed: [String: String?] = [:]
                 for s in sessions where !s.sessionId.isEmpty {
                     filed[s.sessionId] = SessionFiling.resolveFolder(
-                        claim: SessionFiling.readClaim(sessionId: s.sessionId),
+                        claim: SessionFiling.readClaim(sessionId: s.sessionId, in: s.host.claimsDir()),
                         cwdCounts: cwdCounts[s.sessionId] ?? [:],
-                        fallbackCwd: s.cwd, resolve: resolve)
+                        fallbackCwd: s.cwd, host: s.host, resolve: resolve)
                 }
                 return (filed, resolved)
             }.value

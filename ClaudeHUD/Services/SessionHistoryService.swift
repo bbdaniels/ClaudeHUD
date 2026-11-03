@@ -5,26 +5,6 @@ import SQLite3
 
 private let logger = Logger(subsystem: "com.claudehud", category: "SessionHistory")
 
-// MARK: - Session Info Model
-
-struct SessionInfo: Identifiable {
-    let id: String           // session UUID (filename without .jsonl)
-    let projectPath: String  // decoded absolute path
-    let projectName: String  // last component (e.g. "ClaudeHUD")
-    let preview: String      // first user message preview
-    let timestamp: Date      // file modification time
-    let filePath: String     // full path to .jsonl file (for on-demand search)
-
-    /// Worktree subdirectory name when this session lives under
-    /// `<project>/.claude/worktrees/<name>/...`, otherwise nil.
-    var worktreeName: String? {
-        guard let range = projectPath.range(of: "/.claude/worktrees/") else { return nil }
-        let after = projectPath[range.upperBound...]
-        let name = after.split(separator: "/").first.map(String.init) ?? ""
-        return name.isEmpty ? nil : name
-    }
-}
-
 // MARK: - Search Result
 
 struct SessionSearchResult: Identifiable {
@@ -34,6 +14,10 @@ struct SessionSearchResult: Identifiable {
 
 // MARK: - Session History Service
 
+/// The History list: the Mac's sessions and the iMac's, from one scan
+/// (`SessionScan`) over `~/.claude/projects` and the iMac's mirror, which
+/// each refresh brings up to date in the background (`IMacMirror`). The
+/// titles, the full-text index and the filing tallies cover both hosts.
 @MainActor
 class SessionHistoryService: ObservableObject {
     @Published var sessions: [SessionInfo] = []
@@ -48,7 +32,6 @@ class SessionHistoryService: ObservableObject {
     /// re-prime on it without hashing the whole table.
     @Published private(set) var transcriptCwdGeneration = 0
 
-    private let claudeProjectsDir = "\(NSHomeDirectory())/.claude/projects"
     private var searchTask: Task<Void, Never>?
 
     /// Persistent full-text index over listed transcripts (user + assistant
@@ -60,13 +43,52 @@ class SessionHistoryService: ObservableObject {
     /// Coalesces overlapping refreshes (launch, History appear, Projects
     /// appear) into one scan.
     private var refreshTask: Task<Void, Never>?
+    /// The iMac mirror's rsync run, if one is in progress. Never two at once.
+    private var mirrorTask: Task<Void, Never>?
 
+    /// Scan both hosts now, from the iMac's mirror as it stands, then bring
+    /// the mirror up to date in the background and scan again if it changed.
+    /// The listing never waits for the iMac.
     func refresh() async {
+        await rescan()
+        startMirror()
+    }
+
+    private func rescan() async {
         if let inFlight = refreshTask { return await inFlight.value }
         let task = Task { await performRefresh() }
         refreshTask = task
         await task.value
         refreshTask = nil
+    }
+
+    /// One rsync of the iMac's transcripts and claims into the mirror
+    /// (`IMacMirror`), off the main actor. A failure (the iMac asleep or
+    /// unreachable, or the time limit) is logged and the mirror keeps its
+    /// last copy; a run that changed the mirror, even one stopped at the
+    /// limit with some files done, is followed by a rescan.
+    private func startMirror() {
+        guard mirrorTask == nil else { return }
+        mirrorTask = Task { [weak self] in
+            let started = Date()
+            let (outcome, changed): (IMacMirror.Outcome, Bool) = await Task.detached(priority: .utility) {
+                let before = IMacMirror.signature()
+                let outcome = IMacMirror.run()
+                return (outcome, IMacMirror.signature() != before)
+            }.value
+            let ms = Int(Date().timeIntervalSince(started) * 1000)
+            switch outcome {
+            case .synced:
+                logger.info("iMac mirror: synced in \(ms, privacy: .public) ms, changed: \(changed, privacy: .public)")
+            case .busy:
+                break
+            case .failed(let reason):
+                logger.error("iMac mirror: \(reason, privacy: .public) (after \(ms, privacy: .public) ms, changed: \(changed, privacy: .public))")
+            }
+            guard let self else { return }
+            self.mirrorTask = nil
+            if changed { await self.rescan() }
+        }
     }
 
     private func performRefresh() async {
@@ -76,11 +98,13 @@ class SessionHistoryService: ObservableObject {
         let started = Date()
         let index = transcriptIndex
         let headCache = await index.loadHeads()
-        let scan = await Task.detached(priority: .userInitiated) { [claudeProjectsDir] in
-            Self.scanSessions(in: claudeProjectsDir, headCache: headCache)
+        let scan = await Task.detached(priority: .userInitiated) {
+            SessionScan.scan(roots: SessionHost.allCases.map { (host: $0, dir: $0.projectsDir()) },
+                             headCache: headCache, sidecarTitles: SessionScan.loadSidecarTitles())
         }.value
         let ms = Int(Date().timeIntervalSince(started) * 1000)
-        logger.info("session scan: \(scan.sessions.count, privacy: .public) sessions, \(scan.changedHeads.count, privacy: .public) heads classified, in \(ms, privacy: .public) ms")
+        let iMacCount = scan.sessions.filter { $0.host == .iMac }.count
+        logger.info("session scan: \(scan.sessions.count, privacy: .public) sessions (\(iMacCount, privacy: .public) from the iMac), \(scan.changedHeads.count, privacy: .public) heads classified, in \(ms, privacy: .public) ms")
 
         sessions = scan.sessions
         await index.saveHeads(changed: scan.changedHeads, removed: scan.removedPaths)
@@ -110,9 +134,7 @@ class SessionHistoryService: ObservableObject {
 
     private func relabel(id: String, title: String) {
         guard let i = sessions.firstIndex(where: { $0.id == id }) else { return }
-        let s = sessions[i]
-        sessions[i] = SessionInfo(id: s.id, projectPath: s.projectPath, projectName: s.projectName,
-                                  preview: title, timestamp: s.timestamp, filePath: s.filePath)
+        sessions[i] = sessions[i].relabeled(title)
     }
 
     /// Bring the index up to date with the listed sessions, off the main
@@ -160,340 +182,19 @@ class SessionHistoryService: ObservableObject {
         }
     }
 
-    /// Delete a session's JSONL file and remove it from the list.
+    /// Delete a session's JSONL file and remove it from the list. The Mac's
+    /// own sessions only: an iMac session's file is the mirror's copy, which
+    /// the next mirror run would restore, and the iMac's transcript is never
+    /// touched from here.
     func deleteSession(id: String) {
-        guard sessions.contains(where: { $0.id == id }) else { return }
-
-        // Find and delete the JSONL file
-        let fm = FileManager.default
-        let projectDirs = (try? fm.contentsOfDirectory(atPath: claudeProjectsDir)) ?? []
-        for dir in projectDirs {
-            let filePath = "\(claudeProjectsDir)/\(dir)/\(id).jsonl"
-            if fm.fileExists(atPath: filePath) {
-                try? fm.removeItem(atPath: filePath)
-                break
-            }
-        }
+        guard let session = sessions.first(where: { $0.id == id }), session.host == .mac else { return }
+        try? FileManager.default.removeItem(atPath: session.filePath)
 
         sessions.removeAll { $0.id == id }
         let index = transcriptIndex
         Task { await index.remove(sessionID: id) }
     }
 
-    // MARK: - Scanning (off main thread)
-
-    /// List real sessions. ~/.claude/projects holds ~10,000 transcripts (almost
-    /// all machine one-shots, each in its own project dir), so re-reading every
-    /// 64 KB head and decoding every dir name on each scan cost ~12 s. Head
-    /// verdicts are cached by path + mtime + size (a transcript that has not
-    /// changed cannot change verdict), and a dir name is decoded only when it
-    /// holds a listed session.
-    nonisolated private static func scanSessions(
-        in baseDir: String, headCache: [String: CachedHead]
-    ) -> (sessions: [SessionInfo], changedHeads: [String: CachedHead], removedPaths: [String]) {
-        let fm = FileManager.default
-        guard let projectDirs = try? fm.contentsOfDirectory(atPath: baseDir) else { return ([], [:], []) }
-
-        // Title sidecars (see loadSidecarTitles). When present they ARE the
-        // label, which Claude Code's ai-title never gets right for
-        // magic-launched sessions.
-        let sidecarTitles = loadSidecarTitles()
-
-        var found: [SessionInfo] = []
-        var changedHeads: [String: CachedHead] = [:]
-        var seenPaths = Set<String>()
-
-        // mtime + size come back with the listing itself (bulk attribute
-        // fetch), not one stat per transcript.
-        let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
-        for dir in projectDirs {
-            let dirPath = "\(baseDir)/\(dir)"
-            // Fails for non-directories, so no separate isDirectory stat.
-            guard let urls = try? fm.contentsOfDirectory(
-                at: URL(fileURLWithPath: dirPath, isDirectory: true),
-                includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) else { continue }
-            var decodedDir: (path: String, name: String)?
-
-            for url in urls where url.pathExtension == "jsonl" {
-                let file = url.lastPathComponent
-                let filePath = "\(dirPath)/\(file)"
-                let sessionId = String(file.dropLast(6)) // remove .jsonl
-
-                guard let values = try? url.resourceValues(forKeys: Set(keys)),
-                      let modDate = values.contentModificationDate,
-                      let fileSize = values.fileSize else { continue }
-                let size = Int64(fileSize)
-                seenPaths.insert(filePath)
-                let mtime = modDate.timeIntervalSince1970
-
-                // Classify every session from its transcript head FIRST — even
-                // when a title sidecar exists. Sidecars used to win outright,
-                // which let a machine one-shot that had been given a title
-                // surface in history under a plausible one ("Skill-selection
-                // query re: patient risk scoring"). The head read is off the
-                // main thread and cached per file version.
-                let verdict: CachedHead
-                if let cached = headCache[filePath], cached.mtime == mtime, cached.size == size {
-                    verdict = cached
-                } else {
-                    verdict = headVerdict(for: filePath, mtime: mtime, size: size)
-                    changedHeads[filePath] = verdict
-                }
-                if verdict.kind == .machine { continue }
-
-                if decodedDir == nil { decodedDir = decodeProjectDir(dir) }
-                let (projectPath, projectName) = decodedDir!
-
-                let preview: String
-                if let title = sidecarTitles[sessionId] {
-                    // A titled session: the sidecar title wins. Strip a
-                    // leading "<project>: ", since every row already carries a
-                    // project tag and old sidecars carry the prefix forever
-                    // otherwise. A sidecar also rescues .unknown heads (e.g. a
-                    // giant first record that overflows the head window): a
-                    // title was only ever written for a session with substance.
-                    preview = stripProjectPrefix(title, projectName: projectName)
-                } else if let label = verdict.label {
-                    preview = label
-                } else {
-                    // No real user turn found in the head and no title sidecar:
-                    // abandoned shells and unparseable heads.
-                    continue
-                }
-
-                found.append(SessionInfo(
-                    id: sessionId,
-                    projectPath: projectPath,
-                    projectName: projectName,
-                    preview: preview,
-                    timestamp: modDate,
-                    filePath: filePath
-                ))
-            }
-        }
-
-        let removed = headCache.keys.filter { !seenPaths.contains($0) }
-        return (found.sorted { $0.timestamp > $1.timestamp }, changedHeads, removed)
-    }
-
-    /// Session titles, keyed by session id under
-    /// ~/.claude/hud/session-titles/<id>.txt. `SessionTitler` is the only
-    /// writer. The retired per-session vault digest also wrote sidecars here;
-    /// those files still display, and nothing but `SessionTitler` writes new
-    /// ones (the daily review that replaced the digest writes none). Loaded
-    /// once per scan; an untitled session falls
-    /// back to its first real prompt. A sidecar is a LABEL, not a listing
-    /// decision: machine one-shots are dropped by TranscriptHead.classify even when a
-    /// stray sidecar exists.
-    nonisolated private static func loadSidecarTitles() -> [String: String] {
-        let dir = "\(NSHomeDirectory())/.claude/hud/session-titles"
-        let fm = FileManager.default
-        guard let files = try? fm.contentsOfDirectory(atPath: dir) else { return [:] }
-        var map: [String: String] = [:]
-        map.reserveCapacity(files.count)
-        for f in files where f.hasSuffix(".txt") {
-            let sid = String(f.dropLast(4))
-            guard let raw = try? String(contentsOfFile: "\(dir)/\(f)", encoding: .utf8) else { continue }
-            let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !t.isEmpty { map[sid] = String(t.prefix(100)) }
-        }
-        return map
-    }
-
-    /// Strip a leading "<project>: " / "<project> — " from a sidecar title.
-    /// The history row already carries a project tag, but sidecars left by
-    /// the retired per-session vault digest, and the occasional model slip
-    /// since, still carry the name. A display-level strip fixes the whole
-    /// backlog without rewriting any file.
-    nonisolated private static func stripProjectPrefix(_ title: String, projectName: String) -> String {
-        guard !projectName.isEmpty, title.count > projectName.count,
-              title.lowercased().hasPrefix(projectName.lowercased()) else { return title }
-        let rest = title.dropFirst(projectName.count)
-        guard let sep = rest.first, ":—–- ".contains(sep) else { return title }
-        let stripped = rest.drop { ":—–- ".contains($0) }
-        guard stripped.count >= 8 else { return title }  // never strip to a stub
-        return stripped.prefix(1).uppercased() + String(stripped.dropFirst())
-    }
-
-    // MARK: - Project Path Decoding
-
-    /// Decode a directory name like `-Users-bbdaniels-GitHub-ClaudeHUD` back to `/Users/bbdaniels/GitHub/ClaudeHUD`.
-    ///
-    /// Claude Code encodes project paths by replacing `/`, `_`, and `.` with `-`.
-    /// Decoding is ambiguous, so we probe the filesystem greedily: at each `-`,
-    /// try treating it as a path separator (checking dash, underscore, and dot
-    /// variants of the accumulated component). If no directory matches, keep the
-    /// dash as a literal character in the current component.
-    nonisolated private static func decodeProjectDir(_ dirName: String) -> (path: String, name: String) {
-        let fm = FileManager.default
-        let home = NSHomeDirectory()
-        // "/Users/bbdaniels" → "-Users-bbdaniels"
-        let homeEncoded = home.replacingOccurrences(of: "/", with: "-")
-
-        let basePath: String
-        let remainder: String
-
-        if dirName.hasPrefix(homeEncoded + "-") {
-            basePath = home
-            remainder = String(dirName.dropFirst(homeEncoded.count + 1))
-        } else {
-            basePath = ""
-            remainder = String(dirName.dropFirst(1))
-        }
-
-        var resolved = basePath
-        var component = ""
-
-        for c in remainder {
-            if c == "-" {
-                if !component.isEmpty {
-                    // Try treating this dash as a path separator
-                    for variant in componentVariants(component) {
-                        let candidate = resolved + "/" + variant
-                        var isDir: ObjCBool = false
-                        if fm.fileExists(atPath: candidate, isDirectory: &isDir), isDir.boolValue {
-                            resolved = candidate
-                            component = ""
-                            break
-                        }
-                    }
-                    if component.isEmpty { continue }
-                }
-                // Not a separator — keep as literal dash (may represent '-', '_', or '.')
-                component.append("-")
-            } else {
-                component.append(c)
-            }
-        }
-
-        // Resolve the final component (file or directory)
-        if !component.isEmpty {
-            for variant in componentVariants(component) {
-                let candidate = resolved + "/" + variant
-                if fm.fileExists(atPath: candidate) {
-                    return (candidate, variant)
-                }
-            }
-        }
-
-        let fallbackPath = component.isEmpty ? resolved : resolved + "/" + component
-        return (fallbackPath, URL(fileURLWithPath: fallbackPath).lastPathComponent)
-    }
-
-    /// Returns variants of a path component, trying all combinations of dash/space/underscore/dot
-    /// at each dash position.  Handles names like "26-1 Spring" where some dashes are literal and
-    /// others represent spaces.  Falls back to uniform replacement when there are too many dashes.
-    nonisolated private static func componentVariants(_ component: String) -> [String] {
-        guard component.contains("-") else { return [component] }
-
-        let parts = component.split(separator: "-", omittingEmptySubsequences: false).map(String.init)
-        let dashCount = parts.count - 1
-
-        // Too many dashes for combinatorial search → uniform replacement only
-        guard dashCount <= 4 else {
-            return [
-                component,
-                component.replacingOccurrences(of: "-", with: " "),
-                component.replacingOccurrences(of: "-", with: "_"),
-                component.replacingOccurrences(of: "-", with: "."),
-            ]
-        }
-
-        let separators = ["-", " ", "_", "."]
-        let total = Int(pow(4.0, Double(dashCount)))
-        var results: [String] = []
-        results.reserveCapacity(total)
-
-        for i in 0..<total {
-            var result = parts[0]
-            var combo = i
-            for j in 1..<parts.count {
-                result += separators[combo % 4] + parts[j]
-                combo /= 4
-            }
-            results.append(result)
-        }
-
-        return results
-    }
-
-    /// A transcript's listing verdict: its head class resolved to a label.
-    /// Expensive (a 64 KB head read, plus up to 1 MB for a magic launch), so
-    /// the scan caches it per file version.
-    nonisolated private static func headVerdict(for path: String, mtime: Double, size: Int64) -> CachedHead {
-        switch TranscriptHead.classify(path: path) {
-        case .machine:
-            return CachedHead(mtime: mtime, size: size, kind: .machine, label: nil)
-        case .unknown:
-            return CachedHead(mtime: mtime, size: size, kind: .listed, label: nil)
-        case .normal(let firstPrompt):
-            return CachedHead(mtime: mtime, size: size, kind: .listed, label: firstPrompt)
-        case .magicLaunch:
-            // Claude Code's ai-title is generated from the opening turn and
-            // FROZEN, and every magic-launched session opens with the same
-            // bootstrap boilerplate, so its ai-title is always junk ("context
-            // load", "obsidian estonia-ecm project") no matter the work that
-            // followed. Label with the user's first real prompt instead. A
-            // bootstrap the person never typed into is an abandoned shell,
-            // listed only if a title sidecar exists for it (like .unknown).
-            return CachedHead(mtime: mtime, size: size, kind: .listed, label: conversationOpening(in: path, promptLimit: 1, wantReply: false).prompts.first.map { String($0.prefix(100)) })
-        }
-    }
-
-    /// The opening of the conversation as the person had it: their first
-    /// `promptLimit` genuine prompts (after any magic-launch bootstrap) and
-    /// the first assistant text that followed the first one. Bootstrap
-    /// context loading can run past a megabyte, so the file is streamed in
-    /// chunks until enough is found. Only records the person sent count
-    /// (`TranscriptRecord.humanTurnMarkers`: a terminal's typed, queued or
-    /// accepted-suggestion turns, and any surface's `turnOrigin: "human"`,
-    /// which is how the phone's and the desktop app's turns read);
-    /// system-injected records (task notifications) and meta/skill
-    /// expansions carry neither. Read-only.
-    nonisolated static func conversationOpening(in path: String, promptLimit: Int, wantReply: Bool)
-        -> (prompts: [String], reply: String?) {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return ([], nil) }
-        defer { handle.closeFile() }
-
-        let sources = TranscriptRecord.humanTurnMarkers
-        let assistantMarker = Data("\"type\":\"assistant\"".utf8)
-        var prompts: [String] = []
-        var reply: String?
-        func done() -> Bool { prompts.count >= promptLimit && (!wantReply || reply != nil) }
-
-        var pending = Data()
-        while true {
-            let chunk = handle.readData(ofLength: 1_048_576)
-            let atEOF = chunk.isEmpty
-            pending.append(chunk)
-            // Complete lines only; keep a trailing partial line for the next chunk.
-            let end = atEOF ? pending.endIndex : (pending.lastIndex(of: 0x0A).map { pending.index(after: $0) } ?? pending.startIndex)
-            let complete = pending[pending.startIndex..<end]
-            for line in complete.split(separator: 0x0A, omittingEmptySubsequences: true) {
-                let isPrompt = prompts.count < promptLimit && sources.contains(where: { line.range(of: $0) != nil })
-                let isReply = wantReply && reply == nil && !prompts.isEmpty && line.range(of: assistantMarker) != nil
-                guard isPrompt || isReply,
-                      let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-                      let role = TranscriptRecord.role(from: json),
-                      let content = TranscriptRecord.messageContent(from: json)
-                else { continue }
-                let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                if trimmed.isEmpty { continue }
-
-                if isReply, role == "assistant" {
-                    reply = String(trimmed.prefix(400))
-                } else if isPrompt, role == "user" {
-                    if TranscriptHead.magicLaunchProject(trimmed) != nil || TranscriptHead.isPassThroughPrompt(trimmed) { continue }
-                    if trimmed.hasPrefix("Caveat: The messages below") { continue }  // local-command caveat
-                    if trimmed.hasPrefix("[Request interrupted") { continue }        // interrupt sentinel
-                    prompts.append(String(trimmed.prefix(300)))
-                }
-                if done() { return (prompts, reply) }
-            }
-            if atEOF { return (prompts, reply) }
-            pending = Data(pending[end...])
-        }
-    }
 }
 
 // MARK: - Transcript Text
@@ -554,7 +255,7 @@ actor SessionTitler {
             let sidecar = "\(Self.titlesDir)/\(c.id).txt"
             if FileManager.default.fileExists(atPath: sidecar) { continue }
 
-            let opening = SessionHistoryService.conversationOpening(in: c.path, promptLimit: 5, wantReply: true)
+            let opening = SessionScan.conversationOpening(in: c.path, promptLimit: 5, wantReply: true)
             guard !opening.prompts.isEmpty else { continue }
             let settled = Date().timeIntervalSince(c.modified) > Self.settleAge
             guard settled || opening.prompts.count >= 3 else { continue }
@@ -630,19 +331,6 @@ actor SessionTitler {
     }
 }
 
-// MARK: - Transcript Index
-
-/// A transcript's cached listing verdict, valid while the file's mtime and
-/// size are unchanged. A machine one-shot is never listed; a listed session
-/// with no `label` (no real user turn in its head) shows only when a title
-/// sidecar exists for it.
-struct CachedHead {
-    enum Kind: String { case machine, listed }
-    let mtime: Double
-    let size: Int64
-    let kind: Kind
-    let label: String?
-}
 
 /// Persistent session store in Application Support: the cached head verdicts
 /// that make the session scan cheap, and an incremental full-text index of

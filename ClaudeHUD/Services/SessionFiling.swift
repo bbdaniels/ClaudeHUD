@@ -23,13 +23,21 @@ import Darwin
 /// outside the start directory in 8, all scratchpads that resolve to no
 /// project, so step 2 leaves the filing of terminal sessions unchanged.
 ///
+/// The rule is the same for both hosts (`SessionHost`); only its inputs
+/// differ. A session that ran on the iMac reads its claim from the iMac's
+/// claims mirrored to this Mac (`SessionHost.claimsDir`, which `IMacMirror`
+/// copies from the iMac's `~/.claude/session-projects`), and every directory
+/// it names, in its records and as its start directory, is first mapped onto
+/// this Mac (`SessionHost.macPath`: `/home/bbdaniels/Projects/<rest>` is
+/// `~/Projects/<rest>` here), so an iMac session files under the same vault
+/// project as a Mac session in the same checkout.
+///
 /// Filing is attribution only. A session resumes from its transcript's own
 /// directory (`SessionInfo.projectPath`), never from the claimed project.
 enum SessionFiling {
 
-    static var claimsDir: URL {
-        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude/session-projects", isDirectory: true)
-    }
+    /// The Mac's own claims directory.
+    static var claimsDir: URL { SessionHost.mac.claimsDir() }
 
     /// One claim record. Only `folder` is required; it matches `Project.name`.
     struct Claim: Equatable {
@@ -58,11 +66,17 @@ enum SessionFiling {
         return claim
     }
 
-    /// The claims directory's modification time: it changes when a claim is
-    /// created or atomically replaced, so a view can key a re-prime on it.
-    static func claimsSignature(in dir: URL = claimsDir) -> Double {
+    /// A claims directory's modification time: it changes when a claim is
+    /// created or atomically replaced (the mirror's rsync also replaces by
+    /// rename), so a view can key a re-prime on it.
+    static func claimsSignature(in dir: URL) -> Double {
         ((try? FileManager.default.attributesOfItem(atPath: dir.path))?[.modificationDate] as? Date)?
             .timeIntervalSince1970 ?? 0
+    }
+
+    /// Every host's claims directory, combined: changes when either does.
+    static func claimsSignature() -> Double {
+        SessionHost.allCases.reduce(0) { $0 + claimsSignature(in: $1.claimsDir()) }
     }
 
     /// Collapse a worktree path back to its parent repo cwd.
@@ -87,13 +101,19 @@ enum SessionFiling {
         return winners.count == 1 ? winners.first!.key : nil
     }
 
-    /// The whole rule. `resolve` maps a directory to a project folder name
-    /// (`ProjectResolver.resolveFolder`, or a cache of it).
+    /// The whole rule. `resolve` maps a directory on this Mac to a project
+    /// folder name (`ProjectResolver.resolveFolder`, or a cache of it); the
+    /// directories of a session that ran on `host` are mapped onto this Mac
+    /// before it sees them (`SessionHost.macPath`, the identity for the Mac).
+    /// The claim is read by the caller, from `host.claimsDir()`.
     static func resolveFolder(claim: Claim?, cwdCounts: [String: Int], fallbackCwd: String,
+                              host: SessionHost = .mac, home: String = NSHomeDirectory(),
                               resolve: (String) -> String?) -> String? {
         if let claim { return claim.folder }
-        if let folder = dominantFolder(cwdCounts: cwdCounts, resolve: resolve) { return folder }
-        let cwd = repoCwd(fallbackCwd)
+        var counts: [String: Int] = [:]
+        for (cwd, n) in cwdCounts { counts[host.macPath(cwd, home: home), default: 0] += n }
+        if let folder = dominantFolder(cwdCounts: counts, resolve: resolve) { return folder }
+        let cwd = repoCwd(host.macPath(fallbackCwd, home: home))
         return cwd.isEmpty ? nil : resolve(cwd)
     }
 }

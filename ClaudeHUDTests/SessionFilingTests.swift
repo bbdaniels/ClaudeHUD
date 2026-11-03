@@ -79,6 +79,40 @@ final class SessionFilingTests: XCTestCase {
         XCTAssertNil(SessionFiling.readClaim(sessionId: "../s1", in: dir))
     }
 
+    // MARK: Sessions that ran on the iMac
+
+    func testAnIMacSessionReadsItsClaimFromTheMirroredClaims() throws {
+        let home = try tempDir().path
+        let claims = SessionHost.iMac.claimsDir(home: home)
+        try FileManager.default.createDirectory(at: claims, withIntermediateDirectories: true)
+        try Data(#"{"sessionId":"i1","folder":"Heat TV"}"#.utf8).write(to: claims.appendingPathComponent("i1.json"))
+        let claim = SessionFiling.readClaim(sessionId: "i1", in: SessionHost.iMac.claimsDir(home: home))
+        XCTAssertEqual(claim?.folder, "Heat TV")
+        XCTAssertNil(SessionFiling.readClaim(sessionId: "i1", in: SessionHost.mac.claimsDir(home: home)),
+                     "the Mac's claims never answer for an iMac session")
+        XCTAssertEqual(SessionFiling.resolveFolder(claim: claim, cwdCounts: ["/home/bbdaniels/Projects/x": 9],
+                                                   fallbackCwd: "/home/bbdaniels/Projects/x", host: .iMac, home: "/p",
+                                                   resolve: resolve), "Heat TV")
+    }
+
+    func testAnIMacSessionFilesByItsRecordDirectoriesMappedOntoTheMac() {
+        // A resolver that knows only this Mac's checkouts (/Users/x/Projects/<name>):
+        // an iMac directory files only once it is mapped onto this Mac.
+        let mapped: (String) -> String? = { cwd in
+            cwd.hasPrefix("/Users/x/Projects/") ? String(cwd.dropFirst("/Users/x/Projects/".count).split(separator: "/")[0]) : nil
+        }
+        XCTAssertEqual(SessionFiling.resolveFolder(
+            claim: nil,
+            cwdCounts: ["/home/bbdaniels/Projects/A": 3, "/home/bbdaniels/Projects/B": 5, "/home/bbdaniels/Projects/B/src": 1],
+            fallbackCwd: "/home/bbdaniels/Projects/A", host: .iMac, home: "/Users/x", resolve: mapped), "B")
+        XCTAssertEqual(SessionFiling.resolveFolder(
+            claim: nil, cwdCounts: [:], fallbackCwd: "/home/bbdaniels/Projects/A/.claude/worktrees/w",
+            host: .iMac, home: "/Users/x", resolve: mapped), "A", "the start directory is mapped too")
+        XCTAssertNil(SessionFiling.resolveFolder(
+            claim: nil, cwdCounts: ["/home/bbdaniels/Projects/A": 3], fallbackCwd: "/home/bbdaniels/Projects/A",
+            host: .mac, home: "/Users/x", resolve: mapped), "the Mac's own paths are not mapped")
+    }
+
     // MARK: Live session records
 
     let phone = #"{"pid":4242,"sessionId":"eb01fb79-0000","cwd":"/Users/x/Projects","startedAt":1762146528000,"procStart":"Tue Nov  3 00:08:48 2026","kind":"interactive","entrypoint":"sdk-cli","name":"Badge fix","nameSource":"ai","bridgeSessionId":"session_01ABC","status":"waiting","waitingFor":"permission prompt","updatedAt":1762146600000}"#

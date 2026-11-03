@@ -45,6 +45,8 @@ targets:
       - path: ClaudeHUD/Services/VaultAccess.swift
       - path: ClaudeHUD/Services/TranscriptHead.swift
       - path: ClaudeHUD/Services/SessionFiling.swift
+      - path: ClaudeHUD/Services/SessionHost.swift
+      - path: ClaudeHUD/Services/SessionScan.swift
       - path: ClaudeHUD/Services/GhosttyStack.swift
       - path: ClaudeHUD/Services/IMacLauncher.swift
     settings:

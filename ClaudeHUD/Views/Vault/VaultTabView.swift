@@ -132,9 +132,9 @@ struct VaultTabView: View {
         // and the claims directory.
         .task(id: filingSignature) {
             let sessions = sessionHistory.sessions
-            let history = sessions.map { (sessionId: $0.id, cwd: $0.projectPath) }
+            let history = sessions.map { (sessionId: $0.id, cwd: $0.projectPath, host: $0.host) }
             let live = agentsService.agents.compactMap { a in
-                a.sessionId.map { (sessionId: $0, cwd: a.cwd) }
+                a.sessionId.map { (sessionId: $0, cwd: a.cwd, host: SessionHost.mac) }
             }
             await projectService.primeResolution(
                 forCwds: Set(agentsService.agents.map { SessionFiling.repoCwd($0.cwd) }).filter { !$0.isEmpty })

@@ -142,6 +142,9 @@ struct AgentsView: View {
             var dir = s.projectPath
             if let r = dir.range(of: "/.claude/worktrees/") { dir = String(dir[..<r.lowerBound]) }
             guard !dir.isEmpty, !seen.contains(dir) else { continue }
+            // An iMac session's directory is a dispatch target only where
+            // this Mac has the same checkout.
+            if s.host == .iMac && !FileManager.default.fileExists(atPath: dir) { continue }
             seen.insert(dir)
             out.append((URL(fileURLWithPath: dir).lastPathComponent, dir))
             if out.count >= 25 { break }

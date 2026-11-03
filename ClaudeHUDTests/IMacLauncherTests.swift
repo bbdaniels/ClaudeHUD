@@ -84,4 +84,14 @@ final class IMacLauncherTests: XCTestCase {
         if case .failed = IMacLauncher.outcome(status: 255, stdout: Data()) {} else { XCTFail("ssh's own failure") }
         if case .failed = IMacLauncher.outcome(status: 1, stdout: Data("refused\n".utf8)) {} else { XCTFail("refused") }
     }
+
+    func testResumeRoutesByTheHostTheSessionRanOn() {
+        let home = "/Users/x"
+        XCTAssertEqual(IMacLauncher.route(host: .mac, cwd: "/Users/x/Projects/a", home: home), .iMacThenMac(folder: "a"))
+        XCTAssertEqual(IMacLauncher.route(host: .mac, cwd: "/Users/x/Desktop", home: home), .macOnly)
+        XCTAssertEqual(IMacLauncher.route(host: .iMac, cwd: "/Users/x/Projects/a/b", home: home), .iMacOnly(folder: "a/b"))
+        XCTAssertEqual(IMacLauncher.route(host: .iMac, cwd: "/Users/x/Projects", home: home), .iMacOnly(folder: "."))
+        XCTAssertEqual(IMacLauncher.route(host: .iMac, cwd: "/home/bbdaniels", home: home),
+                       .refused(IMacLauncher.outsideProjectsOnIMac), "an iMac session never falls back to this Mac")
+    }
 }

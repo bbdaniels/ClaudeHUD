@@ -119,6 +119,39 @@ enum IMacLauncher {
         return rel.isEmpty ? "." : rel
     }
 
+    // MARK: Where a session starts
+
+    /// Where a launch goes, decided before anything runs.
+    enum Route: Equatable {
+        /// The iMac first; when it answers that the folder or transcript is
+        /// not there (`Outcome.notOnIMac`), this Mac, and when it fails, an
+        /// alert that offers this Mac.
+        case iMacThenMac(folder: String)
+        /// The iMac only: a session whose transcript is the iMac's. Every
+        /// refusal or failure is reported; nothing starts on this Mac, which
+        /// has only the mirror's read-only copy of the transcript.
+        case iMacOnly(folder: String)
+        /// This Mac only: a folder outside ~/Projects, which the iMac does not mirror.
+        case macOnly
+        /// Nowhere: an iMac session outside ~/Projects, which the launcher cannot reach.
+        case refused(String)
+    }
+
+    static let outsideProjectsOnIMac = "the session ran outside ~/Projects on the iMac, where the launcher cannot start it"
+
+    /// The route for a session that ran on `host` in `cwd` (a path on this
+    /// Mac, as `SessionInfo.projectPath` holds it). A new session is the
+    /// Mac's case: it starts on the iMac when the folder is under ~/Projects.
+    static func route(host: SessionHost, cwd: String, home: String = NSHomeDirectory()) -> Route {
+        let folder = projectsFolder(forMacPath: cwd, home: home)
+        switch host {
+        case .mac:
+            return folder.map { .iMacThenMac(folder: $0) } ?? .macOnly
+        case .iMac:
+            return folder.map { .iMacOnly(folder: $0) } ?? .refused(outsideProjectsOnIMac)
+        }
+    }
+
     // MARK: The ssh call
 
     static func shellQuote(_ s: String) -> String {

@@ -603,14 +603,14 @@ struct SessionHistoryView: View {
         // set, the index's tallies or the claims directory change. Read-only.
         .task(id: filingSignature) {
             await vaultProjects.primeFiling(
-                sessions: sessionHistory.sessions.map { ($0.id, $0.projectPath) },
+                sessions: sessionHistory.sessions.map { ($0.id, $0.projectPath, $0.host) },
                 cwdCounts: sessionHistory.transcriptCwdCounts)
             resolvePrimed = true
         }
     }
 
     /// Changes when the history's sessions, the index's per-session tallies
-    /// or the claims directory change: the inputs of `primeFiling`.
+    /// or either host's claims directory change: the inputs of `primeFiling`.
     private var filingSignature: [Double] {
         [Double(sessionHistory.sessions.count),
          Double(sessionHistory.transcriptCwdGeneration),
@@ -980,28 +980,52 @@ func performMagicLaunch(projectName: String, cwd: String, resolvedVaultPath: Str
 /// On this Mac, by the daemon-registered `claude --bg` + `claude attach`
 /// form (`launchMacSession`), only where the session is not on the iMac: a
 /// folder outside ~/Projects, a folder the iMac does not have yet, or a
-/// transcript that is the Mac's. That fallback goes when the iMac holds
-/// every checkout and ClaudeHUD reads the iMac's sessions (vault plan
-/// `ClaudeHUD/plans/2026-11-03 - Sessions Live on the iMac`, design items 2
-/// and 3). When the iMac refuses or does not answer, an alert says why and
-/// offers this Mac; nothing starts here unasked.
+/// transcript that is the Mac's. History now lists the iMac's sessions
+/// too (`SessionHost`, `IMacMirror`); the fallback goes when the iMac holds
+/// every checkout (vault plan `ClaudeHUD/plans/2026-11-03 - Sessions Live on
+/// the iMac`). When the iMac refuses or does not answer, an alert says why
+/// and offers this Mac; nothing starts here unasked.
+///
+/// A transcript that ran on the iMac (`host: .iMac`, a History row from the
+/// iMac's mirror) resumes on the iMac only (`IMacLauncher.route`): when the
+/// iMac refuses or does not answer, the alert says why and offers nothing
+/// else, since this Mac holds only a read-only copy of that transcript.
 ///
 /// Returns true: the launch is under way (the iMac's answer takes a few
 /// seconds, so the window opens when it comes).
 @MainActor
 @discardableResult
 func launchClaudeSession(prompt: String? = nil, resume: String? = nil, name: String, cwd: String,
+                         host: SessionHost = .mac,
                          existingGhosttyPid: pid_t? = nil,
                          terminalService: TerminalService) -> Bool {
     let onMac: @MainActor () -> Bool = {
         launchMacSession(prompt: prompt, resume: resume, name: name, cwd: cwd,
                          existingGhosttyPid: existingGhosttyPid, terminalService: terminalService)
     }
-    guard let folder = IMacLauncher.projectsFolder(forMacPath: cwd) else { return onMac() }
+    let folder: String
+    let macFallback: Bool
+    switch IMacLauncher.route(host: host, cwd: cwd) {
+    case .macOnly:
+        return onMac()
+    case .refused(let reason):
+        showIMacFailure(reason, detail: "\(name) in \(cwd)", offerMac: nil)
+        return true
+    case .iMacThenMac(let f):
+        folder = f
+        macFallback = true
+    case .iMacOnly(let f):
+        folder = f
+        macFallback = false
+    }
     let request = IMacLauncher.Request(
         name: resume.map { IMacLauncher.resumeName(project: name, sessionId: $0) }
             ?? IMacLauncher.newSessionName(project: name),
         folder: folder, resume: resume, prompt: prompt)
+    let detail = "\(request.name) in ~/Projects/\(folder)"
+    var offerMac: (@MainActor () -> Void)?
+    if macFallback { offerMac = { _ = onMac() } }
+    let fallback = offerMac
     Task.detached(priority: .userInitiated) {
         let outcome = IMacLauncher.run(request)
         await MainActor.run {
@@ -1016,21 +1040,32 @@ func launchClaudeSession(prompt: String? = nil, resume: String? = nil, name: Str
                 terminalService.launchWithCommand(IMacLauncher.attachCommand(answer), inDirectory: cwd,
                                                   usingApp: app, backgroundColor: bg,
                                                   existingGhosttyPid: existingGhosttyPid)
-            case .notOnIMac:
-                _ = onMac()
+            case .notOnIMac(let reason):
+                if let fallback { fallback() } else { showIMacFailure(reason, detail: detail, offerMac: nil) }
             case .failed(let reason):
-                let alert = NSAlert()
-                alert.alertStyle = .warning
-                alert.messageText = "The session did not start on the iMac"
-                alert.informativeText = "\(reason)\n\n\(request.name) in ~/Projects/\(folder)"
-                alert.addButton(withTitle: "Start on this Mac")
-                alert.addButton(withTitle: "Cancel")
-                NSApp.activate(ignoringOtherApps: true)
-                if alert.runModal() == .alertFirstButtonReturn { _ = onMac() }
+                showIMacFailure(reason, detail: detail, offerMac: fallback)
             }
         }
     }
     return true
+}
+
+/// The alert for a session the iMac did not start: the reason, the session,
+/// and, only where this Mac can hold the session, a button to start it here.
+@MainActor
+private func showIMacFailure(_ reason: String, detail: String, offerMac: (@MainActor () -> Void)?) {
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = "The session did not start on the iMac"
+    alert.informativeText = "\(reason)\n\n\(detail)"
+    if offerMac != nil {
+        alert.addButton(withTitle: "Start on this Mac")
+        alert.addButton(withTitle: "Cancel")
+    } else {
+        alert.addButton(withTitle: "OK")
+    }
+    NSApp.activate(ignoringOtherApps: true)
+    if alert.runModal() == .alertFirstButtonReturn, let offerMac { offerMac() }
 }
 
 /// A session on this Mac: a new Ghostty window, or a new tab in
@@ -1062,7 +1097,9 @@ private func launchMacSession(prompt: String?, resume: String?, name: String, cw
 
 /// One session: preview, search snippet, short id, optional project tag, age,
 /// and a single `>_` action that resumes it in its original cwd. Shared by the
-/// History tab and a project's own session list.
+/// History tab and a project's own session list. A session that ran on the
+/// iMac carries a small "iMac" chip, resumes on the iMac only, and has no
+/// delete (its transcript is the iMac's; the Mac holds a mirrored copy).
 struct SessionDetailRow: View {
     let session: SessionInfo
     let searchResult: SessionSearchResult?
@@ -1113,6 +1150,16 @@ struct SessionDetailRow: View {
                     if let tag = projectTag {
                         projectChip(tag.name, isUnclaimed: tag.isUnclaimed)
                     }
+                    if session.host == .iMac {
+                        Text("iMac")
+                            .font(.custom("Fira Code", size: 10 * scale))
+                            .foregroundColor(.secondary.opacity(0.6))
+                            .lineLimit(1)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
+                            .hudTip("Ran on the iMac: resumes there")
+                    }
                     Spacer()
                     Text(session.timestamp.relativeString)
                         .font(.custom("Fira Code", size: 10 * scale))
@@ -1140,8 +1187,10 @@ struct SessionDetailRow: View {
         }
         .padding(.vertical, 5)
         .contextMenu {
-            Button(role: .destructive, action: onDelete) {
-                Label("Delete Session", systemImage: "trash")
+            if session.host == .mac {
+                Button(role: .destructive, action: onDelete) {
+                    Label("Delete Session", systemImage: "trash")
+                }
             }
         }
     }
@@ -1163,18 +1212,23 @@ struct SessionDetailRow: View {
     }
 
     /// Resume in the session's original cwd (the transcript's own directory,
-    /// never the project it is filed under) through the shared launch path.
-    /// A session a live process still holds is not launched: a second
-    /// `claude --resume` would write the same transcript from two processes.
+    /// never the project it is filed under) through the shared launch path,
+    /// on the host the session ran on. A Mac session a live process still
+    /// holds is not launched: a second `claude --resume` would write the same
+    /// transcript from two processes. The Mac's live records say nothing of
+    /// the iMac's processes; there the launcher is idempotent on the name, so
+    /// a second resume of one transcript attaches to the first.
     private func resume() {
-        if let holder = ClaudeSessionRecords.liveHolder(of: session.id, in: ClaudeSessionRecords.readLive()) {
+        if session.host == .mac,
+           let holder = ClaudeSessionRecords.liveHolder(of: session.id, in: ClaudeSessionRecords.readLive()) {
             feedback = holder.isRemoteControlChild ? "Still running on the phone" : "Still running"
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
             return
         }
         let projectName = URL(fileURLWithPath: session.projectPath).lastPathComponent
         let auto = launchClaudeSession(resume: session.id, name: projectName,
-                                       cwd: session.projectPath, terminalService: terminalService)
+                                       cwd: session.projectPath, host: session.host,
+                                       terminalService: terminalService)
         feedback = auto ? "Opened!" : "Cmd+V"
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
     }

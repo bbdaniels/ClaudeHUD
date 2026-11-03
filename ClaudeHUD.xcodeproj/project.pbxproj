@@ -16,11 +16,14 @@
 		100D1AE5FEA20720849E25EE /* HUDContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A8692269C30DC7C435CE107 /* HUDContentView.swift */; };
 		10839D1BC618E406833B95CC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C53EC70F3DA9CDD0CC4EA24F /* Assets.xcassets */; };
 		11D068D60F1FBC84E1D988EA /* ClaudeHUDApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E611364C25404DC27D5D60B /* ClaudeHUDApp.swift */; };
+		1757F518D88364C3E5A3D218 /* SessionHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCE95C51E4C114A93E8C4749 /* SessionHostTests.swift */; };
 		1A5B1E57FB663CDDA42D3A34 /* SlackFileLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFBE827B2A3EA0BF75B317EF /* SlackFileLog.swift */; };
 		216CE15D4C12C3FF11A0B0DA /* TranscriptHeadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29A820821CF961958265C819 /* TranscriptHeadTests.swift */; };
+		2175A7C2DE35392D478B5530 /* SessionHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57ABA0D74FFFA689FC8C514 /* SessionHost.swift */; };
 		22E9986D54197F5AACE3B317 /* LibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB043CB409497C537E66D2B6 /* LibraryService.swift */; };
 		268809B34C1257D1DD4FBCA4 /* SessionFilingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21A11D410B9F5296C55F5F7 /* SessionFilingTests.swift */; };
 		2808B31571DA2A54C001878A /* NoteFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94F002554690052369E931AE /* NoteFile.swift */; };
+		294735844DA967EC8381EBED /* SessionScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504C9D1F6A897A77D79731E3 /* SessionScan.swift */; };
 		2A9FB0CDC0AE19E4A2637D42 /* IMacLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7EE451409BCA1277D6282FF /* IMacLauncher.swift */; };
 		2C29DFF9CEB92A300E5B2FE0 /* MCPServerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F610738B5C598F62048D6D9 /* MCPServerManager.swift */; };
 		2C5A819A4AC65B3B7BFABAC1 /* VaultAccessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AA4D330DBDA52E4F3C827CF /* VaultAccessTests.swift */; };
@@ -30,6 +33,7 @@
 		344F340CDF4EAE1B18B24EE1 /* SecretsVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E8596B647276D0A1586779 /* SecretsVault.swift */; };
 		3C401FF76D8B4AA39219FBA4 /* VaultAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65E56E18D7A0EAD77100C255 /* VaultAccess.swift */; };
 		3CCAE765C9EFE1202B3718B6 /* MarkdownBlocks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C25C90AD7421B63879BFE80 /* MarkdownBlocks.swift */; };
+		427C6FFD7C7CE10D04E465E6 /* SessionScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504C9D1F6A897A77D79731E3 /* SessionScan.swift */; };
 		46302138FE115BA1187EBD3D /* FloatingNoteWindowManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CF31D45958F7B287926676 /* FloatingNoteWindowManager.swift */; };
 		476DCA2D5B58A1E489619133 /* ScreenCoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94762C41278E36F6CF3E32C3 /* ScreenCoverView.swift */; };
 		492BC7653640FF9128AA1571 /* ClaudeProcessMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89B4EC6274B95DFA33E0C571 /* ClaudeProcessMonitor.swift */; };
@@ -37,6 +41,7 @@
 		4DEA00856BE8FFB74E36A917 /* NoteContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9236DD5E1930C1B92335C9C5 /* NoteContentView.swift */; };
 		4EEC58697576EEABDCDC19D2 /* ActiveTasks.swift in Sources */ = {isa = PBXBuildFile; fileRef = B41B2701679A6FA57B239A02 /* ActiveTasks.swift */; };
 		542A034864617B7ABDA85B0D /* SessionFiling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FAE66E99EB85A66B1E4DFDD /* SessionFiling.swift */; };
+		5570E5BE43267ED8BE716CDA /* SessionScanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E992A83FCF56D1E426D04F7A /* SessionScanTests.swift */; };
 		561F123A3DD19B92F6D0F233 /* ScreenCoverService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A1004F7D0D3C5C144210C7D /* ScreenCoverService.swift */; };
 		5D9122BAC2CF9167B2846662 /* ClaudeProcessClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99EC467878E98AC7D52F8203 /* ClaudeProcessClassifier.swift */; };
 		5E8249E75BC7071A42BD394B /* MCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5CC94E94375F63C3B1C6D3 /* MCPClient.swift */; };
@@ -75,6 +80,7 @@
 		AB1D0A0392E8C30197A7DC11 /* VaultIngestService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 207CDABC03F0B223AFE35A88 /* VaultIngestService.swift */; };
 		ABB72147FFBF17F0076E58DC /* ClaudeWebFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FE78438CDBB1B82E2CD3203 /* ClaudeWebFetcher.swift */; };
 		AF44EBFA0AB87F2490D412F9 /* StdioMCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19A889B1D9FE0780BB3042FA /* StdioMCPClient.swift */; };
+		B0FD3286D3EB86C0C4B2375E /* SessionHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57ABA0D74FFFA689FC8C514 /* SessionHost.swift */; };
 		B1D0E311CB84A624077E53F1 /* AgentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD87037F81301BEE1808859F /* AgentsView.swift */; };
 		B28C401B5B93D1B0AE175BE3 /* ObsidianMarkdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EEBFE2793D1BE2364B60C89 /* ObsidianMarkdownView.swift */; };
 		B6062851E1689D3F69E61783 /* AgentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AEA2D1DA808678730DAFAB2 /* AgentModels.swift */; };
@@ -112,6 +118,7 @@
 		4E5CC94E94375F63C3B1C6D3 /* MCPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPClient.swift; sourceTree = "<group>"; };
 		4FE78438CDBB1B82E2CD3203 /* ClaudeWebFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeWebFetcher.swift; sourceTree = "<group>"; };
 		50033B8E71A69F51D0C4867F /* ActiveTasksDueDateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveTasksDueDateTests.swift; sourceTree = "<group>"; };
+		504C9D1F6A897A77D79731E3 /* SessionScan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionScan.swift; sourceTree = "<group>"; };
 		50E5626B4C84084B8B14BB91 /* Tooltip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tooltip.swift; sourceTree = "<group>"; };
 		58276C1EA3EC3682B1C6FE36 /* ClaudeHUD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeHUD.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		59E8596B647276D0A1586779 /* SecretsVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecretsVault.swift; sourceTree = "<group>"; };
@@ -153,16 +160,19 @@
 		C97BB9EE58B0DBF8AA04FDE7 /* SessionHistoryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionHistoryService.swift; sourceTree = "<group>"; };
 		CDFA4853FA49C5845C653FC5 /* UsageBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageBadge.swift; sourceTree = "<group>"; };
 		CE31FD7228157DC53CDE8B9E /* KeychainService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainService.swift; sourceTree = "<group>"; };
+		D57ABA0D74FFFA689FC8C514 /* SessionHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionHost.swift; sourceTree = "<group>"; };
 		D7EE451409BCA1277D6282FF /* IMacLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IMacLauncher.swift; sourceTree = "<group>"; };
 		D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyService.swift; sourceTree = "<group>"; };
 		DB043CB409497C537E66D2B6 /* LibraryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryService.swift; sourceTree = "<group>"; };
 		E196A0AEBD4F89C4DBAFB5D7 /* ProjectResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectResolverTests.swift; sourceTree = "<group>"; };
 		E29EA2BAC4BE95B756B86E59 /* CoreText.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreText.framework; path = System/Library/Frameworks/CoreText.framework; sourceTree = SDKROOT; };
+		E992A83FCF56D1E426D04F7A /* SessionScanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionScanTests.swift; sourceTree = "<group>"; };
 		ECF4D0E046CD2AE96517B5AC /* VaultManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultManager.swift; sourceTree = "<group>"; };
 		EF071C0FD812AE7E6F9A7928 /* LibraryRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryRow.swift; sourceTree = "<group>"; };
 		F5CF31D45958F7B287926676 /* FloatingNoteWindowManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingNoteWindowManager.swift; sourceTree = "<group>"; };
 		FAA7DC5B4103396ACB2B5F3F /* UsageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageService.swift; sourceTree = "<group>"; };
 		FB651537B00E2E60ED97A772 /* VaultProjectTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultProjectTree.swift; sourceTree = "<group>"; };
+		FCE95C51E4C114A93E8C4749 /* SessionHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionHostTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -197,6 +207,8 @@
 				59E8596B647276D0A1586779 /* SecretsVault.swift */,
 				3FAE66E99EB85A66B1E4DFDD /* SessionFiling.swift */,
 				C97BB9EE58B0DBF8AA04FDE7 /* SessionHistoryService.swift */,
+				D57ABA0D74FFFA689FC8C514 /* SessionHost.swift */,
+				504C9D1F6A897A77D79731E3 /* SessionScan.swift */,
 				1C704E240AFCDBD31AC48951 /* SkillsService.swift */,
 				AFBE827B2A3EA0BF75B317EF /* SlackFileLog.swift */,
 				2D93C91EF3361FF04D9BB0D3 /* TerminalService.swift */,
@@ -381,6 +393,8 @@
 				BA019621667901F1EDBA4E4F /* IMacLauncherTests.swift */,
 				E196A0AEBD4F89C4DBAFB5D7 /* ProjectResolverTests.swift */,
 				A21A11D410B9F5296C55F5F7 /* SessionFilingTests.swift */,
+				FCE95C51E4C114A93E8C4749 /* SessionHostTests.swift */,
+				E992A83FCF56D1E426D04F7A /* SessionScanTests.swift */,
 				29A820821CF961958265C819 /* TranscriptHeadTests.swift */,
 				6AA4D330DBDA52E4F3C827CF /* VaultAccessTests.swift */,
 				9EDB91A617AE82542209609C /* VaultProjectTreeTests.swift */,
@@ -504,6 +518,10 @@
 				CD7941AD5A6EEEDF57AED073 /* ProjectResolverTests.swift in Sources */,
 				A71658DD4D0B31D25606F7AB /* SessionFiling.swift in Sources */,
 				268809B34C1257D1DD4FBCA4 /* SessionFilingTests.swift in Sources */,
+				2175A7C2DE35392D478B5530 /* SessionHost.swift in Sources */,
+				1757F518D88364C3E5A3D218 /* SessionHostTests.swift in Sources */,
+				294735844DA967EC8381EBED /* SessionScan.swift in Sources */,
+				5570E5BE43267ED8BE716CDA /* SessionScanTests.swift in Sources */,
 				87955102C6B35861A4BF4F93 /* TranscriptHead.swift in Sources */,
 				216CE15D4C12C3FF11A0B0DA /* TranscriptHeadTests.swift in Sources */,
 				3C401FF76D8B4AA39219FBA4 /* VaultAccess.swift in Sources */,
@@ -555,6 +573,8 @@
 				344F340CDF4EAE1B18B24EE1 /* SecretsVault.swift in Sources */,
 				542A034864617B7ABDA85B0D /* SessionFiling.swift in Sources */,
 				85FAE3D9A1FB9C99E73D9A64 /* SessionHistoryService.swift in Sources */,
+				B0FD3286D3EB86C0C4B2375E /* SessionHost.swift in Sources */,
+				427C6FFD7C7CE10D04E465E6 /* SessionScan.swift in Sources */,
 				09E0DD3C80E9042CE3E4BC59 /* SkillFile.swift in Sources */,
 				E7EFBDDB60EC4968B77D04B5 /* SkillsService.swift in Sources */,
 				1A5B1E57FB663CDDA42D3A34 /* SlackFileLog.swift in Sources */,
