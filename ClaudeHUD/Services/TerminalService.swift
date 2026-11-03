@@ -66,14 +66,12 @@ class TerminalService: ObservableObject {
         NSWorkspace.shared.openApplication(at: url, configuration: config) { _, _ in }
     }
 
-    /// Open a new Ghostty window at `$HOME` running Claude.
-    /// Falls back to the selected terminal if Ghostty is not installed.
+    /// A new Claude session in ~/Projects, the folder the iMac's sessions
+    /// start in (its Remote Control server's too), through the one launch
+    /// path (`launchClaudeSession`): on the iMac, attached in Ghostty.
     @discardableResult
-    func launchClaudeAtHome() -> Bool {
-        let command = "claude" + permissionModeFlag()
-        let ghosttyPath = "/Applications/Ghostty.app"
-        let app = FileManager.default.fileExists(atPath: ghosttyPath) ? ghosttyPath : nil
-        return launchWithCommand(command, inDirectory: NSHomeDirectory(), usingApp: app)
+    func launchClaudeInProjects() -> Bool {
+        launchClaudeSession(name: "projects", cwd: NSHomeDirectory() + "/Projects", terminalService: self)
     }
 
     /// Mark `dir` trusted in ~/.claude.json so a HUD launch never stops at

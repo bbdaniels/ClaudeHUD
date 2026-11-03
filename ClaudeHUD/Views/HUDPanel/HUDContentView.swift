@@ -212,14 +212,14 @@ struct HUDContentView: View {
                 RemoteControlMenu()
 
                 Button(action: {
-                    terminalService.launchClaudeAtHome()
+                    terminalService.launchClaudeInProjects()
                 }) {
                     Text(">_")
                         .font(.codeFont(fontScale))
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.borderless)
-                .hudTip("New Claude session at ~")
+                .hudTip("New Claude session in ~/Projects, on the iMac")
                 .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
                     showTerminalPopover = true
                 })
@@ -960,28 +960,95 @@ func magicLaunchArg(projectName: String, resolvedVaultPath: String?) -> String {
 func performMagicLaunch(projectName: String, cwd: String, resolvedVaultPath: String?,
                         liveSessions: [AgentSession] = [],
                         terminalService: TerminalService) -> Bool {
+    // The vault path is the Mac's; `/project` reads only its last folder
+    // name, which is the same on the iMac.
     let arg = magicLaunchArg(projectName: projectName, resolvedVaultPath: resolvedVaultPath)
-    // Single-quote the arg for the shell (every ' becomes '\'' and the whole
-    // string is wrapped in '...') so spaces in the project name or vault path
-    // stay a single token and any ' in them cannot break out of the quoting.
-    let escapedArg = arg.replacingOccurrences(of: "'", with: "'\\''")
-    return launchClaudeSession(argSuffix: " '\(escapedArg)'", name: projectName, cwd: cwd,
+    return launchClaudeSession(prompt: arg, name: projectName, cwd: cwd,
                                existingGhosttyPid: liveSessions.compactMap(\.attachedGhosttyPid).first,
                                terminalService: terminalService)
 }
 
-/// THE HUD launch path for a Claude session: a new Ghostty window, or a new
-/// tab in `existingGhosttyPid`'s window when the project already has one
-/// (titled, folder pre-trusted by `launchWithCommand`) running the daemon-registered
-/// `claude --bg … ` + `claude attach` form, so the session is in the roster
-/// and gets its Projects/Agents badges and click-to-focus. Used by the wiki
-/// launch and History's >_ resume. A foreground `claude` does NOT register
-/// (verified 2026-09-16: no roster worker, no jobs dir).
+/// THE HUD launch path for a Claude session (new session and resume).
+///
+/// On the iMac first (Ben, 2026-11-03: every session lives there): the iMac's
+/// one launcher (`IMacLauncher`) starts it in tmux with Remote Control and
+/// permissions bypassed, and a Ghostty window (or a tab in
+/// `existingGhosttyPid`'s window) attaches to it over ssh. Closing the window
+/// only detaches. `prompt` is the session's first message; `resume` a
+/// transcript's id.
+///
+/// On this Mac, by the daemon-registered `claude --bg` + `claude attach`
+/// form (`launchMacSession`), only where the session is not on the iMac: a
+/// folder outside ~/Projects, a folder the iMac does not have yet, or a
+/// transcript that is the Mac's. That fallback goes when the iMac holds
+/// every checkout and ClaudeHUD reads the iMac's sessions (vault plan
+/// `ClaudeHUD/plans/2026-11-03 - Sessions Live on the iMac`, design items 2
+/// and 3). When the iMac refuses or does not answer, an alert says why and
+/// offers this Mac; nothing starts here unasked.
+///
+/// Returns true: the launch is under way (the iMac's answer takes a few
+/// seconds, so the window opens when it comes).
 @MainActor
 @discardableResult
-func launchClaudeSession(argSuffix: String, name: String, cwd: String,
+func launchClaudeSession(prompt: String? = nil, resume: String? = nil, name: String, cwd: String,
                          existingGhosttyPid: pid_t? = nil,
                          terminalService: TerminalService) -> Bool {
+    let onMac: @MainActor () -> Bool = {
+        launchMacSession(prompt: prompt, resume: resume, name: name, cwd: cwd,
+                         existingGhosttyPid: existingGhosttyPid, terminalService: terminalService)
+    }
+    guard let folder = IMacLauncher.projectsFolder(forMacPath: cwd) else { return onMac() }
+    let request = IMacLauncher.Request(
+        name: resume.map { IMacLauncher.resumeName(project: name, sessionId: $0) }
+            ?? IMacLauncher.newSessionName(project: name),
+        folder: folder, resume: resume, prompt: prompt)
+    Task.detached(priority: .userInitiated) {
+        let outcome = IMacLauncher.run(request)
+        await MainActor.run {
+            switch outcome {
+            case .running(let answer):
+                let app = FileManager.default.fileExists(atPath: "/Applications/Ghostty.app")
+                    ? "/Applications/Ghostty.app" : nil
+                let bg = UserDefaults.standard.bool(forKey: "history.useColors")
+                    ? TerminalService.projectColor(for: name) : nil
+                // inDirectory: the Mac's copy of the folder, for the window's
+                // title (the project's name); the session runs on the iMac.
+                terminalService.launchWithCommand(IMacLauncher.attachCommand(answer), inDirectory: cwd,
+                                                  usingApp: app, backgroundColor: bg,
+                                                  existingGhosttyPid: existingGhosttyPid)
+            case .notOnIMac:
+                _ = onMac()
+            case .failed(let reason):
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "The session did not start on the iMac"
+                alert.informativeText = "\(reason)\n\n\(request.name) in ~/Projects/\(folder)"
+                alert.addButton(withTitle: "Start on this Mac")
+                alert.addButton(withTitle: "Cancel")
+                NSApp.activate(ignoringOtherApps: true)
+                if alert.runModal() == .alertFirstButtonReturn { _ = onMac() }
+            }
+        }
+    }
+    return true
+}
+
+/// A session on this Mac: a new Ghostty window, or a new tab in
+/// `existingGhosttyPid`'s window (titled, folder pre-trusted by
+/// `launchWithCommand`) running the daemon-registered `claude --bg … ` +
+/// `claude attach` form, so the session is in the roster and gets its
+/// Projects/Agents badges and click-to-focus. A foreground `claude` does NOT
+/// register (verified 2026-09-16: no roster worker, no jobs dir). Only
+/// `launchClaudeSession` calls it, for a session that is not on the iMac.
+@MainActor
+@discardableResult
+private func launchMacSession(prompt: String?, resume: String?, name: String, cwd: String,
+                              existingGhosttyPid: pid_t?, terminalService: TerminalService) -> Bool {
+    // Single-quote the prompt for the shell (every ' becomes '\'' and the
+    // whole string is wrapped in '...') so spaces in the project name or vault
+    // path stay a single token and any ' in them cannot break out.
+    var argSuffix = resume.map { " --resume \($0)" } ?? ""
+    if let prompt { argSuffix += " " + IMacLauncher.shellQuote(prompt) }
     let command = daemonizedClaudeCommand(argSuffix, remoteControlName: name)
     let ghosttyPath = "/Applications/Ghostty.app"
     let app = FileManager.default.fileExists(atPath: ghosttyPath) ? ghosttyPath : nil
@@ -1106,7 +1173,7 @@ struct SessionDetailRow: View {
             return
         }
         let projectName = URL(fileURLWithPath: session.projectPath).lastPathComponent
-        let auto = launchClaudeSession(argSuffix: " --resume \(session.id)", name: projectName,
+        let auto = launchClaudeSession(resume: session.id, name: projectName,
                                        cwd: session.projectPath, terminalService: terminalService)
         feedback = auto ? "Opened!" : "Cmd+V"
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }

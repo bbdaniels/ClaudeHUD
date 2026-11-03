@@ -46,6 +46,7 @@ targets:
       - path: ClaudeHUD/Services/TranscriptHead.swift
       - path: ClaudeHUD/Services/SessionFiling.swift
       - path: ClaudeHUD/Services/GhosttyStack.swift
+      - path: ClaudeHUD/Services/IMacLauncher.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.claudehud.tests

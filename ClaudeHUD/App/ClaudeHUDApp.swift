@@ -165,7 +165,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func newClaudeSession() {
-        appState.terminalService.launchClaudeAtHome()
+        appState.terminalService.launchClaudeInProjects()
     }
 
     @objc private func focusGhosttyWindow(_ sender: NSMenuItem) {
