@@ -173,6 +173,7 @@ final class SessionFilingTests: XCTestCase {
         XCTAssertNotNil(start)
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")    // as Claude Code writes it
         f.dateFormat = "EEE MMM d HH:mm:ss yyyy"
         let recorded = f.string(from: start!)
         let mine = ClaudeSessionRecord(pid: me, sessionId: "s", cwd: "", kind: nil, entrypoint: nil, name: nil,
@@ -188,8 +189,17 @@ final class SessionFilingTests: XCTestCase {
     func testParseProcStartWithPaddedDay() {
         let d = ClaudeSessionRecords.parseProcStart("Tue Nov  3 00:08:48 2026")
         XCTAssertNotNil(d)
-        let c = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: d!)
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let c = utc.dateComponents([.year, .month, .day, .hour, .minute, .second], from: d!)
         XCTAssertEqual([c.year, c.month, c.day, c.hour, c.minute, c.second], [2026, 11, 3, 0, 8, 48])
+    }
+
+    /// Claude Code writes procStart in UTC; read in local time the record of
+    /// a live process looked stale (every Mac record did until 2026-11-03).
+    func testProcStartIsReadAsUTC() {
+        let d = ClaudeSessionRecords.parseProcStart("Tue Nov  3 00:08:48 2026")
+        XCTAssertEqual(d?.timeIntervalSince1970, 1_793_664_528)
     }
 
     func testTranscriptPathEncodesTheStartDirectory() throws {

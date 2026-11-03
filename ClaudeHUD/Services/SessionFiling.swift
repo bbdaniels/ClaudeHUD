@@ -143,6 +143,9 @@ struct ClaudeSessionRecord: Equatable {
     /// The process's start time as the CLI recorded it, used to tell a live
     /// record from a stale one whose pid was reused.
     let procStart: String?
+    /// The tmux pane the session runs in, as "<session>:@<window>.%<pane>",
+    /// when it runs in one (the iMac's pi-gate sessions do).
+    var tmux: String? = nil
 
     /// A session started from the Claude app through Remote Control: an
     /// interactive `--print` child of `claude remote-control` (entrypoint
@@ -192,7 +195,7 @@ enum ClaudeSessionRecords {
             bridgeSessionId: string("bridgeSessionId"), jobId: string("jobId"),
             status: string("status"), waitingFor: string("waitingFor"),
             startedAt: millis("startedAt"), updatedAt: millis("updatedAt"),
-            procStart: string("procStart"))
+            procStart: string("procStart"), tmux: string("tmux"))
     }
 
     /// Every record in `dir` whose process is still the one that wrote it.
@@ -238,12 +241,15 @@ enum ClaudeSessionRecords {
         kill(pid_t(pid), 0) == 0 || errno == EPERM
     }
 
-    /// `procStart` is the `ps -o lstart` form, local time: "Tue Nov  3 00:08:48 2026".
+    /// `procStart` is the `ps -o lstart` form in UTC: "Tue Nov  3 00:08:48 2026".
+    /// Claude Code runs `LC_ALL=C TZ=UTC ps -o lstart= -p <pid>` (2.1.317).
+    /// Read as local time, every record was five hours off its process and
+    /// looked stale, so no Mac session was ever "Still running" (2026-11-03).
     static func parseProcStart(_ s: String) -> Date? {
         let collapsed = s.split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = .current
+        f.timeZone = TimeZone(identifier: "UTC")
         f.dateFormat = "EEE MMM d HH:mm:ss yyyy"
         return f.date(from: collapsed)
     }

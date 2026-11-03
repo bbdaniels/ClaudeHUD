@@ -1213,19 +1213,47 @@ struct SessionDetailRow: View {
 
     /// Resume in the session's original cwd (the transcript's own directory,
     /// never the project it is filed under) through the shared launch path,
-    /// on the host the session ran on. A Mac session a live process still
-    /// holds is not launched: a second `claude --resume` would write the same
-    /// transcript from two processes. The Mac's live records say nothing of
-    /// the iMac's processes; there the launcher is idempotent on the name, so
-    /// a second resume of one transcript attaches to the first.
+    /// on the host the session ran on. A session a live process still holds
+    /// is not launched: a second `claude --resume` would write the same
+    /// transcript from two processes. On the Mac the holder is read from its
+    /// own live records; on the iMac from the gate's `live` verb, fetched
+    /// fresh. The one iMac holder that does not refuse is History's own
+    /// earlier resume (tmux session `IMacLauncher.resumeName`), because the
+    /// launcher attaches to it instead of starting a second process.
     private func resume() {
-        if session.host == .mac,
-           let holder = ClaudeSessionRecords.liveHolder(of: session.id, in: ClaudeSessionRecords.readLive()) {
-            feedback = holder.isRemoteControlChild ? "Still running on the phone" : "Still running"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
-            return
-        }
         let projectName = URL(fileURLWithPath: session.projectPath).lastPathComponent
+        switch session.host {
+        case .mac:
+            if let holder = ClaudeSessionRecords.liveHolder(of: session.id, in: ClaudeSessionRecords.readLive()) {
+                refuse(holder.isRemoteControlChild ? "Still running on the phone" : "Still running")
+                return
+            }
+            launch(projectName)
+        case .iMac:
+            feedback = "Checking the iMac…"
+            let id = session.id
+            DispatchQueue.global(qos: .userInitiated).async {
+                let live = IMacLive.fetch()
+                DispatchQueue.main.async {
+                    guard let live else { refuse("The iMac did not answer"); return }
+                    let ownName = IMacLauncher.resumeName(project: projectName, sessionId: id)
+                    if let holder = ClaudeSessionRecords.liveHolder(of: id, in: live),
+                       holder.tmux?.split(separator: ":").first.map(String.init) != ownName {
+                        refuse("Still running on the iMac")
+                        return
+                    }
+                    launch(projectName)
+                }
+            }
+        }
+    }
+
+    private func refuse(_ message: String) {
+        feedback = message
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
+    }
+
+    private func launch(_ projectName: String) {
         let auto = launchClaudeSession(resume: session.id, name: projectName,
                                        cwd: session.projectPath, host: session.host,
                                        terminalService: terminalService)

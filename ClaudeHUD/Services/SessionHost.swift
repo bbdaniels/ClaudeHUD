@@ -202,3 +202,85 @@ enum IMacMirror {
         return .synced
     }
 }
+
+// MARK: - The iMac's live sessions
+
+/// The iMac's running Claude Code sessions, from its gate's `live` verb
+/// (`ssh imac ~/bin/pi-gate live`): the CLI's own `~/.claude/sessions/<pid>.json`
+/// records whose process still runs, each checked there against its process's
+/// start time. Read-only toward the iMac.
+///
+/// `cached` is what the last fetch returned and when; `refresh` fetches again
+/// off the main thread at most every `interval` seconds, so the Agents poll
+/// (every 2 s) never waits on ssh. `fetch` blocks and answers fresh, for the
+/// History resume guard. A failed fetch (the iMac asleep, ssh refused) keeps
+/// nothing: an empty list, so a stale row never claims a session is running.
+enum IMacLive {
+    static let interval: TimeInterval = 10
+
+    /// The gate's answer, read: each element of `live` as a record. Nil when
+    /// the answer is not the gate's (`ok` missing or false).
+    static func records(from stdout: Data) -> [ClaudeSessionRecord]? {
+        guard let obj = try? JSONSerialization.jsonObject(with: stdout) as? [String: Any],
+              obj["ok"] as? Bool == true,
+              let live = obj["live"] as? [[String: Any]] else { return nil }
+        return live.compactMap {
+            (try? JSONSerialization.data(withJSONObject: $0)).flatMap(ClaudeSessionRecords.parse)
+        }
+    }
+
+    /// One fetch over ssh. Blocks up to about 10 s: call it off the main thread.
+    static func fetch() -> [ClaudeSessionRecord]? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+                             IMacLauncher.sshHost, IMacLauncher.gatePath + " live"]
+        let output = Pipe()
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return nil }
+        let finished = DispatchSemaphore(value: 0)
+        var data = Data()
+        DispatchQueue.global(qos: .utility).async {
+            data = output.fileHandleForReading.readDataToEndOfFile()
+            finished.signal()
+        }
+        if finished.wait(timeout: .now() + 10) == .timedOut {
+            process.terminate()
+            finished.wait()
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        return records(from: data)
+    }
+
+    private static let lock = NSLock()
+    private static var last: [ClaudeSessionRecord] = []
+    private static var fetchedAt: Date?
+    private static var fetching = false
+
+    /// The last fetch's records ([] before the first and after a failure).
+    static var cached: [ClaudeSessionRecord] {
+        lock.lock(); defer { lock.unlock() }
+        return last
+    }
+
+    /// Start a fetch in the background when the last is older than
+    /// `interval` and none is running; `done` runs on the main queue after it.
+    static func refresh(done: @escaping @Sendable () -> Void = {}) {
+        lock.lock()
+        if fetching || (fetchedAt.map { Date().timeIntervalSince($0) < interval } ?? false) {
+            lock.unlock(); return
+        }
+        fetching = true
+        lock.unlock()
+        DispatchQueue.global(qos: .utility).async {
+            let got = fetch() ?? []
+            lock.lock()
+            last = got; fetchedAt = Date(); fetching = false
+            lock.unlock()
+            DispatchQueue.main.async(execute: done)
+        }
+    }
+}

@@ -273,6 +273,42 @@ final class AgentsService: ObservableObject {
             ))
         }
 
+        // The iMac's running sessions (`IMacLive`, refreshed in the
+        // background every 10 s), so a project row shows them with the same
+        // badges as the Mac's. Its cwd is mapped onto this Mac's checkout; no
+        // pid, so nothing here can signal a local process; the claude.ai link
+        // of its Remote Control bridge, so attach opens claude.ai and the
+        // stop, logs and remove menu stays hidden, as for a phone row.
+        IMacLive.refresh { [weak self] in Task { @MainActor in self?.reload() } }
+        for r in IMacLive.cached where r.kind == "interactive" {
+            let cwd = SessionHost.iMac.macPath(r.cwd)
+            let project = cwd.isEmpty ? "" : URL(fileURLWithPath: cwd).lastPathComponent
+            let tmuxSession = r.tmux.flatMap { $0.split(separator: ":").first.map(String.init) }
+            result.append(AgentSession(
+                id: "imac:" + r.sessionId,
+                name: r.name ?? tmuxSession ?? "\(project) · iMac",
+                rawState: r.displayState,
+                detail: r.waitingFor ?? "",
+                intent: "",
+                cwd: cwd,
+                createdAt: r.startedAt,
+                updatedAt: r.updatedAt,
+                isAlive: true,
+                pid: nil,
+                isPinned: false,
+                template: "imac",
+                tempo: nil,
+                inFlightTasks: 0,
+                isOpen: true,
+                attachedWindowTitle: nil,
+                attachedGhosttyPid: nil,
+                transcriptMtime: nil,
+                worktreePath: nil,
+                sessionId: r.sessionId,
+                remoteControlURL: r.remoteControlURL
+            ))
+        }
+
         // Pinned first, then by effective bucket (open: needs-input →
         // working → idle → completed → detached at the very bottom), then
         // most-recently-updated (recency sort within the detached bucket).
