@@ -378,7 +378,7 @@ private struct LiveSessionBadges: View {
             Button(action: onTap) { cluster }
                 .buttonStyle(.plain)
                 .onHover { hovering = $0 }
-                .help(helpText + " — click to focus, again to cycle")
+                .help(helpText + " — click to open; several list by name")
         } else {
             cluster.help(helpText)
         }
@@ -488,11 +488,9 @@ private struct ProjectRowView: View {
     @EnvironmentObject private var terminalService: TerminalService
     @State private var launchHovering = false
     @State private var launched = false
-    /// Which of this project's live sessions the next badge click raises.
-    /// Keyed by the session-id list so the cycle restarts whenever the set
-    /// changes rather than pointing at whatever now sits at a stale index.
-    @State private var badgeCycleIndex = 0
-    @State private var badgeCycleKey: [String] = []
+    /// The sessions a badge with several lists (`focusNextLiveSession`).
+    @State private var badgeChoices: [AgentSession] = []
+    @State private var showBadgeChoices = false
 
     /// Leading inset that marks a row as a child of the row above it.
     private static let childInset: CGFloat = 18
@@ -502,6 +500,7 @@ private struct ProjectRowView: View {
             DancingText(text: project.name, size: 14 * scale, weight: isChild ? .regular : .semibold)
             if !liveSessions.isEmpty {
                 LiveSessionBadges(counts: liveSessions, onTap: focusNextLiveSession)
+                    .popover(isPresented: $showBadgeChoices, arrowEdge: .bottom) { badgeChoiceList }
             }
             if let due = project.nextDue {
                 DueChip(due: due, today: today)
@@ -561,28 +560,30 @@ private struct ProjectRowView: View {
         }
     }
 
-    /// Raise the window of the most recently active live session behind the
-    /// badge (on a parent, its own and its children's); click again to walk
-    /// the rest. Read-only — it never touches the daemon
-    /// and never launches anything, so a click on a stale badge is harmless.
+    /// A badge click. One live session behind the badge (on a parent, its
+    /// own and its children's): open it. Several: list them, each named with
+    /// its machine and state, and open the one picked (Ben, 2026-11-03: "i
+    /// can't tell which is which if there is more than one"). Read-only: it
+    /// never touches the daemon and never launches a new session.
     private func focusNextLiveSession() {
         let sessions = badgeSessionsProvider()
-        guard !sessions.isEmpty else {
-            GhosttyWindowService.activateApp()
+        switch sessions.count {
+        case 0: GhosttyWindowService.activateApp()
+        case 1: open(sessions[0])
+        default:
+            badgeChoices = sessions
+            showBadgeChoices = true
+        }
+    }
+
+    /// Put Ben in the session: an iMac session's tmux over ssh, a Mac
+    /// session's Ghostty window, a phone session's claude.ai page (it has no
+    /// terminal anywhere).
+    private func open(_ session: AgentSession) {
+        if session.isIMac {
+            if !AgentsService.openIMacWindow(session, terminalService: terminalService) { NSSound.beep() }
             return
         }
-        let key = sessions.map(\.id)
-        if key != badgeCycleKey {
-            badgeCycleKey = key
-            badgeCycleIndex = 0
-        }
-        let idx = badgeCycleIndex % sessions.count
-        badgeCycleIndex = (idx + 1) % sessions.count
-
-        let session = sessions[idx]
-        // A session started from the Claude app has no terminal window:
-        // open its claude.ai page rather than guessing at a Ghostty window
-        // by folder name, which would raise an unrelated one.
         if let url = session.remoteControlURL {
             NSWorkspace.shared.open(url)
             return
@@ -590,9 +591,50 @@ private struct ProjectRowView: View {
         let basename = URL(fileURLWithPath: session.cwd).lastPathComponent
         if GhosttyWindowService.focusWindow(hostPid: session.attachedGhosttyPid,
                                             titleContains: basename) { return }
-        // Nothing identifiable (no host pid, no matching title, or no AX
-        // grant): still put the user in the terminal if it's running at all.
         GhosttyWindowService.activateApp()
+    }
+
+    /// The list a badge with several sessions opens.
+    private var badgeChoiceList: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(badgeChoices, id: \.id) { s in
+                Button {
+                    showBadgeChoices = false
+                    open(s)
+                } label: {
+                    HStack(spacing: 6) {
+                        Self.stateGlyph(s.display)
+                        Text(s.name).font(.system(size: 12 * scale))
+                        Spacer(minLength: 12)
+                        Text(s.isIMac ? "iMac" : s.isRemoteControl ? "phone" : "Mac")
+                            .font(.custom("Fira Code", size: 10 * scale))
+                            .foregroundColor(.secondary)
+                        Text(Self.ago(s.updatedAt))
+                            .font(.custom("Fira Code", size: 10 * scale))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(6)
+        .frame(minWidth: 260)
+    }
+
+    @ViewBuilder private static func stateGlyph(_ d: AgentDisplayState) -> some View {
+        switch d {
+        case .working: Circle().fill(Color.green).frame(width: 6, height: 6)
+        case .needsInput: Circle().fill(Color.orange).frame(width: 6, height: 6)
+        default: Image(systemName: "clock").font(.system(size: 9)).foregroundColor(.red)
+        }
+    }
+
+    private static func ago(_ date: Date?) -> String {
+        guard let date else { return "" }
+        let m = Int(Date().timeIntervalSince(date) / 60)
+        return m < 1 ? "now" : m < 60 ? "\(m)m" : m < 1440 ? "\(m / 60)h" : "\(m / 1440)d"
     }
 
     private func launch(cwd: String) {

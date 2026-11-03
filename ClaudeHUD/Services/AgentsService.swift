@@ -276,9 +276,10 @@ final class AgentsService: ObservableObject {
         // The iMac's running sessions (`IMacLive`, refreshed in the
         // background every 10 s), so a project row shows them with the same
         // badges as the Mac's. Its cwd is mapped onto this Mac's checkout; no
-        // pid, so nothing here can signal a local process; the claude.ai link
-        // of its Remote Control bridge, so attach opens claude.ai and the
-        // stop, logs and remove menu stays hidden, as for a phone row.
+        // pid, so nothing here can signal a local process; its tmux session,
+        // which a click attaches a Ghostty window to over ssh (never its
+        // claude.ai page: Ben, 2026-11-03, "claude.ai ... is never the right
+        // place to land"). The stop, logs and remove menu stays hidden.
         IMacLive.refresh { [weak self] in Task { @MainActor in self?.reload() } }
         for r in IMacLive.cached where r.kind == "interactive" {
             let cwd = SessionHost.iMac.macPath(r.cwd)
@@ -305,7 +306,7 @@ final class AgentsService: ObservableObject {
                 transcriptMtime: nil,
                 worktreePath: nil,
                 sessionId: r.sessionId,
-                remoteControlURL: r.remoteControlURL
+                iMacTmux: tmuxSession
             ))
         }
 
@@ -516,6 +517,17 @@ final class AgentsService: ObservableObject {
     /// `claude attach`), where a bare SIGTERM leaves it recorded as crashed.
     nonisolated static func stopAndWait(_ id: String) async -> (code: Int32, output: String) {
         await runCapture(resolveClaude(), ["stop", id], cwd: nil)
+    }
+
+    /// Open an iMac session in a Ghostty window: ssh to the iMac and attach
+    /// to its tmux session. False when it has no tmux session to attach to.
+    @discardableResult
+    static func openIMacWindow(_ a: AgentSession, terminalService: TerminalService) -> Bool {
+        guard let tmux = a.iMacTmux else { return false }
+        let answer = IMacLauncher.Answer(started: false, session: tmux,
+                                         attach: "tmux attach -t " + IMacLauncher.shellQuote("=" + tmux), dir: nil)
+        let app = FileManager.default.fileExists(atPath: "/Applications/Ghostty.app") ? "/Applications/Ghostty.app" : nil
+        return terminalService.launchWithCommand(IMacLauncher.attachCommand(answer), inDirectory: a.cwd, usingApp: app)
     }
 
     /// THE way the HUD opens a detached daemon session: a new terminal window

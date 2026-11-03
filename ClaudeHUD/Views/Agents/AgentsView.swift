@@ -264,6 +264,10 @@ struct AgentsView: View {
         // no window and no daemon job to attach to: open its claude.ai page,
         // where it can be read and driven, and leave the phone's process
         // alone.
+        if a.isIMac {
+            if !AgentsService.openIMacWindow(a, terminalService: terminalService) { NSSound.beep() }
+            return
+        }
         if let url = a.remoteControlURL {
             NSWorkspace.shared.open(url)
             return
@@ -464,14 +468,16 @@ private struct AgentRow: View {
                     .font(.system(size: 14 * scale))
             }
             .buttonStyle(.borderless)
-            .help(agent.isRemoteControl
+            .help(agent.isIMac
+                  ? "Attach in a terminal on the iMac (tmux)"
+                  : agent.isRemoteControl
                   ? "Open on claude.ai"
                   : "Attach in a terminal tab (claude attach \(agent.id))")
 
             // The daemon's verbs (logs, stop, respawn, remove) address a job
             // id; a Remote Control session has none, so its row offers only
             // the open action above.
-            if !agent.isRemoteControl {
+            if agent.hasDaemonJob {
             Menu {
                 Button("Attach", action: onAttach)
                 Button("View logs", action: onLogs)

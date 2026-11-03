@@ -235,8 +235,19 @@ struct AgentSession: Identifiable, Equatable {
     /// page in the browser instead of raising a window.
     var remoteControlURL: URL? = nil
 
+    /// Set only on an iMac row: the tmux session on the iMac's default tmux
+    /// server that holds it, which a click attaches a Ghostty window to over
+    /// ssh. Nil for an iMac session with no terminal (one Remote Control
+    /// spawned), which has nowhere to open on this Mac.
+    var iMacTmux: String? = nil
+
     /// True for a Remote Control session row (see `remoteControlURL`).
     var isRemoteControl: Bool { remoteControlURL != nil }
+    /// True for a session running on the iMac (`AgentsService.reload`).
+    var isIMac: Bool { template == "imac" }
+    /// The daemon's verbs (logs, stop, respawn, remove) address a Mac job
+    /// id: neither a phone row nor an iMac row has one.
+    var hasDaemonJob: Bool { !isRemoteControl && !isIMac }
 
     /// Raw daemon-derived state (activity truth, ignores window-openness).
     var display: AgentDisplayState {
