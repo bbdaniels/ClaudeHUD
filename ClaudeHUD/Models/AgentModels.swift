@@ -240,6 +240,10 @@ struct AgentSession: Identifiable, Equatable {
     /// ssh. Nil for an iMac session with no terminal (one Remote Control
     /// spawned), which has nowhere to open on this Mac.
     var iMacTmux: String? = nil
+    /// The tty of the terminal attached to this session on this Mac (a
+    /// `claude attach` or an ssh `tmux attach`), which names its Ghostty tab
+    /// so a click can select that tab rather than only raise the window.
+    var attachedTTY: String? = nil
 
     /// True for a Remote Control session row (see `remoteControlURL`).
     var isRemoteControl: Bool { remoteControlURL != nil }

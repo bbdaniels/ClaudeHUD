@@ -56,6 +56,7 @@ struct VaultTabView: View {
                     // per-row filter over the roster would be O(rows × agents)
                     // on every tick of a non-lazy, fully-realized list.
                     let live = folderLiveSessions
+                    let lines = folderSessionLines
                     let sections = recencySections(live: live)
                     if sections.isEmpty {
                         Text(searchText.isEmpty ? "No projects." : "No matches")
@@ -84,6 +85,7 @@ struct VaultTabView: View {
                                         effectiveDate: node.recency(effectiveUpdated),
                                         today: today,
                                         liveSessions: node.liveCounts(in: live),
+                                        sessionLines: lines[node.project.name] ?? [],
                                         badgeSessionsProvider: { liveSessions(forFolders: node.folderNames) },
                                         ownSessionsProvider: { liveSessions(forFolders: [node.project.name]) }
                                     )
@@ -94,6 +96,7 @@ struct VaultTabView: View {
                                             effectiveDate: effectiveUpdated(child),
                                             today: today,
                                             liveSessions: live[child.name] ?? LiveSessionCounts(),
+                                            sessionLines: lines[child.name] ?? [],
                                             badgeSessionsProvider: { liveSessions(forFolders: [child.name]) },
                                             ownSessionsProvider: { liveSessions(forFolders: [child.name]) }
                                         )
@@ -229,6 +232,15 @@ struct VaultTabView: View {
             map[folder] = counts
         }
         return map
+    }
+
+    /// folder name → one line per live session of that folder: what the row
+    /// lists beneath itself (Ben, 2026-11-03: one place that shows every
+    /// session, each told apart by name, machine and state). Equatable
+    /// values with no age in them, so the 2s roster republish re-renders a
+    /// row only when a session starts, ends, is renamed or changes state.
+    private var folderSessionLines: [String: [LiveSessionLine]] {
+        liveSessionsByFolder.mapValues { $0.map(LiveSessionLine.init) }
     }
 
     /// folder name → the live INTERACTIVE sessions themselves. One source for
@@ -476,6 +488,8 @@ private struct ProjectRowView: View {
     /// `AgentsService` here) so the row does not subscribe to the 2s roster
     /// republish — this list is deliberately non-lazy and fully realized.
     let liveSessions: LiveSessionCounts
+    /// This project's own live sessions, one line each, listed under the row.
+    let sessionLines: [LiveSessionLine]
     /// Resolves the sessions behind `liveSessions`, most recently active
     /// first: what a badge click cycles through. A closure, not an array, so
     /// the roster is walked on click only — holding the sessions here would
@@ -488,19 +502,22 @@ private struct ProjectRowView: View {
     @EnvironmentObject private var terminalService: TerminalService
     @State private var launchHovering = false
     @State private var launched = false
-    /// The sessions a badge with several lists (`focusNextLiveSession`).
-    @State private var badgeChoices: [AgentSession] = []
-    @State private var showBadgeChoices = false
 
     /// Leading inset that marks a row as a child of the row above it.
     private static let childInset: CGFloat = 18
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            ForEach(sessionLines) { line in sessionLineView(line) }
+        }
+    }
+
+    private var header: some View {
         HStack(spacing: 6) {
             DancingText(text: project.name, size: 14 * scale, weight: isChild ? .regular : .semibold)
             if !liveSessions.isEmpty {
                 LiveSessionBadges(counts: liveSessions, onTap: focusNextLiveSession)
-                    .popover(isPresented: $showBadgeChoices, arrowEdge: .bottom) { badgeChoiceList }
             }
             if let due = project.nextDue {
                 DueChip(due: due, today: today)
@@ -560,81 +577,60 @@ private struct ProjectRowView: View {
         }
     }
 
-    /// A badge click. One live session behind the badge (on a parent, its
-    /// own and its children's): open it. Several: list them, each named with
-    /// its machine and state, and open the one picked (Ben, 2026-11-03: "i
-    /// can't tell which is which if there is more than one"). Read-only: it
-    /// never touches the daemon and never launches a new session.
+    /// A badge click: the session that most needs Ben (waiting on him, then
+    /// the most recently active) among the row's, a parent's children
+    /// included. Every session is also its own line under its row.
     private func focusNextLiveSession() {
         let sessions = badgeSessionsProvider()
-        switch sessions.count {
-        case 0: GhosttyWindowService.activateApp()
-        case 1: open(sessions[0])
-        default:
-            badgeChoices = sessions
-            showBadgeChoices = true
+        guard let first = sessions.first(where: { $0.bucket == .needsInput }) ?? sessions.first else {
+            GhosttyWindowService.activateApp(); return
         }
+        open(first)
     }
 
-    /// Put Ben in the session: an iMac session's tmux over ssh, a Mac
-    /// session's Ghostty window, a phone session's claude.ai page (it has no
-    /// terminal anywhere).
+    /// Put Ben in the session, as a tab of this project's Ghostty window
+    /// (`AgentsService.open`). The window is the one another session of the
+    /// same project is attached in, when there is one.
     private func open(_ session: AgentSession) {
-        if session.isIMac {
-            if !AgentsService.openIMacWindow(session, terminalService: terminalService) { NSSound.beep() }
-            return
-        }
-        if let url = session.remoteControlURL {
-            NSWorkspace.shared.open(url)
-            return
-        }
-        let basename = URL(fileURLWithPath: session.cwd).lastPathComponent
-        if GhosttyWindowService.focusWindow(hostPid: session.attachedGhosttyPid,
-                                            titleContains: basename) { return }
-        GhosttyWindowService.activateApp()
+        let window = ownSessionsProvider().lazy.compactMap(\.attachedGhosttyPid).first
+        if !AgentsService.open(session, projectWindow: window, terminalService: terminalService) { NSSound.beep() }
     }
 
-    /// The list a badge with several sessions opens.
-    private var badgeChoiceList: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(badgeChoices, id: \.id) { s in
-                Button {
-                    showBadgeChoices = false
-                    open(s)
-                } label: {
-                    HStack(spacing: 6) {
-                        Self.stateGlyph(s.display)
-                        Text(s.name).font(.system(size: 12 * scale))
-                        Spacer(minLength: 12)
-                        Text(s.isIMac ? "iMac" : s.isRemoteControl ? "phone" : "Mac")
-                            .font(.custom("Fira Code", size: 10 * scale))
-                            .foregroundColor(.secondary)
-                        Text(Self.ago(s.updatedAt))
-                            .font(.custom("Fira Code", size: 10 * scale))
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+    /// One session under the row: its state, its name, its machine. A click
+    /// opens it (`open`).
+    private func sessionLineView(_ line: LiveSessionLine) -> some View {
+        Button {
+            if let s = badgeSessionsProvider().first(where: { $0.id == line.id }) { open(s) } else { NSSound.beep() }
+        } label: {
+            HStack(spacing: 6) {
+                Self.stateGlyph(line.state)
+                Text(line.name)
+                    .font(.system(size: 11.5 * scale))
+                    .foregroundColor(.primary.opacity(0.85))
+                    .lineLimit(1).truncationMode(.tail)
+                Spacer(minLength: 8)
+                Text(line.machine)
+                    .font(.custom("Fira Code", size: 9.5 * scale))
+                    .foregroundColor(.secondary.opacity(0.7))
             }
+            .padding(.leading, (isChild ? Self.childInset : 4) + 12)
+            .padding(.trailing, 4)
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
         }
-        .padding(6)
-        .frame(minWidth: 260)
+        .buttonStyle(.plain)
+        .help(line.state == .needsInput ? "Waiting on you: open it" : "Open this session")
     }
 
-    @ViewBuilder private static func stateGlyph(_ d: AgentDisplayState) -> some View {
-        switch d {
-        case .working: Circle().fill(Color.green).frame(width: 6, height: 6)
-        case .needsInput: Circle().fill(Color.orange).frame(width: 6, height: 6)
-        default: Image(systemName: "clock").font(.system(size: 9)).foregroundColor(.red)
+    /// Green: working. Red clock: its turn is done or it asks something, so
+    /// it waits on Ben (Ben, 2026-11-03: waiting "shoul dbe red cause that
+    /// means it needs somthing").
+    @ViewBuilder private static func stateGlyph(_ state: LiveSessionLine.State) -> some View {
+        switch state {
+        case .working: Circle().fill(Color.green).frame(width: 6, height: 6).frame(width: 10)
+        case .needsInput: Image(systemName: "exclamationmark.circle.fill").font(.system(size: 9)).foregroundColor(.red).frame(width: 10)
+        case .idle: Image(systemName: "clock").font(.system(size: 9)).foregroundColor(.red).frame(width: 10)
         }
-    }
-
-    private static func ago(_ date: Date?) -> String {
-        guard let date else { return "" }
-        let m = Int(Date().timeIntervalSince(date) / 60)
-        return m < 1 ? "now" : m < 60 ? "\(m)m" : m < 1440 ? "\(m / 60)h" : "\(m / 1440)d"
     }
 
     private func launch(cwd: String) {
@@ -739,6 +735,27 @@ private struct NewProjectSheet: View {
             dismiss()
         case .failure(let err):
             errorText = err.errorDescription
+        }
+    }
+}
+
+/// One live session as a project row lists it. Equatable and free of ages,
+/// so a row redraws only when what it shows changes.
+struct LiveSessionLine: Identifiable, Equatable {
+    enum State: Equatable { case working, needsInput, idle }
+    let id: String
+    let name: String
+    let machine: String
+    let state: State
+
+    init(_ a: AgentSession) {
+        id = a.id
+        name = a.name.isEmpty ? URL(fileURLWithPath: a.cwd).lastPathComponent : a.name
+        machine = a.isIMac ? "iMac" : a.isRemoteControl ? "phone" : "Mac"
+        switch a.bucket {
+        case .working: state = .working
+        case .needsInput: state = .needsInput
+        default: state = .idle
         }
     }
 }

@@ -246,6 +246,63 @@ enum GhosttyWindowService {
         }
     }
 
+    /// An object specifier: `from`'s element or property `want`, by `form`.
+    private static func specifier(want: String, form: String, seld: NSAppleEventDescriptor,
+                                  from: NSAppleEventDescriptor = .null()) -> NSAppleEventDescriptor? {
+        let r = NSAppleEventDescriptor.record()
+        r.setDescriptor(NSAppleEventDescriptor(typeCode: fourCC(want)), forKeyword: fourCC("want"))
+        r.setDescriptor(NSAppleEventDescriptor(enumCode: fourCC(form)), forKeyword: fourCC("form"))
+        r.setDescriptor(seld, forKeyword: fourCC("seld"))
+        r.setDescriptor(from, forKeyword: fourCC("from"))
+        return r.coerce(toDescriptorType: fourCC("obj "))
+    }
+
+    /// Send one event to one Ghostty process, by pid (see `newTab` for why
+    /// never by name). Nil on any failure.
+    private static func send(_ cls: String, _ id: String, to pid: pid_t, direct: NSAppleEventDescriptor) -> NSAppleEventDescriptor? {
+        let event = NSAppleEventDescriptor(
+            eventClass: fourCC(cls), eventID: fourCC(id),
+            targetDescriptor: NSAppleEventDescriptor(processIdentifier: pid),
+            returnID: AEReturnID(kAutoGenerateReturnID),
+            transactionID: AETransactionID(kAnyTransactionID))
+        event.setParam(direct, forKeyword: fourCC("----"))
+        do {
+            let reply = try event.sendEvent(options: [.waitForReply], timeout: 5)
+            if let errn = reply.paramDescriptor(forKeyword: fourCC("errn")), errn.int32Value != 0 { return nil }
+            return reply
+        } catch {
+            ghosttyLog.info("\(cls, privacy: .public)/\(id, privacy: .public) to pid=\(pid) failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    /// Bring forward the one terminal of Ghostty process `pid` whose tty is
+    /// `tty` (`ttys016` as ps prints it, or `/dev/ttys016`): its tab selected
+    /// and its window raised, through Ghostty's `focus` command. A session
+    /// is attached in exactly one terminal, so this is the exact tab, where
+    /// raising the window by title could land on another session's tab of
+    /// the same project. False when the process has no such terminal or
+    /// scripting fails.
+    @discardableResult
+    static func focusTerminal(inProcess pid: pid_t, tty: String) -> Bool {
+        let want = tty.hasPrefix("/dev/") ? tty : "/dev/" + tty
+        // tty of every terminal. "every" is the absolute ordinal `all `, in
+        // host byte order; as an enumeration Ghostty answers -1700.
+        var all = fourCC("all ")
+        guard let ordinal = NSAppleEventDescriptor(descriptorType: fourCC("abso"), bytes: &all, length: 4),
+              let every = specifier(want: "Gtrm", form: "indx", seld: ordinal),
+              let ttys = specifier(want: "prop", form: "prop", seld: NSAppleEventDescriptor(typeCode: fourCC("Gtty")), from: every),
+              let list = send("core", "getd", to: pid, direct: ttys)?.paramDescriptor(forKeyword: fourCC("----")),
+              list.numberOfItems > 0 else { return false }
+        var index: Int? = nil
+        for i in 1...list.numberOfItems where list.atIndex(i)?.stringValue == want { index = i; break }
+        guard let i = index,
+              let terminal = specifier(want: "Gtrm", form: "indx", seld: NSAppleEventDescriptor(int32: Int32(i))),
+              send("Ghst", "Fcus", to: pid, direct: terminal) != nil else { return false }
+        NSRunningApplication(processIdentifier: pid)?.activate()
+        return true
+    }
+
     /// Returns true if Accessibility permission is granted for this process.
     /// `prompt: true` shows the system dialog if not yet granted.
     @discardableResult

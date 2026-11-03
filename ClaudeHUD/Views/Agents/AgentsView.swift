@@ -264,8 +264,8 @@ struct AgentsView: View {
         // no window and no daemon job to attach to: open its claude.ai page,
         // where it can be read and driven, and leave the phone's process
         // alone.
-        if a.isIMac {
-            if !AgentsService.openIMacWindow(a, terminalService: terminalService) { NSSound.beep() }
+        if a.isIMac || a.attachedTTY != nil {
+            if !AgentsService.open(a, projectWindow: nil, terminalService: terminalService) { NSSound.beep() }
             return
         }
         if let url = a.remoteControlURL {

@@ -95,3 +95,24 @@ final class IMacLauncherTests: XCTestCase {
                        .refused(IMacLauncher.outsideProjectsOnIMac), "an iMac session never falls back to this Mac")
     }
 }
+
+/// The scan that finds a Ghostty tab attached to an iMac session reads the
+/// ssh client's command line as ps prints it (argv joined by spaces, the
+/// remote command's quotes kept).
+final class IMacAttachScanTests: XCTestCase {
+    func testTheAttachCommandItBuildsIsTheOneItFinds() {
+        let answer = IMacLauncher.Answer(started: false, session: "ClaudeHUD-2",
+            attach: "tmux attach -t " + IMacLauncher.shellQuote("=ClaudeHUD-2"), dir: nil)
+        // what ps shows for the argv ["ssh", "-t", "imac", "<attach>"]
+        let ps = "ssh -t imac " + answer.attach
+        XCTAssertEqual(IMacLauncher.attachTarget(command: ps), "ClaudeHUD-2")
+        XCTAssertEqual(IMacLauncher.attachTarget(command: "/usr/bin/ssh -t imac tmux attach -t =x"), "x")
+    }
+
+    func testOtherCommandsAreNotAttaches() {
+        XCTAssertNil(IMacLauncher.attachTarget(command: "ssh imac tmux ls"))
+        XCTAssertNil(IMacLauncher.attachTarget(command: "ssh -t pi tmux attach -t =x"))
+        XCTAssertNil(IMacLauncher.attachTarget(command: "tmux attach -t =x"))
+        XCTAssertNil(IMacLauncher.attachTarget(command: "claude attach abc123"))
+    }
+}

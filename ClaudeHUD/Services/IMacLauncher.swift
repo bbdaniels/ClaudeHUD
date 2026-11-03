@@ -220,4 +220,16 @@ enum IMacLauncher {
         process.waitUntilExit()
         return outcome(status: process.terminationStatus, stdout: data)
     }
+
+    /// The tmux session an `ssh <iMac> tmux attach -t '=<name>'` command line
+    /// attaches to, or nil for any other command.
+    static func attachTarget(command: String) -> String? {
+        let parts = command.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        guard let argv0 = parts.first, argv0 == "ssh" || argv0.hasSuffix("/ssh"),
+              parts.contains(sshHost),
+              let a = parts.firstIndex(of: "attach"), a > 0, parts[a - 1].hasSuffix("tmux"),
+              let t = parts[a...].firstIndex(of: "-t"), t + 1 < parts.count else { return nil }
+        let name = parts[t + 1].trimmingCharacters(in: CharacterSet(charactersIn: "'\"="))
+        return name.isEmpty ? nil : name
+    }
 }

@@ -39,7 +39,13 @@ final class AgentsService: ObservableObject {
     struct AttachInfo {
         let windowTitle: String?   // nil when no Ghostty ancestor
         let ghosttyPid: pid_t?
+        var tty: String? = nil     // the attach process's terminal, e.g. ttys016
     }
+
+    /// The key `scanAttaches` files an iMac attach under: the tmux session
+    /// an `ssh … tmux attach -t =<name>` process on this Mac attaches to.
+    nonisolated static func iMacAttachKey(_ tmux: String) -> String { "imac-tmux:" + tmux }
+
     private var attachCache: (map: [String: AttachInfo], at: Date)?
 
     private func attachScan() -> [String: AttachInfo] {
@@ -64,19 +70,25 @@ final class AgentsService: ObservableObject {
 
         var result: [String: AttachInfo] = [:]
         for (_, info) in procs {
-            guard case .attachClient(let short) = ClaudeProcKind.of(command: info.command) else { continue }
+            let short: String
+            if case .attachClient(let s) = ClaudeProcKind.of(command: info.command) {
+                short = s
+            } else if let tmux = IMacLauncher.attachTarget(command: info.command) {
+                short = iMacAttachKey(tmux)
+            } else { continue }
             // Already recorded by a sibling (rare — multiple attach procs for
             // the same short)? Keep the first; they pin the same window.
             guard result[short] == nil else { continue }
 
             // Walk ancestors, capped at 16 hops, looking for Ghostty.
             var (cur, hops) = (info.ppid, 0)
-            var attach = AttachInfo(windowTitle: nil, ghosttyPid: nil)
+            let tty = info.tty.isEmpty || info.tty == "??" ? nil : info.tty
+            var attach = AttachInfo(windowTitle: nil, ghosttyPid: nil, tty: tty)
             while cur > 1, hops < 16, let p = procs[cur] {
                 hops += 1
                 if p.command.contains("/Ghostty.app/") {
                     let title = Self.parseTitle(from: p.command)
-                    attach = AttachInfo(windowTitle: title, ghosttyPid: pid_t(cur))
+                    attach = AttachInfo(windowTitle: title, ghosttyPid: pid_t(cur), tty: tty)
                     break
                 }
                 cur = p.ppid
@@ -227,7 +239,8 @@ final class AgentsService: ObservableObject {
                 transcriptMtime: transcriptMtime,
                 worktreePath: worktreePath,
                 sessionId: (s["sessionId"] as? String)
-                    ?? transcriptPath.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent }
+                    ?? transcriptPath.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent },
+                attachedTTY: attach?.tty
             ))
         }
 
@@ -285,6 +298,7 @@ final class AgentsService: ObservableObject {
             let cwd = SessionHost.iMac.macPath(r.cwd)
             let project = cwd.isEmpty ? "" : URL(fileURLWithPath: cwd).lastPathComponent
             let tmuxSession = r.tmux.flatMap { $0.split(separator: ":").first.map(String.init) }
+            let attach = tmuxSession.flatMap { attaches[Self.iMacAttachKey($0)] }
             result.append(AgentSession(
                 id: "imac:" + r.sessionId,
                 name: r.name ?? tmuxSession ?? "\(project) · iMac",
@@ -301,12 +315,13 @@ final class AgentsService: ObservableObject {
                 tempo: nil,
                 inFlightTasks: 0,
                 isOpen: true,
-                attachedWindowTitle: nil,
-                attachedGhosttyPid: nil,
+                attachedWindowTitle: attach?.windowTitle,
+                attachedGhosttyPid: attach?.ghosttyPid,
                 transcriptMtime: nil,
                 worktreePath: nil,
                 sessionId: r.sessionId,
-                iMacTmux: tmuxSession
+                iMacTmux: tmuxSession,
+                attachedTTY: attach?.tty
             ))
         }
 
@@ -519,15 +534,42 @@ final class AgentsService: ObservableObject {
         await runCapture(resolveClaude(), ["stop", id], cwd: nil)
     }
 
-    /// Open an iMac session in a Ghostty window: ssh to the iMac and attach
-    /// to its tmux session. False when it has no tmux session to attach to.
+    /// THE way the HUD puts Ben in a live session (Ben, 2026-11-03: one
+    /// window per project, each session a tab in it, never claude.ai when
+    /// there is a terminal). Already attached here: select its Ghostty tab
+    /// (by the attach's tty), else raise its window. Not attached: a new tab
+    /// in `projectWindow` (the Ghostty process of another session of the
+    /// same project), else a new window, running `tmux attach` over ssh for
+    /// an iMac session or `claude attach` for a Mac daemon session. A session
+    /// started from the phone or claude.ai has no terminal anywhere (Remote
+    /// Control spawns it headless), so it alone opens its claude.ai page.
+    /// False when nothing could be opened.
     @discardableResult
-    static func openIMacWindow(_ a: AgentSession, terminalService: TerminalService) -> Bool {
-        guard let tmux = a.iMacTmux else { return false }
-        let answer = IMacLauncher.Answer(started: false, session: tmux,
-                                         attach: "tmux attach -t " + IMacLauncher.shellQuote("=" + tmux), dir: nil)
+    static func open(_ a: AgentSession, projectWindow: pid_t?, terminalService: TerminalService) -> Bool {
+        if let pid = a.attachedGhosttyPid {
+            if let tty = a.attachedTTY, GhosttyWindowService.focusTerminal(inProcess: pid, tty: tty) { return true }
+            if GhosttyWindowService.focusWindow(hostPid: pid, titleContains: URL(fileURLWithPath: a.cwd).lastPathComponent) { return true }
+        }
         let app = FileManager.default.fileExists(atPath: "/Applications/Ghostty.app") ? "/Applications/Ghostty.app" : nil
-        return terminalService.launchWithCommand(IMacLauncher.attachCommand(answer), inDirectory: a.cwd, usingApp: app)
+        let dir = a.cwd.isEmpty || !FileManager.default.fileExists(atPath: a.cwd) ? nil : a.cwd
+        let bg = UserDefaults.standard.bool(forKey: "history.useColors") && dir != nil
+            ? TerminalService.projectColor(for: URL(fileURLWithPath: a.cwd).lastPathComponent) : nil
+        if a.isIMac {
+            guard let tmux = a.iMacTmux else { return false }
+            let answer = IMacLauncher.Answer(started: false, session: tmux,
+                attach: "tmux attach -t " + IMacLauncher.shellQuote("=" + tmux), dir: nil)
+            return terminalService.launchWithCommand(IMacLauncher.attachCommand(answer), inDirectory: dir,
+                                                     usingApp: app, backgroundColor: bg, existingGhosttyPid: projectWindow)
+        }
+        if let url = a.remoteControlURL {
+            NSWorkspace.shared.open(url)
+            return true
+        }
+        if a.hasDaemonJob {
+            return terminalService.launchWithCommand("claude attach \(a.id)", inDirectory: dir,
+                                                     usingApp: app, backgroundColor: bg, existingGhosttyPid: projectWindow)
+        }
+        return GhosttyWindowService.activateApp()
     }
 
     /// THE way the HUD opens a detached daemon session: a new terminal window
