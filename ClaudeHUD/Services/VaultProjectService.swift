@@ -170,6 +170,56 @@ final class VaultProjectService: ObservableObject {
         cwdFolderCache[cwd] ?? nil
     }
 
+    // MARK: - Per-session filing (claim, then dominant record cwd, then start cwd)
+
+    /// Session id → the project folder `SessionFiling.resolveFolder` gave it
+    /// (`.some(nil)`: no project). Rebuilt for the sessions passed to
+    /// `primeFiling`; read through `folder(forSession:cwd:)`.
+    private var sessionFolderCache: [String: String?] = [:]
+
+    /// Resolve the filing of each `(sessionId, cwd)` by the one rule in
+    /// `SessionFiling`: the claim record, else the project most of its
+    /// transcript's records ran in (`cwdCounts`, from the transcript index),
+    /// else its start directory. The claim files and every directory
+    /// resolution are read off the main actor. Re-run whenever the sessions,
+    /// the index's tallies or the claims directory change; each call
+    /// re-reads the claims, so the latest write wins.
+    func primeFiling(sessions: [(sessionId: String, cwd: String)],
+                     cwdCounts: [String: [String: Int]]) async {
+        guard let vaultRoot = vaultPath?.path, !sessions.isEmpty else { return }
+        let known = cwdFolderCache
+        let result: (filed: [String: String?], resolved: [String: String?]) =
+            await Task.detached(priority: .userInitiated) {
+                var resolved: [String: String?] = [:]
+                func resolve(_ cwd: String) -> String? {
+                    if let hit = known[cwd] { return hit }
+                    if let hit = resolved[cwd] { return hit }
+                    let folder = ProjectResolver.resolveFolder(cwd: cwd, vaultPath: vaultRoot)
+                    resolved[cwd] = folder
+                    return folder
+                }
+                var filed: [String: String?] = [:]
+                for s in sessions where !s.sessionId.isEmpty {
+                    filed[s.sessionId] = SessionFiling.resolveFolder(
+                        claim: SessionFiling.readClaim(sessionId: s.sessionId),
+                        cwdCounts: cwdCounts[s.sessionId] ?? [:],
+                        fallbackCwd: s.cwd, resolve: resolve)
+                }
+                return (filed, resolved)
+            }.value
+        for (k, v) in result.resolved { cwdFolderCache[k] = v }
+        for (k, v) in result.filed { sessionFolderCache[k] = v }
+    }
+
+    /// The project a session is filed under. A session `primeFiling` has
+    /// seen reads its filed folder; any other falls back to its start
+    /// directory (worktrees collapsed), which is step 3 of the same rule.
+    func folder(forSession sessionId: String?, cwd: String) -> String? {
+        if let sessionId, let filed = sessionFolderCache[sessionId] { return filed }
+        let repo = SessionFiling.repoCwd(cwd)
+        return repo.isEmpty ? nil : folderName(forCwd: repo)
+    }
+
     // MARK: - Live sessions per project
 
     /// folder name → the live INTERACTIVE sessions among `agents`. THE
@@ -182,7 +232,7 @@ final class VaultProjectService: ObservableObject {
         var map: [String: [AgentSession]] = [:]
         for a in agents {
             guard a.isAlive, a.isOpen, !a.cwd.isEmpty,
-                  let folder = folderName(forCwd: a.cwd) else { continue }
+                  let folder = folder(forSession: a.sessionId, cwd: a.cwd) else { continue }
             // Only the three badged buckets: an alive+open session in an
             // unrecognized daemon state (`.other`) must not be click-cyclable
             // when the badge never advertised it.

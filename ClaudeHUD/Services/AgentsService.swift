@@ -225,7 +225,51 @@ final class AgentsService: ObservableObject {
                 attachedWindowTitle: attach?.windowTitle,
                 attachedGhosttyPid: attach?.ghosttyPid,
                 transcriptMtime: transcriptMtime,
-                worktreePath: worktreePath
+                worktreePath: worktreePath,
+                sessionId: (s["sessionId"] as? String)
+                    ?? transcriptPath.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent }
+            ))
+        }
+
+        // Sessions started from the Claude app through Remote Control. They
+        // are `--print` children of `claude remote-control`, not daemon jobs,
+        // so they have no jobs/<id> directory and no window; the only record
+        // of them is the CLI's own ~/.claude/sessions/<pid>.json. One row
+        // each, keyed by session id, always alive and open while its process
+        // runs (the record is dropped once the pid is gone), so the reaper,
+        // which deletes only dead rows, never considers them.
+        for r in ClaudeSessionRecords.readLive() where r.isRemoteControlChild {
+            let transcript = ClaudeSessionRecords.transcriptPath(sessionId: r.sessionId, cwd: r.cwd)
+            let transcriptMtime = transcript.flatMap {
+                (try? fm.attributesOfItem(atPath: $0))?[.modificationDate] as? Date
+            }
+            let name = Self.resolveName(
+                id: r.sessionId, stateName: r.name, intent: "",
+                transcriptPath: transcript,
+                projectName: r.cwd.isEmpty ? "" : URL(fileURLWithPath: r.cwd).lastPathComponent,
+                template: "phone")
+            result.append(AgentSession(
+                id: r.sessionId,
+                name: name,
+                rawState: r.displayState,
+                detail: r.waitingFor ?? "",
+                intent: "",
+                cwd: r.cwd,
+                createdAt: r.startedAt,
+                updatedAt: r.updatedAt,
+                isAlive: true,
+                pid: r.pid,
+                isPinned: false,
+                template: "remote-control",
+                tempo: nil,
+                inFlightTasks: 0,
+                isOpen: true,
+                attachedWindowTitle: nil,
+                attachedGhosttyPid: nil,
+                transcriptMtime: transcriptMtime,
+                worktreePath: nil,
+                sessionId: r.sessionId,
+                remoteControlURL: r.remoteControlURL
             ))
         }
 

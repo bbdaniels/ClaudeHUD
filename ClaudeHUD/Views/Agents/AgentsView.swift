@@ -257,6 +257,14 @@ struct AgentsView: View {
     // MARK: - Actions
 
     private func attach(_ a: AgentSession) {
+        // A session started from the Claude app through Remote Control has
+        // no window and no daemon job to attach to: open its claude.ai page,
+        // where it can be read and driven, and leave the phone's process
+        // alone.
+        if let url = a.remoteControlURL {
+            NSWorkspace.shared.open(url)
+            return
+        }
         // If we know which Ghostty process is currently hosting
         // `claude attach <id>`, raise its window directly — no title
         // guessing. Two unrelated shorts can share a project name, so the
@@ -382,7 +390,19 @@ private struct AgentRow: View {
                     // two views read as the same pool. Show the title
                     // when we have one (Ghostty parent), a plain
                     // "(attached)" label otherwise (Terminal/iTerm parent).
-                    if agent.isOpen {
+                    if agent.isRemoteControl {
+                        HStack(spacing: 3) {
+                            Image(systemName: "iphone")
+                                .font(.system(size: 8 * scale))
+                            Text("Remote Control")
+                                .font(.system(size: 8 * scale, weight: .medium))
+                        }
+                        .foregroundColor(.accentColor)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Color.accentColor.opacity(0.15))
+                        .clipShape(Capsule())
+                        .help("Started from the Claude app; click ➜ to open it on claude.ai")
+                    } else if agent.isOpen {
                         let label = agent.attachedWindowTitle ?? "(attached)"
                         HStack(spacing: 3) {
                             Image(systemName: "macwindow")
@@ -441,8 +461,14 @@ private struct AgentRow: View {
                     .font(.system(size: 14 * scale))
             }
             .buttonStyle(.borderless)
-            .help("Attach in a terminal tab (claude attach \(agent.id))")
+            .help(agent.isRemoteControl
+                  ? "Open on claude.ai"
+                  : "Attach in a terminal tab (claude attach \(agent.id))")
 
+            // The daemon's verbs (logs, stop, respawn, remove) address a job
+            // id; a Remote Control session has none, so its row offers only
+            // the open action above.
+            if !agent.isRemoteControl {
             Menu {
                 Button("Attach", action: onAttach)
                 Button("View logs", action: onLogs)
@@ -461,6 +487,7 @@ private struct AgentRow: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 7)

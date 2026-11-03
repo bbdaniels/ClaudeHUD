@@ -40,6 +40,13 @@ class SessionHistoryService: ObservableObject {
     @Published var isLoading = false
     @Published var searchResults: [String: SessionSearchResult] = [:]  // sessionId -> result
     @Published var isSearching = false
+    /// Session id → working directory → how many of its records ran there,
+    /// from the transcript index. Published after each index pass; the
+    /// filing rule (`VaultProjectService.primeFiling`) reads it.
+    @Published private(set) var transcriptCwdCounts: [String: [String: Int]] = [:]
+    /// Bumped whenever `transcriptCwdCounts` changes, so a view can key a
+    /// re-prime on it without hashing the whole table.
+    @Published private(set) var transcriptCwdGeneration = 0
 
     private let claudeProjectsDir = "\(NSHomeDirectory())/.claude/projects"
     private var searchTask: Task<Void, Never>?
@@ -119,7 +126,12 @@ class SessionHistoryService: ObservableObject {
         let index = transcriptIndex
         indexTask = Task { [weak self] in
             await index.update(files: files)
+            let counts = await index.cwdCounts()
             guard let self else { return }
+            if counts != self.transcriptCwdCounts {
+                self.transcriptCwdCounts = counts
+                self.transcriptCwdGeneration &+= 1
+            }
             self.indexTask = nil
             if !self.currentQuery.isEmpty { self.search(query: self.currentQuery) }
         }
@@ -271,7 +283,7 @@ class SessionHistoryService: ObservableObject {
     /// ones (the daily review that replaced the digest writes none). Loaded
     /// once per scan; an untitled session falls
     /// back to its first real prompt. A sidecar is a LABEL, not a listing
-    /// decision: machine one-shots are dropped by classifyHead even when a
+    /// decision: machine one-shots are dropped by TranscriptHead.classify even when a
     /// stray sidecar exists.
     nonisolated private static func loadSidecarTitles() -> [String: String] {
         let dir = "\(NSHomeDirectory())/.claude/hud/session-titles"
@@ -301,28 +313,6 @@ class SessionHistoryService: ObservableObject {
         let stripped = rest.drop { ":—–- ".contains($0) }
         guard stripped.count >= 8 else { return title }  // never strip to a stub
         return stripped.prefix(1).uppercased() + String(stripped.dropFirst())
-    }
-
-    // MARK: - Message Content
-
-    /// Extract user/assistant text content from a JSONL line (any format).
-    nonisolated fileprivate static func extractMessageContent(from json: [String: Any]) -> String? {
-        // Format 1: {"role": "user"/"assistant", "content": "..."}
-        if let role = json["role"] as? String, role == "user" || role == "assistant" {
-            return extractTextContent(json["content"])
-        }
-        // Format 2: {"type": "human"/"assistant", "message": {...}}
-        if let type = json["type"] as? String, (type == "human" || type == "assistant") {
-            if let msg = json["message"] as? [String: Any] {
-                return extractTextContent(msg["content"])
-            }
-        }
-        // Format 3: {"message": {"role": "user"/"assistant", ...}}
-        if let msg = json["message"] as? [String: Any],
-           let role = msg["role"] as? String, role == "user" || role == "assistant" {
-            return extractTextContent(msg["content"])
-        }
-        return nil
     }
 
     // MARK: - Project Path Decoding
@@ -427,25 +417,11 @@ class SessionHistoryService: ObservableObject {
         return results
     }
 
-    // MARK: - Head Classification
-
-    /// What the head of a transcript says about a session. `.normal` carries
-    /// the first genuine user prompt (preview-ready); `.magicLaunch` the
-    /// project name parsed from the bootstrap boilerplate; `.machine` is a
-    /// programmatic one-shot (never listed); `.unknown` means the head held
-    /// no verdict (listed only if a title sidecar vouches for it).
-    private enum HeadClass {
-        case machine
-        case unknown
-        case normal(String)
-        case magicLaunch(String)
-    }
-
     /// A transcript's listing verdict: its head class resolved to a label.
     /// Expensive (a 64 KB head read, plus up to 1 MB for a magic launch), so
     /// the scan caches it per file version.
     nonisolated private static func headVerdict(for path: String, mtime: Double, size: Int64) -> CachedHead {
-        switch classifyHead(from: path) {
+        switch TranscriptHead.classify(path: path) {
         case .machine:
             return CachedHead(mtime: mtime, size: size, kind: .machine, label: nil)
         case .unknown:
@@ -464,95 +440,22 @@ class SessionHistoryService: ObservableObject {
         }
     }
 
-    /// Classify a session from the first 64 KB of its transcript.
-    ///
-    ///  * **.machine** — programmatic `claude -p` runs: skill-tip catalog
-    ///    selectors, remote-control liveness probes (PONG / SMOKE_OK), old
-    ///    runs of the retired per-session vault digest. Detected
-    ///    STRUCTURALLY: an SDK
-    ///    one-shot's user record carries `entrypoint: "sdk-cli"`, while every
-    ///    kind of real session (terminal, VSCode, desktop, magic-launch,
-    ///    background job) records "cli"-family entrypoints. ~7,000 of these
-    ///    litter ~/.claude/projects vs ~250 real sessions. Prompt-prefix
-    ///    checks cover old transcripts that predate the field.
-    ///
-    ///    A `promptSource: "sdk"` record alone is NOT condemning: a real
-    ///    interactive session can carry an injected selector prompt as its
-    ///    FIRST user record yet hold the person's typed work after it
-    ///    (observed in the wild: 1 of 7,617 transcripts). Such records are
-    ///    skipped; `<command>` wrappers count as interactive evidence; only
-    ///    if sdk records were seen and nothing interactive followed does the
-    ///    window end as .machine.
-    nonisolated private static func classifyHead(from path: String) -> HeadClass {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return .unknown }
-        defer { handle.closeFile() }
-
-        let data = handle.readData(ofLength: 65536)
-        guard let text = String(data: data, encoding: .utf8) else { return .unknown }
-
-        var sawSdk = false
-        var sawLive = false
-        for line in text.components(separatedBy: "\n").prefix(400) {
-            guard !line.isEmpty,
-                  let lineData = line.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any]
-            else { continue }
-
-            guard let content = extractMessageContent(from: json),
-                  let role = messageRole(from: json), role == "user" else { continue }
-
-            // Human-driven RELAY sessions run as SDK processes (entrypoint
-            // "sdk-cli") yet are a person's real work: the ClaudeHUD Slack
-            // relay stamps its context preamble onto the first user message.
-            // Match the marker BEFORE the sdk-cli drop or every Slack session
-            // vanishes from history. Title = the user's own text after the
-            // preamble.
-            if content.hasPrefix("[ClaudeHUD Slack session.") {
-                let body = content.range(of: "User message: ")
-                    .map { String(content[$0.upperBound...]) } ?? content
-                let title = body.trimmingCharacters(in: .whitespacesAndNewlines)
-                return .normal(title.isEmpty ? "Slack session" : String(title.prefix(100)))
-            }
-            if json["entrypoint"] as? String == "sdk-cli" { return .machine }
-            if json["promptSource"] as? String == "sdk" { sawSdk = true; continue }
-
-            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty { continue }
-            // Magic-launch bootstrap is delivered as the `/project`
-            // slash command, whose recorded first turn starts with the
-            // `<command-name>…` wrapper — so it must be recognised BEFORE the
-            // generic `<`-wrapper skip below, or it would be swallowed as a
-            // pass-through and the session mislabelled as normal.
-            if let project = magicLaunchProject(trimmed) {
-                return .magicLaunch(project)
-            }
-            // Command/skill wrappers precede the real prompt in real
-            // sessions: skip the MESSAGE, note the interactive evidence,
-            // keep scanning.
-            if isPassThroughPrompt(trimmed) { sawLive = true; continue }
-            // Known machine first-prompts drop the SESSION.
-            if isMachineFirstPrompt(trimmed) { return .machine }
-            return .normal(String(trimmed.prefix(100)))
-        }
-
-        return (sawSdk && !sawLive) ? .machine : .unknown
-    }
-
     /// The opening of the conversation as the person had it: their first
     /// `promptLimit` genuine prompts (after any magic-launch bootstrap) and
     /// the first assistant text that followed the first one. Bootstrap
     /// context loading can run past a megabyte, so the file is streamed in
-    /// chunks until enough is found. Only records the person sent count:
-    /// `promptSource` typed, queued (typed while Claude was busy), or
-    /// suggestion_accepted; system-injected records (task notifications) and
-    /// meta/skill expansions carry other sources or none. Read-only.
+    /// chunks until enough is found. Only records the person sent count
+    /// (`TranscriptRecord.humanTurnMarkers`: a terminal's typed, queued or
+    /// accepted-suggestion turns, and any surface's `turnOrigin: "human"`,
+    /// which is how the phone's and the desktop app's turns read);
+    /// system-injected records (task notifications) and meta/skill
+    /// expansions carry neither. Read-only.
     nonisolated static func conversationOpening(in path: String, promptLimit: Int, wantReply: Bool)
         -> (prompts: [String], reply: String?) {
         guard let handle = FileHandle(forReadingAtPath: path) else { return ([], nil) }
         defer { handle.closeFile() }
 
-        let sources = ["typed", "queued", "suggestion_accepted"]
-            .map { Data("\"promptSource\":\"\($0)\"".utf8) }
+        let sources = TranscriptRecord.humanTurnMarkers
         let assistantMarker = Data("\"type\":\"assistant\"".utf8)
         var prompts: [String] = []
         var reply: String?
@@ -571,8 +474,8 @@ class SessionHistoryService: ObservableObject {
                 let isReply = wantReply && reply == nil && !prompts.isEmpty && line.range(of: assistantMarker) != nil
                 guard isPrompt || isReply,
                       let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-                      let role = messageRole(from: json),
-                      let content = extractMessageContent(from: json)
+                      let role = TranscriptRecord.role(from: json),
+                      let content = TranscriptRecord.messageContent(from: json)
                 else { continue }
                 let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
                 if trimmed.isEmpty { continue }
@@ -580,7 +483,7 @@ class SessionHistoryService: ObservableObject {
                 if isReply, role == "assistant" {
                     reply = String(trimmed.prefix(400))
                 } else if isPrompt, role == "user" {
-                    if magicLaunchProject(trimmed) != nil || isPassThroughPrompt(trimmed) { continue }
+                    if TranscriptHead.magicLaunchProject(trimmed) != nil || TranscriptHead.isPassThroughPrompt(trimmed) { continue }
                     if trimmed.hasPrefix("Caveat: The messages below") { continue }  // local-command caveat
                     if trimmed.hasPrefix("[Request interrupted") { continue }        // interrupt sentinel
                     prompts.append(String(trimmed.prefix(300)))
@@ -590,101 +493,6 @@ class SessionHistoryService: ObservableObject {
             if atEOF { return (prompts, reply) }
             pending = Data(pending[end...])
         }
-    }
-
-    /// Synthetic user messages that are commands passed through to Claude,
-    /// not the user's actual topic — they precede the real prompt in a real
-    /// session, so the scan skips past them. Explicit prefix (not a broad
-    /// heuristic) so real prompts are never hidden.
-    nonisolated private static func isPassThroughPrompt(_ s: String) -> Bool {
-        s.hasPrefix("<")  // <command>/<skill>/<local-command-caveat> wrappers
-    }
-
-    /// First prompts that mark the whole SESSION as machine-generated — a
-    /// programmatic one-shot, not the user's work. The structural sdk-cli
-    /// check in classifyHead catches the modern ones; these prefixes cover
-    /// transcripts that predate the entrypoint/promptSource fields. Extend
-    /// as new probe forms appear.
-    nonisolated private static func isMachineFirstPrompt(_ s: String) -> Bool {
-        if s.hasPrefix("You select the single most relevant skill") { return true }  // skill-tip catalog selector
-        if s.hasPrefix("# Session Ingest") { return true }                           // old transcripts of the retired per-session vault digest
-        if s.hasPrefix("<!-- === Managed by ClaudeHUD") { return true }              // managed-prompt pipelines
-        if s.hasPrefix("Reply with exactly") { return true }                         // liveness probes ("…the word: PONG", "…: SMOKE_OK")
-        if s.hasPrefix("Return ONLY this JSON object") { return true }               // remote-control JSON echo probe
-        return false
-    }
-
-    /// Project name carried by a magic-launch bootstrap, or nil if the message
-    /// isn't one. The bootstrap is delivered as the `/project` slash command
-    /// (`/vault-bootstrap` before 2026-10-25; see `magicLaunchArg` in
-    /// HUDContentView + the command file at ~/.claude/commands/project.md). Handles both ways Claude Code
-    /// may record that first turn: the usual `<command-name>/vault-bootstrap
-    /// </command-name>…<command-args>…</command-args>` wrapper, and a raw
-    /// `/vault-bootstrap <args>` line (fallback). The args are `<project>`
-    /// optionally followed by ` :: <resolvedVaultPath>`; the project is the
-    /// text before ` :: `. Recognising this lets history relabel these
-    /// sessions by project + real prompt instead of the bootstrap boilerplate.
-    ///
-    /// The wrapper is matched ANYWHERE in the message, not at its start: Claude
-    /// Code emits `<command-message>vault-bootstrap</command-message>` on the
-    /// line ABOVE `<command-name>`, so a prefix test never fires on a real
-    /// transcript (verified against one). That miss was invisible rather than
-    /// loud — the message still begins with `<`, so `isPassThroughPrompt`
-    /// swallowed it and the session was labelled `.normal` off the user's
-    /// second message, which is exactly what recognising it here prevents.
-    nonisolated private static func magicLaunchProject(_ s: String) -> String? {
-        // `/project` since 2026-10-25; older transcripts carry `/vault-bootstrap`.
-        for command in ["project", "vault-bootstrap"] {
-            if let nameTag = s.range(of: "<command-name>/\(command)</command-name>") {
-                guard let open = s.range(of: "<command-args>", range: nameTag.upperBound..<s.endIndex),
-                      let close = s.range(of: "</command-args>", range: open.upperBound..<s.endIndex)
-                else { return nil }
-                return projectName(fromArgs: String(s[open.upperBound..<close.lowerBound]))
-            }
-            let raw = "/\(command)"
-            if s == raw || s.hasPrefix(raw + " ") || s.hasPrefix(raw + "\n") {
-                return projectName(fromArgs: String(s.dropFirst(raw.count)))
-            }
-        }
-        return nil
-    }
-
-    nonisolated private static func projectName(fromArgs args: String) -> String? {
-        var name = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let sep = name.range(of: " :: ") { name = String(name[..<sep.lowerBound]) }
-        name = name.trimmingCharacters(in: .whitespaces)
-        return name.isEmpty ? nil : name
-    }
-
-    /// Get the role from a JSONL message line.
-    nonisolated fileprivate static func messageRole(from json: [String: Any]) -> String? {
-        if let role = json["role"] as? String { return role }
-        if let type = json["type"] as? String {
-            if type == "human" { return "user" }
-            if type == "assistant" { return "assistant" }
-        }
-        if let msg = json["message"] as? [String: Any],
-           let role = msg["role"] as? String { return role }
-        return nil
-    }
-
-    /// Extract text from content that may be a string or an array of content blocks.
-    nonisolated private static func extractTextContent(_ content: Any?) -> String? {
-        if let str = content as? String, !str.isEmpty {
-            return str
-        }
-        // Every text block, joined: a message can carry several, and search
-        // must see all of them. Tool payloads (tool_use / tool_result) and
-        // thinking blocks are not text and are skipped.
-        if let blocks = content as? [[String: Any]] {
-            let texts = blocks.compactMap { block -> String? in
-                guard block["type"] as? String == "text",
-                      let text = block["text"] as? String, !text.isEmpty else { return nil }
-                return text
-            }
-            return texts.isEmpty ? nil : texts.joined(separator: "\n")
-        }
-        return nil
     }
 }
 
@@ -706,9 +514,9 @@ enum TranscriptText {
             // (tool results, progress, snapshots) before JSON parsing.
             guard bytes.range(of: textBlockMarker) != nil || bytes.range(of: stringContentMarker) != nil,
                   let json = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
-                  let role = SessionHistoryService.messageRole(from: json),
+                  let role = TranscriptRecord.role(from: json),
                   role == "user" || role == "assistant",
-                  let text = SessionHistoryService.extractMessageContent(from: json)?
+                  let text = TranscriptRecord.messageContent(from: json)?
                     .trimmingCharacters(in: .whitespacesAndNewlines),
                   !text.isEmpty
             else { continue }
@@ -853,8 +661,10 @@ final class TranscriptIndex: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.claudehud.transcript-index", qos: .utility)
     private var db: OpaquePointer?
     /// Bump when the schema or the extraction rule changes: a mismatch drops
-    /// and rebuilds the index.
-    private static let schemaVersion: Int32 = 3
+    /// and rebuilds the index. 4 (2026-11-03): the per-session working
+    /// directory tally, and head verdicts re-evaluated so sessions started
+    /// from the phone, which version 3 cached as machine runs, are listed.
+    private static let schemaVersion: Int32 = 4
     private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     init() {
@@ -896,6 +706,33 @@ final class TranscriptIndex: @unchecked Sendable {
 
     func remove(sessionID: String) async {
         await onQueue { self.deleteSession(sessionID) }
+    }
+
+    /// Session id → how many of its transcript's records ran in each working
+    /// directory, for every indexed session. The input to the filing rule's
+    /// second step (`SessionFiling.resolveFolder`): a session started from the
+    /// phone runs in ~/Projects, and only the directories its records name
+    /// say which project it worked in. Tallied incrementally with the text.
+    func cwdCounts() async -> [String: [String: Int]] {
+        await onQueue(qos: .userInitiated) {
+            var out: [String: [String: Int]] = [:]
+            guard let stmt = self.prepare("SELECT session_id, cwds FROM files WHERE cwds IS NOT NULL") else { return out }
+            defer { sqlite3_finalize(stmt) }
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                guard let id = sqlite3_column_text(stmt, 0), let c = sqlite3_column_text(stmt, 1) else { continue }
+                out[String(cString: id)] = Self.decodeCounts(String(cString: c))
+            }
+            return out
+        }
+    }
+
+    private static func decodeCounts(_ json: String) -> [String: Int] {
+        (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Int] ?? [:]
+    }
+
+    private static func encodeCounts(_ counts: [String: Int]) -> String {
+        (try? JSONSerialization.data(withJSONObject: counts, options: [.sortedKeys]))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
     }
 
     /// Every cached head verdict, keyed by transcript path.
@@ -1024,7 +861,8 @@ final class TranscriptIndex: @unchecked Sendable {
             CREATE TABLE files(
                 session_id TEXT PRIMARY KEY,
                 mtime REAL NOT NULL,
-                indexed_bytes INTEGER NOT NULL)
+                indexed_bytes INTEGER NOT NULL,
+                cwds TEXT)
             """)
         exec("""
             CREATE VIRTUAL TABLE messages USING fts5(
@@ -1074,7 +912,8 @@ final class TranscriptIndex: @unchecked Sendable {
 
         var from: Int64 = 0
         var reset = false
-        if let stmt = prepare("SELECT mtime, indexed_bytes FROM files WHERE session_id = ?") {
+        var cwds: [String: Int] = [:]
+        if let stmt = prepare("SELECT mtime, indexed_bytes, cwds FROM files WHERE session_id = ?") {
             bind(stmt, 1, id)
             if sqlite3_step(stmt) == SQLITE_ROW {
                 let storedMtime = sqlite3_column_double(stmt, 0)
@@ -1083,7 +922,12 @@ final class TranscriptIndex: @unchecked Sendable {
                     sqlite3_finalize(stmt)
                     return false  // unchanged
                 }
-                if size >= storedBytes { from = storedBytes } else { reset = true }
+                if size >= storedBytes {
+                    from = storedBytes
+                    cwds = sqlite3_column_text(stmt, 2).map { Self.decodeCounts(String(cString: $0)) } ?? [:]
+                } else {
+                    reset = true
+                }
             }
             sqlite3_finalize(stmt)
         }
@@ -1112,13 +956,16 @@ final class TranscriptIndex: @unchecked Sendable {
             }
             sqlite3_finalize(insert)
         }
+        if consumed > 0 { TranscriptRecord.tallyCwds(in: data.prefix(consumed), into: &cwds) }
         if let upsert = prepare("""
-            INSERT INTO files(session_id, mtime, indexed_bytes) VALUES(?, ?, ?)
-            ON CONFLICT(session_id) DO UPDATE SET mtime = excluded.mtime, indexed_bytes = excluded.indexed_bytes
+            INSERT INTO files(session_id, mtime, indexed_bytes, cwds) VALUES(?, ?, ?, ?)
+            ON CONFLICT(session_id) DO UPDATE SET mtime = excluded.mtime,
+                indexed_bytes = excluded.indexed_bytes, cwds = excluded.cwds
             """) {
             bind(upsert, 1, id)
             sqlite3_bind_double(upsert, 2, mtime)
             sqlite3_bind_int64(upsert, 3, from + Int64(consumed))
+            bind(upsert, 4, Self.encodeCounts(cwds))
             sqlite3_step(upsert)
             sqlite3_finalize(upsert)
         }

@@ -123,27 +123,30 @@ struct VaultTabView: View {
         // Build folder → latest-session-timestamp so recency reflects real
         // activity, not just `updated:`. Primes the canonical resolver cache
         // off-main; re-runs when the session set changes. Read-only.
-        .task(id: sessionHistory.sessions.count) {
+        //
+        // Both this and the live badges file a session by `SessionFiling`'s
+        // one rule (claim, then the transcript's record directories, then
+        // the start directory), primed here for the history's sessions and
+        // the roster's together. Keyed on the inputs, not on every 2s roster
+        // republish: the distinct (session, cwd) set, the index's tallies
+        // and the claims directory.
+        .task(id: filingSignature) {
             let sessions = sessionHistory.sessions
-            guard !sessions.isEmpty else { return }
-            await projectService.primeResolution(forCwds: Set(sessions.map { $0.projectPath }))
+            let history = sessions.map { (sessionId: $0.id, cwd: $0.projectPath) }
+            let live = agentsService.agents.compactMap { a in
+                a.sessionId.map { (sessionId: $0, cwd: a.cwd) }
+            }
+            await projectService.primeResolution(
+                forCwds: Set(agentsService.agents.map { SessionFiling.repoCwd($0.cwd) }).filter { !$0.isEmpty })
+            await projectService.primeFiling(sessions: history + live,
+                                             cwdCounts: sessionHistory.transcriptCwdCounts)
             var map: [String: Date] = [:]
             for s in sessions {
-                guard let folder = projectService.folderName(forCwd: s.projectPath) else { continue }
+                guard let folder = projectService.folder(forSession: s.id, cwd: s.projectPath) else { continue }
                 if let cur = map[folder], cur >= s.timestamp { continue }
                 map[folder] = s.timestamp
             }
             folderLatestSession = map
-        }
-        // The live-session badges join agents to projects through the same
-        // memoized resolver, but the session prime above only sees session
-        // cwds. Prime the agent roster's cwds too, keyed on the DISTINCT cwd
-        // set so this re-runs when a session appears in a new repo — not on
-        // every 2s roster republish.
-        .task(id: agentCwdSignature) {
-            let cwds = Set(agentsService.agents.map { $0.cwd }).filter { !$0.isEmpty }
-            guard !cwds.isEmpty else { return }
-            await projectService.primeResolution(forCwds: cwds)
             agentResolutionTick &+= 1
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in today = Date() }
@@ -189,8 +192,13 @@ struct VaultTabView: View {
     /// Distinct working directories across the agent roster. Used as the
     /// `.task(id:)` key for the resolver prime so it re-fires on a genuinely
     /// new cwd rather than on the poller's 2s republish.
-    private var agentCwdSignature: Int {
-        Set(agentsService.agents.map { $0.cwd }).hashValue
+    private var filingSignature: Int {
+        var h = Hasher()
+        h.combine(sessionHistory.sessions.count)
+        h.combine(Set(agentsService.agents.map { "\($0.sessionId ?? "")\u{0}\($0.cwd)" }))
+        h.combine(sessionHistory.transcriptCwdGeneration)
+        h.combine(SessionFiling.claimsSignature())
+        return h.finalize()
     }
 
     /// folder name → live INTERACTIVE session counts, in one pass over the
@@ -570,6 +578,13 @@ private struct ProjectRowView: View {
         badgeCycleIndex = (idx + 1) % sessions.count
 
         let session = sessions[idx]
+        // A session started from the Claude app has no terminal window:
+        // open its claude.ai page rather than guessing at a Ghostty window
+        // by folder name, which would raise an unrelated one.
+        if let url = session.remoteControlURL {
+            NSWorkspace.shared.open(url)
+            return
+        }
         let basename = URL(fileURLWithPath: session.cwd).lastPathComponent
         if GhosttyWindowService.focusWindow(hostPid: session.attachedGhosttyPid,
                                             titleContains: basename) { return }

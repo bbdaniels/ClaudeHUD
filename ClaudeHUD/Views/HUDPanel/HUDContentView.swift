@@ -451,28 +451,22 @@ struct SessionHistoryView: View {
     @State private var searchDebounceTask: Task<Void, Never>?
     @State private var useColors = UserDefaults.standard.bool(forKey: "history.useColors")
 
-    /// Collapse a worktree path back to its parent repo cwd.
-    private static func repoCwd(_ p: String) -> String {
-        if let range = p.range(of: "/.claude/worktrees/") {
-            return String(p[..<range.lowerBound])
-        }
-        return p
-    }
-
     /// Every session as a row, filtered by search, newest first. The project
-    /// is attribution only: the Obsidian project that OWNS the cwd (a writeable
-    /// `cwds:` match, via the canonical resolver once primed), else the repo
-    /// folder name.
+    /// is attribution only: the vault project the session is filed under by
+    /// `SessionFiling`'s rule (its claim record, else the project its
+    /// transcript's records worked in, else its start directory's), once
+    /// primed; else the repo folder name. Resume still runs in the
+    /// transcript's own directory, `session.projectPath`.
     private var historyRows: [SessionHistoryRow] {
         let home = NSHomeDirectory()
         let q = searchText.lowercased()
         let hasSearchResults = !sessionHistory.searchResults.isEmpty
         return sessionHistory.sessions.compactMap { session -> SessionHistoryRow? in
-            let cwd = Self.repoCwd(session.projectPath)
+            let cwd = SessionFiling.repoCwd(session.projectPath)
             // Root-level cwds ("/", "/tmp") are not projects; skip as before.
             let parent = cwd == home ? home : URL(fileURLWithPath: cwd).deletingLastPathComponent().path
             guard cwd != "/", parent != "/" else { return nil }
-            let vaultName = resolvePrimed ? vaultProjects.folderName(forCwd: cwd) : nil
+            let vaultName = resolvePrimed ? vaultProjects.folder(forSession: session.id, cwd: cwd) : nil
             let project = vaultName ?? URL(fileURLWithPath: cwd).lastPathComponent
             if !q.isEmpty {
                 let hit = project.lowercased().contains(q) ||
@@ -603,15 +597,24 @@ struct SessionHistoryView: View {
         .onAppear {
             Task { await sessionHistory.refresh() }
         }
-        // Prime the canonical cwd→folder cache for every repo cwd (worktrees
-        // merged), so row tags resolve to the vault project and the unclaimed
-        // marker can show. Re-runs when the session set changes; cheap on
-        // repeat (only new cwds are scanned). Read-only.
-        .task(id: sessionHistory.sessions.count) {
-            let paths = Set(sessionHistory.sessions.map { Self.repoCwd($0.projectPath) })
-            await vaultProjects.primeResolution(forCwds: paths)
+        // File every session (claim, then the transcript index's record
+        // directories, then the start directory), so row tags show the vault
+        // project and the unclaimed marker can show. Re-runs when the session
+        // set, the index's tallies or the claims directory change. Read-only.
+        .task(id: filingSignature) {
+            await vaultProjects.primeFiling(
+                sessions: sessionHistory.sessions.map { ($0.id, $0.projectPath) },
+                cwdCounts: sessionHistory.transcriptCwdCounts)
             resolvePrimed = true
         }
+    }
+
+    /// Changes when the history's sessions, the index's per-session tallies
+    /// or the claims directory change: the inputs of `primeFiling`.
+    private var filingSignature: [Double] {
+        [Double(sessionHistory.sessions.count),
+         Double(sessionHistory.transcriptCwdGeneration),
+         SessionFiling.claimsSignature()]
     }
 
     private func deleteSession(_ sessionId: String) {
@@ -1092,8 +1095,16 @@ struct SessionDetailRow: View {
                 : "Project: \(name)")
     }
 
-    /// Resume in the session's original cwd through the shared launch path.
+    /// Resume in the session's original cwd (the transcript's own directory,
+    /// never the project it is filed under) through the shared launch path.
+    /// A session a live process still holds is not launched: a second
+    /// `claude --resume` would write the same transcript from two processes.
     private func resume() {
+        if let holder = ClaudeSessionRecords.liveHolder(of: session.id, in: ClaudeSessionRecords.readLive()) {
+            feedback = holder.isRemoteControlChild ? "Still running on the phone" : "Still running"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { feedback = nil }
+            return
+        }
         let projectName = URL(fileURLWithPath: session.projectPath).lastPathComponent
         let auto = launchClaudeSession(argSuffix: " --resume \(session.id)", name: projectName,
                                        cwd: session.projectPath, terminalService: terminalService)

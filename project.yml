@@ -43,6 +43,8 @@ targets:
       - path: ClaudeHUD/Services/VaultProjectTree.swift
       - path: ClaudeHUD/Services/ActiveTasks.swift
       - path: ClaudeHUD/Services/VaultAccess.swift
+      - path: ClaudeHUD/Services/TranscriptHead.swift
+      - path: ClaudeHUD/Services/SessionFiling.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.claudehud.tests

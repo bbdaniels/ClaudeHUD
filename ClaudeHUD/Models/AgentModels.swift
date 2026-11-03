@@ -225,6 +225,18 @@ struct AgentSession: Identifiable, Equatable {
     /// this is both a warning for the confirm dialog and a hard veto for the
     /// reaper.
     let worktreePath: String?
+    /// The Claude Code session id (the transcript's basename), which the
+    /// filing rule keys its claim and record tallies on. Nil when the job's
+    /// `state.json` names none.
+    var sessionId: String? = nil
+    /// Set only on a session started from the Claude app through Remote
+    /// Control (`ClaudeSessionRecord.isRemoteControlChild`): it has no
+    /// terminal window and no daemon job, so focusing it opens its claude.ai
+    /// page in the browser instead of raising a window.
+    var remoteControlURL: URL? = nil
+
+    /// True for a Remote Control session row (see `remoteControlURL`).
+    var isRemoteControl: Bool { remoteControlURL != nil }
 
     /// Raw daemon-derived state (activity truth, ignores window-openness).
     var display: AgentDisplayState {
