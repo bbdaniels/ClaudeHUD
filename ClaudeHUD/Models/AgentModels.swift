@@ -361,6 +361,12 @@ struct AgentSession: Identifiable, Equatable {
     /// new tab.
     var hasWindow: Bool { attachedGhosttyPid != nil || attachedTTY != nil }
 
+    /// The session's dot on its Projects line (`SessionLight`).
+    func light(now: Date) -> SessionLight {
+        SessionLight.of(running: liveState == .working, hasWindow: hasWindow,
+                        lastMoved: max(updatedAt ?? .distantPast, transcriptMtime ?? .distantPast), now: now)
+    }
+
     var projectName: String {
         let c = cwd.trimmingCharacters(in: .whitespaces)
         guard !c.isEmpty else { return "—" }

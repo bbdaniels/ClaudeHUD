@@ -407,17 +407,52 @@ final class RepoLocator: @unchecked Sendable {
 
 /// One project's live INTERACTIVE session counts, by state. See
 /// `VaultTabView.folderLiveSessions` for how each field is derived.
+/// What a session line and its project header show (Ben, 2026-11-03): one
+/// dot, green when the session is running, red for anything else, since a
+/// session not running is waiting on Ben. A red session with no terminal on
+/// this Mac that has not moved for `dimAfter` is a leftover: its line is
+/// dimmed and sorted last and it does not light the header. Nothing is
+/// stopped automatically.
+enum SessionLight: Equatable {
+    case running, attention, dimmed
+
+    static let dimAfter: TimeInterval = 3600
+
+    /// `lastMoved` is when the session last wrote its state or transcript;
+    /// `AgentSession.light` passes it.
+    static func of(running: Bool, hasWindow: Bool, lastMoved: Date, now: Date) -> SessionLight {
+        if running { return .running }
+        return !hasWindow && now.timeIntervalSince(lastMoved) > dimAfter ? .dimmed : .attention
+    }
+
+    /// `items` in their order with the leftovers moved last.
+    static func leftoversLast<T>(_ items: [T], light: (T) -> SessionLight) -> [T] {
+        items.filter { light($0) != .dimmed } + items.filter { light($0) == .dimmed }
+    }
+}
+
+/// A project's live sessions by `SessionLight`. A header is red when
+/// `attention` is above zero, else green when `running` is.
 struct LiveSessionCounts: Equatable {
-    var working = 0
-    /// Awaiting the user — the "needs me" signal. Roster-alive only.
-    var blocked = 0
-    var idle = 0
-    var isEmpty: Bool { working == 0 && blocked == 0 && idle == 0 }
+    var running = 0
+    var attention = 0
+    var dimmed = 0
+    var isEmpty: Bool { running == 0 && attention == 0 && dimmed == 0 }
+    /// The header's dot: red, green, or none when only leftovers remain.
+    var light: SessionLight? { attention > 0 ? .attention : running > 0 ? .running : nil }
+
+    mutating func add(_ light: SessionLight) {
+        switch light {
+        case .running: running += 1
+        case .attention: attention += 1
+        case .dimmed: dimmed += 1
+        }
+    }
 
     static func + (a: LiveSessionCounts, b: LiveSessionCounts) -> LiveSessionCounts {
-        LiveSessionCounts(working: a.working + b.working,
-                          blocked: a.blocked + b.blocked,
-                          idle: a.idle + b.idle)
+        LiveSessionCounts(running: a.running + b.running,
+                          attention: a.attention + b.attention,
+                          dimmed: a.dimmed + b.dimmed)
     }
 }
 
@@ -499,8 +534,8 @@ enum ProjectTree {
     static func ordered(_ nodes: [Node], live: [String: LiveSessionCounts],
                         activity: (VaultProject) -> Date, now: Date = Date()) -> [Node] {
         nodes.sorted { a, b in
-            let wa = a.liveCounts(in: live).blocked > 0
-            let wb = b.liveCounts(in: live).blocked > 0
+            let wa = a.liveCounts(in: live).attention > 0
+            let wb = b.liveCounts(in: live).attention > 0
             if wa != wb { return wa }
             let oa = a.hasOverdue(now: now)
             let ob = b.hasOverdue(now: now)

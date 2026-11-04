@@ -541,6 +541,32 @@ final class AgentsService: ObservableObject {
         await runCapture(resolveClaude(), ["stop", id], cwd: nil)
     }
 
+    /// Stop a live session through the gate's `end <session id>` on its
+    /// machine: `~/bin/pi-gate` here, or over ssh on the iMac. The gate closes
+    /// the session's tmux pane, or sends SIGTERM when it has none, and waits
+    /// until it has stopped (deploy/mac/pi-gate.py in bbdaniels/personal).
+    /// Nil when it stopped, else the gate's reason. Blocks up to about ten
+    /// seconds: call it off the main thread.
+    nonisolated static func end(sessionId: String, onIMac: Bool) -> String? {
+        let process = Process()
+        if onIMac {
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+            process.arguments = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", IMacLauncher.sshHost,
+                                 IMacLauncher.gatePath + " end " + IMacLauncher.shellQuote(sessionId)]
+        } else {
+            process.executableURL = URL(fileURLWithPath: NSHomeDirectory() + "/bin/pi-gate")
+            process.arguments = ["end", sessionId]
+        }
+        let output = Pipe()
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return "the gate could not start: \(error.localizedDescription)" }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return IMacLauncher.endFailure(status: process.terminationStatus, stdout: data)
+    }
+
     /// THE way the HUD puts Ben in a live session (Ben, 2026-11-03: one
     /// window per project, each session a tab in it, never claude.ai when
     /// there is a terminal). Already attached here: select its Ghostty tab

@@ -203,6 +203,16 @@ enum IMacLauncher {
     /// server spawned (one from the phone or claude.ai, with no terminal)
     /// into the gate's tmux as `name`: the gate's `adopt` verb, which stops
     /// the server's copy and resumes the conversation (pi-gate-launch.md).
+    /// The reason in a gate's `end` answer (`AgentsService.end`, on either
+    /// machine), nil for `"ok": true`.
+    static func endFailure(status: Int32, stdout: Data) -> String? {
+        guard let answer = try? JSONSerialization.jsonObject(with: stdout) as? [String: Any] else {
+            return status == 255 ? "the iMac did not answer" : "the gate gave no answer (exit \(status))"
+        }
+        if answer["ok"] as? Bool == true { return nil }
+        return answer["error"] as? String ?? "the gate refused"
+    }
+
     static func adoptCommand(name: String, sessionId: String) -> String {
         ([gatePath] + ["adopt", name, sessionId].map(shellQuote)).joined(separator: " ")
     }

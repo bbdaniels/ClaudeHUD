@@ -58,6 +58,11 @@ struct VaultTabView: View {
                     let live = folderLiveSessions
                     let lines = folderSessionLines
                     let sections = recencySections(live: live)
+                    let general = generalSessions
+                    if !general.isEmpty && searchText.isEmpty {
+                        GeneralRowView(lines: LiveSessionLine.lines(general, now: Date()),
+                                       sessions: { generalSessions })
+                    }
                     if sections.isEmpty {
                         Text(searchText.isEmpty ? "No projects." : "No matches")
                             .font(.smallFont(scale))
@@ -217,20 +222,10 @@ struct VaultTabView: View {
     /// `blocked` would otherwise be counted as "needs me" forever. Absent from
     /// `roster.workers` ⇒ not alive ⇒ not counted.
     private var folderLiveSessions: [String: LiveSessionCounts] {
-        var map: [String: LiveSessionCounts] = [:]
-        for (folder, sessions) in liveSessionsByFolder {
-            var counts = LiveSessionCounts()
-            for a in sessions {
-                switch a.liveState {
-                case .working:    counts.working += 1
-                case .needsInput: counts.blocked += 1
-                case .idle:       counts.idle += 1
-                default:          break
-                }
-            }
-            map[folder] = counts
+        let now = Date()
+        return liveSessionsByFolder.mapValues { sessions in
+            sessions.reduce(into: LiveSessionCounts()) { $0.add($1.light(now: now)) }
         }
-        return map
     }
 
     /// folder name → one line per live session of that folder: what the row
@@ -239,7 +234,8 @@ struct VaultTabView: View {
     /// values with no age in them, so the 2s roster republish re-renders a
     /// row only when a session starts, ends, is renamed or changes state.
     private var folderSessionLines: [String: [LiveSessionLine]] {
-        liveSessionsByFolder.mapValues { $0.map(LiveSessionLine.init) }
+        let now = Date()
+        return liveSessionsByFolder.mapValues { LiveSessionLine.lines($0, now: now) }
     }
 
     /// folder name → the live INTERACTIVE sessions themselves. One source for
@@ -247,6 +243,17 @@ struct VaultTabView: View {
     /// raises is exactly what was counted.
     private var liveSessionsByFolder: [String: [AgentSession]] {
         projectService.liveSessionsByFolder(in: agentsService.agents)
+    }
+
+    /// Live sessions filed under no project: most often one started in
+    /// ~/Projects itself, from the phone's New session or the `>_` button.
+    /// They are listed under General at the top (Ben, 2026-11-03) until work
+    /// in a project folder or `/project` files them.
+    private var generalSessions: [AgentSession] {
+        agentsService.agents.filter { a in
+            guard a.isAlive, [.working, .needsInput, .idle].contains(a.liveState) else { return false }
+            return a.cwd.isEmpty || projectService.folder(forSession: a.sessionId, cwd: a.cwd) == nil
+        }
     }
 
     /// The live sessions of these project folders, most recently active
@@ -360,90 +367,69 @@ struct VaultTabView: View {
     }
 }
 
-// MARK: - Live session badges
+// MARK: - General
 
-/// Compact state cluster on the project row: green dot = running a turn,
-/// amber dot = blocked on you (a question or a permission), red clock = its
-/// turn is done and it waits for your next message. On a parent row the
-/// counts are its own plus its children's.
-///
-/// With `onTap` supplied the whole cluster is one button that raises the
-/// session windows behind the counts (see
-/// `ProjectRowView.focusNextLiveSession`). Left nil the cluster is
-/// display-only.
-///
-/// Chip idiom: Fira Code 10, 4/1
-/// padding, radius-3 low-opacity fill) so a busy row still reads as calm. The
-/// clock is red, not `.secondary`: a session waiting for its next message needs
-/// you (Ben, 2026-11-03: "waiting (clock) is deemphasized and should be red
-/// cause that means it needs something"). Hover only deepens the chip fill, so the resting appearance is
-/// unchanged.
-private struct LiveSessionBadges: View {
-    let counts: LiveSessionCounts
-    var onTap: (() -> Void)?
+/// The row at the top that holds the live sessions filed under no project
+/// (`VaultTabView.generalSessions`): a header like a project's, with its
+/// dot, and one line per session.
+private struct GeneralRowView: View {
+    let lines: [LiveSessionLine]
+    let sessions: () -> [AgentSession]
     @Environment(\.fontScale) private var scale
-    @State private var hovering = false
+    @EnvironmentObject private var terminalService: TerminalService
 
     var body: some View {
-        if let onTap {
-            Button(action: onTap) { cluster }
-                .buttonStyle(.plain)
-                .onHover { hovering = $0 }
-                .help(helpText + " — click to open; several list by name")
-        } else {
-            cluster.help(helpText)
-        }
-    }
-
-    private var cluster: some View {
-        HStack(spacing: 4) {
-            if counts.working > 0 {
-                chip(count: counts.working, tint: .green, text: .green.opacity(0.9)) {
-                    Circle().fill(Color.green).frame(width: 5, height: 5)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                DancingText(text: "General", size: 14 * scale, weight: .semibold)
+                if let light = lines.reduce(into: LiveSessionCounts(), { $0.add($1.light) }).light {
+                    HeaderLight(light: light) {
+                        let all = sessions()
+                        if let s = all.first(where: { $0.light(now: Date()) == .attention }) ?? all.first {
+                            open(s)
+                        }
+                    }
                 }
+                Spacer()
             }
-            if counts.blocked > 0 {
-                chip(count: counts.blocked, tint: .orange, text: .orange.opacity(0.95)) {
-                    Circle().fill(Color.orange).frame(width: 5, height: 5)
-                }
-            }
-            if counts.idle > 0 {
-                chip(count: counts.idle, tint: .red, text: .red.opacity(0.95)) {
-                    Image(systemName: "clock")
-                        .font(.system(size: 8 * scale))
-                        .foregroundColor(.red)
+            .padding(.leading, 4)
+            .padding(.vertical, 8)
+            ForEach(lines) { line in
+                SessionLineView(line: line, inset: 16) {
+                    if let s = sessions().first(where: { $0.id == line.id }) { open(s) } else { NSSound.beep() }
                 }
             }
         }
-        .contentShape(Rectangle())
     }
 
-    private func chip<Glyph: View>(count: Int, tint: Color, text: Color,
-                                   @ViewBuilder glyph: () -> Glyph) -> some View {
-        HStack(spacing: 3) {
-            glyph()
-            Text("\(count)")
-                .font(.custom("Fira Code", size: 10 * scale))
-                .foregroundColor(text)
+    private func open(_ s: AgentSession) {
+        if !AgentsService.open(s, projectWindow: nil, terminalService: terminalService) { NSSound.beep() }
+    }
+}
+
+// MARK: - Header light
+
+/// A project header's one dot (Ben, 2026-11-03): red when a session under it
+/// waits on Ben, else green when one is running. A click opens the session
+/// that most needs him.
+struct HeaderLight: View {
+    let light: SessionLight
+    var onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            Circle().fill(light == .running ? Color.green : Color.red)
+                .frame(width: 7, height: 7).padding(3).contentShape(Rectangle())
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 1)
-        .background(RoundedRectangle(cornerRadius: 3).fill(tint.opacity(hovering ? 0.22 : 0.12)))
-    }
-
-    private var helpText: String {
-        var parts: [String] = []
-        if counts.working > 0 { parts.append("\(counts.working) working") }
-        if counts.blocked > 0 { parts.append("\(counts.blocked) waiting on you") }
-        if counts.idle > 0 { parts.append("\(counts.idle) waiting for your next message") }
-        return "Open sessions — " + parts.joined(separator: " · ")
+        .buttonStyle(.plain)
+        .help(light == .running ? "A session is running: click to open it" : "A session waits on you: click to open it")
     }
 }
 
 // MARK: - Due chip
 
 /// The project's soonest-due open task (`📅 YYYY-MM-DD` in `## Active`, read
-/// by `ActiveTasks`), in the `LiveSessionBadges` chip idiom: "3d late" in red,
+/// by `ActiveTasks`), in a chip (Fira Code 10, a low-opacity fill): "3d late" in red,
 /// "today"/"tmrw" and anything within two days in orange, else a weekday
 /// within the week or "Oct 20" on `.secondary`. Hover names the task and the
 /// full date.
@@ -500,7 +486,6 @@ private struct ProjectRowView: View {
     @Environment(\.fontScale) private var scale
     @EnvironmentObject private var terminalService: TerminalService
     @State private var launchHovering = false
-    @State private var hoveredLine: String?
     @State private var launched = false
 
     /// Leading inset that marks a row as a child of the row above it.
@@ -509,15 +494,19 @@ private struct ProjectRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            ForEach(sessionLines) { line in sessionLineView(line) }
+            ForEach(sessionLines) { line in
+                SessionLineView(line: line, inset: (isChild ? Self.childInset : 4) + 12) {
+                    if let s = badgeSessionsProvider().first(where: { $0.id == line.id }) { open(s) } else { NSSound.beep() }
+                }
+            }
         }
     }
 
     private var header: some View {
         HStack(spacing: 6) {
             DancingText(text: project.name, size: 14 * scale, weight: isChild ? .regular : .semibold)
-            if !liveSessions.isEmpty {
-                LiveSessionBadges(counts: liveSessions, onTap: focusNextLiveSession)
+            if let light = liveSessions.light {
+                HeaderLight(light: light, onTap: focusNextLiveSession)
             }
             if let due = project.nextDue {
                 DueChip(due: due, today: today)
@@ -582,7 +571,7 @@ private struct ProjectRowView: View {
     /// included. Every session is also its own line under its row.
     private func focusNextLiveSession() {
         let sessions = badgeSessionsProvider()
-        guard let first = sessions.first(where: { $0.liveState == .needsInput }) ?? sessions.first else {
+        guard let first = sessions.first(where: { $0.light(now: Date()) == .attention }) ?? sessions.first else {
             GhosttyWindowService.activateApp(); return
         }
         open(first)
@@ -594,49 +583,6 @@ private struct ProjectRowView: View {
     private func open(_ session: AgentSession) {
         let window = ownSessionsProvider().lazy.compactMap(\.attachedGhosttyPid).first
         if !AgentsService.open(session, projectWindow: window, terminalService: terminalService) { NSSound.beep() }
-    }
-
-    /// One session under the row: its state, its title, its machine. A click
-    /// opens it (`open`): its own tab when a terminal shows it, else a new
-    /// tab in the project's window, which the dimmer title and the tooltip
-    /// say. It highlights under the pointer, so it reads as clickable.
-    private func sessionLineView(_ line: LiveSessionLine) -> some View {
-        Button {
-            if let s = badgeSessionsProvider().first(where: { $0.id == line.id }) { open(s) } else { NSSound.beep() }
-        } label: {
-            HStack(spacing: 6) {
-                Self.stateGlyph(line.state)
-                Text(line.name)
-                    .font(.system(size: 11.5 * scale))
-                    .foregroundColor(.primary.opacity(line.hasWindow ? 0.85 : 0.6))
-                    .lineLimit(1).truncationMode(.tail)
-                Spacer(minLength: 8)
-                Text(line.machine)
-                    .font(.custom("Fira Code", size: 9.5 * scale))
-                    .foregroundColor(.secondary.opacity(0.7))
-            }
-            .padding(.leading, (isChild ? Self.childInset : 4) + 12)
-            .padding(.trailing, 4)
-            .padding(.vertical, 2)
-            .background(RoundedRectangle(cornerRadius: 4)
-                .fill(Color.primary.opacity(hoveredLine == line.id ? 0.08 : 0)))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hoveredLine = $0 ? line.id : (hoveredLine == line.id ? nil : hoveredLine) }
-        .help((line.state == .needsInput ? "Waiting on you. " : "")
-              + (line.hasWindow ? "Click to bring its tab forward." : "Not open in a terminal here: click to open it in a new tab."))
-    }
-
-    /// Green: working. Red clock: its turn is done or it asks something, so
-    /// it waits on Ben (Ben, 2026-11-03: waiting "shoul dbe red cause that
-    /// means it needs somthing").
-    @ViewBuilder private static func stateGlyph(_ state: LiveSessionLine.State) -> some View {
-        switch state {
-        case .working: Circle().fill(Color.green).frame(width: 6, height: 6).frame(width: 10)
-        case .needsInput: Image(systemName: "exclamationmark.circle.fill").font(.system(size: 9)).foregroundColor(.red).frame(width: 10)
-        case .idle: Image(systemName: "clock").font(.system(size: 9)).foregroundColor(.red).frame(width: 10)
-        }
     }
 
     private func launch(cwd: String) {
@@ -745,28 +691,102 @@ private struct NewProjectSheet: View {
     }
 }
 
-/// One live session as a project row lists it. Equatable and free of ages,
-/// so a row redraws only when what it shows changes.
+/// One live session as a project row (or General) lists it. Equatable and
+/// free of ages, so a row redraws only when what it shows changes.
 struct LiveSessionLine: Identifiable, Equatable {
-    enum State: Equatable { case working, needsInput, idle }
     let id: String
+    let sessionId: String?
     let name: String
     let machine: String
-    let state: State
+    let isIMac: Bool
+    let light: SessionLight
     let hasWindow: Bool
 
     /// The name is the session's title, the one History shows, so a line
     /// says what the session is doing; a placeholder such as "personal-8c"
     /// (a tmux session name) shows only until a title is written.
-    init(_ a: AgentSession) {
+    init(_ a: AgentSession, now: Date) {
         id = a.id
+        sessionId = a.sessionId
         name = a.title ?? (a.name.isEmpty ? URL(fileURLWithPath: a.cwd).lastPathComponent : a.name)
         hasWindow = a.hasWindow
+        isIMac = a.isIMac
         machine = a.isIMac ? "iMac" : a.isRemoteControl ? "phone" : "MacBook"
-        switch a.liveState {
-        case .working: state = .working
-        case .needsInput: state = .needsInput
-        default: state = .idle
+        light = a.light(now: now)
+    }
+
+    /// The lines of these sessions in their order, leftovers last.
+    static func lines(_ sessions: [AgentSession], now: Date) -> [LiveSessionLine] {
+        SessionLight.leftoversLast(sessions.map { LiveSessionLine($0, now: now) }, light: \.light)
+    }
+}
+
+/// One session under its project or under General: its dot, its title, its
+/// machine in grey. A click opens it (`onOpen`); under the pointer a × stops
+/// it at once through the gate's `end` on its machine, with no confirmation
+/// (Ben, 2026-11-03). Closing its terminal tab only detaches. A leftover
+/// (`SessionLight.dimmed`) shows faded.
+struct SessionLineView: View {
+    let line: LiveSessionLine
+    let inset: CGFloat
+    let onOpen: () -> Void
+    @Environment(\.fontScale) private var scale
+    @State private var hovering = false
+    @State private var stopping = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button(action: onOpen) {
+                HStack(spacing: 6) {
+                    Circle().fill(line.light == .running ? Color.green : Color.red)
+                        .frame(width: 6, height: 6).frame(width: 10)
+                    Text(line.name)
+                        .font(.system(size: 11.5 * scale))
+                        .foregroundColor(.primary.opacity(line.hasWindow ? 0.85 : 0.6))
+                        .lineLimit(1).truncationMode(.tail)
+                    Spacer(minLength: 8)
+                    Text(line.machine)
+                        .font(.custom("Fira Code", size: 9.5 * scale))
+                        .foregroundColor(.secondary.opacity(0.7))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(line.hasWindow ? "Click to bring its tab forward." : "Not open in a terminal here: click to open it in a new tab.")
+            Button(action: stop) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9 * scale, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .frame(width: 12)
+            }
+            .buttonStyle(.plain)
+            .opacity(hovering && !stopping ? 1 : 0)
+            .disabled(!hovering || stopping || line.sessionId == nil)
+            .help("Stop this session")
+        }
+        .padding(.leading, inset)
+        .padding(.trailing, 4)
+        .padding(.vertical, 2)
+        .background(RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(hovering ? 0.08 : 0)))
+        .opacity(stopping ? 0.35 : line.light == .dimmed ? 0.45 : 1)
+        .onHover { hovering = $0 }
+    }
+
+    private func stop() {
+        guard let sid = line.sessionId else { return }
+        stopping = true
+        let onIMac = line.isIMac, name = line.name
+        Task.detached(priority: .userInitiated) {
+            let failure = AgentsService.end(sessionId: sid, onIMac: onIMac)
+            await MainActor.run {
+                guard let failure else { return }
+                stopping = false
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "The session did not stop"
+                alert.informativeText = "\(failure)\n\n\(name)"
+                alert.runModal()
+            }
         }
     }
 }
