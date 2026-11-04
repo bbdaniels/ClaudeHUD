@@ -193,7 +193,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let l = ProcessMenuText.backgroundJob(w, now: now)
                 let item = NSMenuItem(title: w.project, action: #selector(attachBackgroundJob(_:)), keyEquivalent: "")
                 item.attributedTitle = Self.twoLine(l.top, l.bottom)
-                item.toolTip = "\(w.job?.name ?? w.project)\nclaude attach \(w.short ?? "")\nClick to attach in a new window; closing that window only detaches."
+                item.toolTip = "\(w.job?.name ?? w.project)\nclaude attach \(w.short ?? "")\nClick to open it in a tab of its project's window; closing the tab only detaches."
                 item.target = self
                 item.tag = i
                 menu.addItem(item)
@@ -249,8 +249,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func attachBackgroundJob(_ sender: NSMenuItem) {
         guard backgroundJobsForMenu.indices.contains(sender.tag),
               let short = backgroundJobsForMenu[sender.tag].short else { return }
-        let w = backgroundJobsForMenu[sender.tag]
-        AgentsService.openAttachWindow(id: short, cwd: w.cwd ?? "", terminalService: appState.terminalService)
+        if !appState.agentsService.open(id: short, terminalService: appState.terminalService) { NSSound.beep() }
     }
 
     /// Never automatic: every close is this click plus a confirmation.

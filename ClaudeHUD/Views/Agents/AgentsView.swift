@@ -259,38 +259,10 @@ struct AgentsView: View {
 
     // MARK: - Actions
 
+    /// The one open path (`AgentsService.open`): the session's own tab when
+    /// it is attached, else a new tab in its project's window.
     private func attach(_ a: AgentSession) {
-        // A session started from the Claude app through Remote Control has
-        // no window and no daemon job to attach to: open its claude.ai page,
-        // where it can be read and driven, and leave the phone's process
-        // alone.
-        if a.isIMac || a.attachedTTY != nil {
-            if !AgentsService.open(a, projectWindow: nil, terminalService: terminalService) { NSSound.beep() }
-            return
-        }
-        if let url = a.remoteControlURL {
-            NSWorkspace.shared.open(url)
-            return
-        }
-        // If we know which Ghostty process is currently hosting
-        // `claude attach <id>`, raise its window directly — no title
-        // guessing. Two unrelated shorts can share a project name, so the
-        // old "match a window whose title contains the project" trick
-        // routed clicks to the wrong session.
-        if let pid = a.attachedGhosttyPid,
-           let win = GhosttyWindowService.openWindows().first(where: { $0.pid == pid }) {
-            GhosttyWindowService.raise(win)
-            return
-        }
-        // Attached in a non-Ghostty terminal (no Ghostty pid) — best we can
-        // do is activate the process; fall through to a fresh attach if
-        // even that's not knowable.
-        if a.isOpen, let pid = a.attachedGhosttyPid {
-            NSRunningApplication(processIdentifier: pid)?.activate()
-            return
-        }
-        // Truly detached — spawn a new attached window in the session's cwd.
-        AgentsService.openAttachWindow(id: a.id, cwd: a.cwd, terminalService: terminalService)
+        if !service.open(id: a.id, terminalService: terminalService) { NSSound.beep() }
     }
 
     private func showLogs(_ a: AgentSession) {

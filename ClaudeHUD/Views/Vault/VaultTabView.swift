@@ -751,7 +751,7 @@ struct LiveSessionLine: Identifiable, Equatable {
     init(_ a: AgentSession) {
         id = a.id
         name = a.name.isEmpty ? URL(fileURLWithPath: a.cwd).lastPathComponent : a.name
-        machine = a.isIMac ? "iMac" : a.isRemoteControl ? "phone" : "Mac"
+        machine = a.isIMac ? "iMac" : a.isRemoteControl ? "phone" : "MacBook"
         switch a.bucket {
         case .working: state = .working
         case .needsInput: state = .needsInput

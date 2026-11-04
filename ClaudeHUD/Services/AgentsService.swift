@@ -572,18 +572,16 @@ final class AgentsService: ObservableObject {
         return GhosttyWindowService.activateApp()
     }
 
-    /// THE way the HUD opens a detached daemon session: a new terminal window
-    /// (Ghostty when installed, titled after the project) running a plain
-    /// `claude attach <id>`. Deliberately NOT `daemonizedClaudeCommand`: that
-    /// wrapper's HUP trap stops the session when its window closes, which is
-    /// right for a session the HUD started and wrong for an existing
-    /// background job. Closing this window only detaches.
+    /// Open the session with this id through `open`, in a tab of its
+    /// project's window when another session of the project is attached
+    /// there. For the Agents tab and the menu bar, which hold an id, not a
+    /// project row. A session opened with `claude attach` only detaches when
+    /// its tab closes.
     @discardableResult
-    static func openAttachWindow(id: String, cwd: String, terminalService: TerminalService) -> Bool {
-        let ghostty = "/Applications/Ghostty.app"
-        let app = FileManager.default.fileExists(atPath: ghostty) ? ghostty : nil
-        let dir = cwd.isEmpty || !FileManager.default.fileExists(atPath: cwd) ? nil : cwd
-        return terminalService.launchWithCommand("claude attach \(id)", inDirectory: dir, usingApp: app)
+    func open(id: String, terminalService: TerminalService) -> Bool {
+        guard let a = agents.first(where: { $0.id == id }) else { return false }
+        let window = agents.first(where: { $0.id != a.id && $0.cwd == a.cwd && $0.attachedGhosttyPid != nil })?.attachedGhosttyPid
+        return Self.open(a, projectWindow: window, terminalService: terminalService)
     }
 
     /// Fetch recent output for the logs sheet.
