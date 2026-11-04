@@ -414,13 +414,20 @@ final class RepoLocator: @unchecked Sendable {
 /// dimmed and sorted last and it does not light the header. Nothing is
 /// stopped automatically.
 enum SessionLight: Equatable {
-    case running, attention, dimmed
+    /// `holding`: orange, a session whose one shell command has run past
+    /// `holdingAfter` with nothing else moving, a dev server or watcher it
+    /// started in the foreground (Ben, 2026-11-04: "perm process then is our
+    /// new category -- orange"). Neither working nor waiting on Ben.
+    case running, holding, attention, dimmed
 
     static let dimAfter: TimeInterval = 3600
+    static let holdingAfter: TimeInterval = 300
 
     /// `lastMoved` is when the session last wrote its state or transcript;
-    /// `AgentSession.light` passes it.
-    static func of(running: Bool, hasWindow: Bool, lastMoved: Date, now: Date) -> SessionLight {
+    /// `inShell` is the CLI's "shell" status, whose state time is when the
+    /// command started; `AgentSession.light` passes both.
+    static func of(running: Bool, inShell: Bool = false, hasWindow: Bool, lastMoved: Date, now: Date) -> SessionLight {
+        if running, inShell, now.timeIntervalSince(lastMoved) > holdingAfter { return .holding }
         if running { return .running }
         return !hasWindow && now.timeIntervalSince(lastMoved) > dimAfter ? .dimmed : .attention
     }
@@ -435,15 +442,19 @@ enum SessionLight: Equatable {
 /// `attention` is above zero, else green when `running` is.
 struct LiveSessionCounts: Equatable {
     var running = 0
+    var holding = 0
     var attention = 0
     var dimmed = 0
-    var isEmpty: Bool { running == 0 && attention == 0 && dimmed == 0 }
-    /// The header's dot: red, green, or none when only leftovers remain.
-    var light: SessionLight? { attention > 0 ? .attention : running > 0 ? .running : nil }
+    var isEmpty: Bool { running == 0 && holding == 0 && attention == 0 && dimmed == 0 }
+    /// The header's dot: red, green, orange, or none when only leftovers remain.
+    var light: SessionLight? {
+        attention > 0 ? .attention : running > 0 ? .running : holding > 0 ? .holding : nil
+    }
 
     mutating func add(_ light: SessionLight) {
         switch light {
         case .running: running += 1
+        case .holding: holding += 1
         case .attention: attention += 1
         case .dimmed: dimmed += 1
         }
@@ -451,6 +462,7 @@ struct LiveSessionCounts: Equatable {
 
     static func + (a: LiveSessionCounts, b: LiveSessionCounts) -> LiveSessionCounts {
         LiveSessionCounts(running: a.running + b.running,
+                          holding: a.holding + b.holding,
                           attention: a.attention + b.attention,
                           dimmed: a.dimmed + b.dimmed)
     }

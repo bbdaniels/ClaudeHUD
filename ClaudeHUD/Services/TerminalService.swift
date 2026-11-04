@@ -68,10 +68,12 @@ class TerminalService: ObservableObject {
 
     /// A new Claude session in ~/Projects, the folder the iMac's sessions
     /// start in (its Remote Control server's too), through the one launch
-    /// path (`launchClaudeSession`): on the iMac, attached in Ghostty.
+    /// path (`launchClaudeSession`): on the iMac, attached in Ghostty;
+    /// `onThisMac` (the button's right-click menu) starts it on this Mac.
     @discardableResult
-    func launchClaudeInProjects() -> Bool {
-        launchClaudeSession(name: "projects", cwd: NSHomeDirectory() + "/Projects", terminalService: self)
+    func launchClaudeInProjects(onThisMac: Bool = false) -> Bool {
+        launchClaudeSession(name: "projects", cwd: NSHomeDirectory() + "/Projects",
+                            onThisMac: onThisMac, terminalService: self)
     }
 
     /// Mark `dir` trusted in ~/.claude.json so a HUD launch never stops at

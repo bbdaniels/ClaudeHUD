@@ -410,7 +410,8 @@ private struct GeneralRowView: View {
 // MARK: - Header light
 
 /// A project header's one dot (Ben, 2026-11-03): red when a session under it
-/// waits on Ben, else green when one is running. A click opens the session
+/// waits on Ben, else green when one is running, else orange when one is
+/// held by a long shell command. A click opens the session
 /// that most needs him.
 struct HeaderLight: View {
     let light: SessionLight
@@ -418,11 +419,11 @@ struct HeaderLight: View {
 
     var body: some View {
         Button(action: onTap) {
-            Circle().fill(light == .running ? Color.green : Color.red)
+            Circle().fill(light.color)
                 .frame(width: 7, height: 7).padding(3).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(light == .running ? "A session is running: click to open it" : "A session waits on you: click to open it")
+        .help(light == .running ? "A session is running: click to open it" : light == .holding ? "A session is held by a long shell command, such as a dev server: click to open it" : "A session waits on you: click to open it")
     }
 }
 
@@ -745,7 +746,7 @@ struct SessionLineView: View {
         HStack(spacing: 6) {
             Button(action: onOpen) {
                 HStack(spacing: 6) {
-                    Circle().fill(line.light == .running ? Color.green : Color.red)
+                    Circle().fill(line.light.color)
                         .frame(width: 6, height: 6).frame(width: 10)
                     Text(line.name)
                         .font(.system(size: 11.5 * scale))
@@ -794,6 +795,18 @@ struct SessionLineView: View {
                 alert.informativeText = "\(failure)\n\n\(name)"
                 alert.runModal()
             }
+        }
+    }
+}
+
+extension SessionLight {
+    /// The dot: green running, orange holding a long shell command, red
+    /// for anything that needs Ben (dimmed lines fade the red).
+    var color: Color {
+        switch self {
+        case .running: return .green
+        case .holding: return .orange
+        case .attention, .dimmed: return .red
         }
     }
 }

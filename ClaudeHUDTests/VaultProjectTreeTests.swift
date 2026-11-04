@@ -209,6 +209,22 @@ final class SessionLightTests: XCTestCase {
         XCTAssertEqual(light(quietFor: 60), .attention)
     }
 
+    func testAShellCommandRunningFiveMinutesWithNothingMovingIsOrange() {
+        func shell(_ quiet: TimeInterval) -> SessionLight {
+            SessionLight.of(running: true, inShell: true, hasWindow: false, lastMoved: now.addingTimeInterval(-quiet), now: now)
+        }
+        XCTAssertEqual(shell(301), .holding)
+        XCTAssertEqual(shell(299), .running)
+        XCTAssertEqual(light(running: true, quietFor: 7200), .running, "a busy turn outside a shell stays green")
+        var counts = LiveSessionCounts()
+        counts.add(.holding)
+        XCTAssertEqual(counts.light, .holding)
+        counts.add(.running)
+        XCTAssertEqual(counts.light, .running)
+        counts.add(.attention)
+        XCTAssertEqual(counts.light, .attention)
+    }
+
     func testARedSessionIsDimmedAfterAnHourOnlyWithNoTerminal() {
         XCTAssertEqual(light(quietFor: 3601), .dimmed)
         XCTAssertEqual(light(quietFor: 3599), .attention)

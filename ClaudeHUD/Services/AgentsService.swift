@@ -254,7 +254,8 @@ final class AgentsService: ObservableObject {
                 worktreePath: worktreePath,
                 sessionId: (s["sessionId"] as? String)
                     ?? transcriptPath.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent },
-                attachedTTY: attach?.tty
+                attachedTTY: attach?.tty,
+                inShell: cli?.status == "shell"
             ))
         }
 
@@ -296,7 +297,8 @@ final class AgentsService: ObservableObject {
                 transcriptMtime: transcriptMtime,
                 worktreePath: nil,
                 sessionId: r.sessionId,
-                remoteControlURL: r.remoteControlURL
+                remoteControlURL: r.remoteControlURL,
+                inShell: r.status == "shell"
             ))
         }
 
@@ -336,7 +338,8 @@ final class AgentsService: ObservableObject {
                 sessionId: r.sessionId,
                 iMacTmux: tmuxSession,
                 iMacAttach: r.attach,
-                attachedTTY: attach?.tty
+                attachedTTY: attach?.tty,
+                inShell: r.status == "shell"
             ))
         }
 

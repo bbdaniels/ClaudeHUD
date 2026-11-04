@@ -252,6 +252,9 @@ struct AgentSession: Identifiable, Equatable {
     /// set by `AgentsService.reload` for a live session; nil when none is
     /// written yet.
     var title: String? = nil
+    /// True while the CLI reports "shell": the session's turn waits on one
+    /// shell command (`SessionLight.holding`).
+    var inShell: Bool = false
 
     /// True for a Remote Control session row (see `remoteControlURL`).
     var isRemoteControl: Bool { remoteControlURL != nil }
@@ -363,7 +366,7 @@ struct AgentSession: Identifiable, Equatable {
 
     /// The session's dot on its Projects line (`SessionLight`).
     func light(now: Date) -> SessionLight {
-        SessionLight.of(running: liveState == .working, hasWindow: hasWindow,
+        SessionLight.of(running: liveState == .working, inShell: inShell, hasWindow: hasWindow,
                         lastMoved: max(updatedAt ?? .distantPast, transcriptMtime ?? .distantPast), now: now)
     }
 
