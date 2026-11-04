@@ -224,7 +224,8 @@ final class VaultProjectService: ObservableObject {
 
     // MARK: - Live sessions per project
 
-    /// folder name → the live INTERACTIVE sessions among `agents`. THE
+    /// folder name → every running session among `agents`, attached to a
+    /// terminal or not (an unattached one opens in a new tab). THE
     /// session-to-project join for anything that acts on a project's open
     /// windows: the Projects badges, the badge's click-to-focus, and the
     /// launcher's window-or-tab decision all read it, so they cannot disagree
@@ -233,12 +234,12 @@ final class VaultProjectService: ObservableObject {
     func liveSessionsByFolder(in agents: [AgentSession]) -> [String: [AgentSession]] {
         var map: [String: [AgentSession]] = [:]
         for a in agents {
-            guard a.isAlive, a.isOpen, !a.cwd.isEmpty,
+            guard a.isAlive, !a.cwd.isEmpty,
                   let folder = folder(forSession: a.sessionId, cwd: a.cwd) else { continue }
-            // Only the three badged buckets: an alive+open session in an
+            // Only the three badged states: a live session in an
             // unrecognized daemon state (`.other`) must not be click-cyclable
             // when the badge never advertised it.
-            switch a.bucket {
+            switch a.liveState {
             case .working, .needsInput, .idle: break
             default: continue
             }

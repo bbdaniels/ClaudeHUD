@@ -206,6 +206,15 @@ enum SessionScan {
         return map
     }
 
+    /// One session's title from its sidecar (the same file and the same
+    /// project-prefix strip as `loadSidecarTitles` and the History row), for
+    /// the few live sessions; nil when none is written.
+    static func sidecarTitle(sessionId: String, projectName: String, home: String = NSHomeDirectory()) -> String? {
+        guard let raw = try? String(contentsOfFile: "\(home)/.claude/hud/session-titles/\(sessionId).txt", encoding: .utf8) else { return nil }
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : stripProjectPrefix(String(t.prefix(100)), projectName: projectName)
+    }
+
     /// Strip a leading "<project>: " / "<project> — " from a sidecar title.
     /// The history row already carries a project tag, but sidecars left by
     /// the retired per-session vault digest, and the occasional model slip

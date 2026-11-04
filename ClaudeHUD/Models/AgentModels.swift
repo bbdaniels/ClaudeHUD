@@ -244,6 +244,10 @@ struct AgentSession: Identifiable, Equatable {
     /// `claude attach` or an ssh `tmux attach`), which names its Ghostty tab
     /// so a click can select that tab rather than only raise the window.
     var attachedTTY: String? = nil
+    /// The session's title, the one History shows (`SessionScan.sidecarTitle`),
+    /// set by `AgentsService.reload` for a live session; nil when none is
+    /// written yet.
+    var title: String? = nil
 
     /// True for a Remote Control session row (see `remoteControlURL`).
     var isRemoteControl: Bool { remoteControlURL != nil }
@@ -316,22 +320,7 @@ struct AgentSession: Identifiable, Equatable {
     ///   - alive + detached: collapse to `.detached` (muted, bottom).
     ///   - dead: stay terminal.
     var bucket: AgentDisplayState {
-        if isAlive, isOpen {
-            switch display {
-            case .completed, .failed:
-                // Re-derive without the terminal short-circuit by lying
-                // about `state` — the activity rungs (tempo, inFlight,
-                // detail) tell the truth for an attached live worker.
-                return AgentDisplayState.derive(
-                    state: "active", tempo: tempo,
-                    inFlightTasks: inFlightTasks,
-                    detail: detail, isAlive: true,
-                    stateUpdatedAt: updatedAt,
-                    transcriptMtime: transcriptMtime)
-            default:
-                return display
-            }
-        }
+        if isAlive, isOpen, let live = liveState { return live }
         switch display {
         case .completed, .failed, .stopped, .detached:
             return display
@@ -339,6 +328,34 @@ struct AgentSession: Identifiable, Equatable {
             return isOpen ? display : .detached
         }
     }
+
+    /// The state of a session whose process is alive, attached to a terminal
+    /// or not; nil for a dead one. What the Projects rows show and count:
+    /// every running session is a line under its project (Ben, 2026-11-03:
+    /// one list of every session, matching the phone and claude.ai). `bucket`
+    /// keeps the Agents tab's `.detached` grouping on top of it.
+    var liveState: AgentDisplayState? {
+        guard isAlive else { return nil }
+        switch display {
+        case .completed, .failed:
+            // Re-derive without the terminal short-circuit by lying about
+            // `state`: the activity rungs (tempo, inFlight, detail) tell the
+            // truth for a live worker.
+            return AgentDisplayState.derive(
+                state: "active", tempo: tempo,
+                inFlightTasks: inFlightTasks,
+                detail: detail, isAlive: true,
+                stateUpdatedAt: updatedAt,
+                transcriptMtime: transcriptMtime)
+        default:
+            return display
+        }
+    }
+
+    /// True when a terminal on this Mac shows the session (a `claude attach`
+    /// or an ssh `tmux attach`), so a click raises it rather than opening a
+    /// new tab.
+    var hasWindow: Bool { attachedGhosttyPid != nil || attachedTTY != nil }
 
     var projectName: String {
         let c = cwd.trimmingCharacters(in: .whitespaces)

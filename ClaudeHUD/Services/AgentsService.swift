@@ -325,6 +325,12 @@ final class AgentsService: ObservableObject {
             ))
         }
 
+        // Titles for the live sessions, read where History reads them.
+        for i in result.indices where result[i].isAlive {
+            guard let sid = result[i].sessionId else { continue }
+            result[i].title = SessionScan.sidecarTitle(sessionId: sid, projectName: result[i].projectName)
+        }
+
         // Pinned first, then by effective bucket (open: needs-input →
         // working → idle → completed → detached at the very bottom), then
         // most-recently-updated (recency sort within the detached bucket).

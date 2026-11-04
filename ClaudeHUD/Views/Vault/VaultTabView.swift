@@ -207,22 +207,21 @@ struct VaultTabView: View {
     /// folder name → live INTERACTIVE session counts, in one pass over the
     /// roster.
     ///
-    /// "Interactive" is `isOpen` — a live `claude attach <short>` process. The
-    /// daemon's job dirs carry no interactive flag (ClaudeHUD's own magic
-    /// launch runs interactive sessions through `claude --bg` and then attaches
-    /// them), so an attached terminal is the only honest discriminator.
+    /// Counts what `liveSessionsByFolder` lists: every running session,
+    /// attached to a terminal or not, so a badge and the lines under its row
+    /// always agree.
     ///
-    /// States come from `AgentSession.bucket`, never from `rawState`. `bucket`
-    /// carries the roster liveness gate: the daemon never flushes a terminal
+    /// States come from `AgentSession.liveState`, never from `rawState`: it
+    /// carries the roster liveness gate. The daemon never flushes a terminal
     /// state when a worker dies abnormally, so a `state.json` frozen on
     /// `blocked` would otherwise be counted as "needs me" forever. Absent from
-    /// `roster.workers` ⇒ `.stopped` ⇒ not counted.
+    /// `roster.workers` ⇒ not alive ⇒ not counted.
     private var folderLiveSessions: [String: LiveSessionCounts] {
         var map: [String: LiveSessionCounts] = [:]
         for (folder, sessions) in liveSessionsByFolder {
             var counts = LiveSessionCounts()
             for a in sessions {
-                switch a.bucket {
+                switch a.liveState {
                 case .working:    counts.working += 1
                 case .needsInput: counts.blocked += 1
                 case .idle:       counts.idle += 1
@@ -501,6 +500,7 @@ private struct ProjectRowView: View {
     @Environment(\.fontScale) private var scale
     @EnvironmentObject private var terminalService: TerminalService
     @State private var launchHovering = false
+    @State private var hoveredLine: String?
     @State private var launched = false
 
     /// Leading inset that marks a row as a child of the row above it.
@@ -582,7 +582,7 @@ private struct ProjectRowView: View {
     /// included. Every session is also its own line under its row.
     private func focusNextLiveSession() {
         let sessions = badgeSessionsProvider()
-        guard let first = sessions.first(where: { $0.bucket == .needsInput }) ?? sessions.first else {
+        guard let first = sessions.first(where: { $0.liveState == .needsInput }) ?? sessions.first else {
             GhosttyWindowService.activateApp(); return
         }
         open(first)
@@ -596,8 +596,10 @@ private struct ProjectRowView: View {
         if !AgentsService.open(session, projectWindow: window, terminalService: terminalService) { NSSound.beep() }
     }
 
-    /// One session under the row: its state, its name, its machine. A click
-    /// opens it (`open`).
+    /// One session under the row: its state, its title, its machine. A click
+    /// opens it (`open`): its own tab when a terminal shows it, else a new
+    /// tab in the project's window, which the dimmer title and the tooltip
+    /// say. It highlights under the pointer, so it reads as clickable.
     private func sessionLineView(_ line: LiveSessionLine) -> some View {
         Button {
             if let s = badgeSessionsProvider().first(where: { $0.id == line.id }) { open(s) } else { NSSound.beep() }
@@ -606,7 +608,7 @@ private struct ProjectRowView: View {
                 Self.stateGlyph(line.state)
                 Text(line.name)
                     .font(.system(size: 11.5 * scale))
-                    .foregroundColor(.primary.opacity(0.85))
+                    .foregroundColor(.primary.opacity(line.hasWindow ? 0.85 : 0.6))
                     .lineLimit(1).truncationMode(.tail)
                 Spacer(minLength: 8)
                 Text(line.machine)
@@ -616,10 +618,14 @@ private struct ProjectRowView: View {
             .padding(.leading, (isChild ? Self.childInset : 4) + 12)
             .padding(.trailing, 4)
             .padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 4)
+                .fill(Color.primary.opacity(hoveredLine == line.id ? 0.08 : 0)))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(line.state == .needsInput ? "Waiting on you: open it" : "Open this session")
+        .onHover { hoveredLine = $0 ? line.id : (hoveredLine == line.id ? nil : hoveredLine) }
+        .help((line.state == .needsInput ? "Waiting on you. " : "")
+              + (line.hasWindow ? "Click to bring its tab forward." : "Not open in a terminal here: click to open it in a new tab."))
     }
 
     /// Green: working. Red clock: its turn is done or it asks something, so
@@ -747,12 +753,17 @@ struct LiveSessionLine: Identifiable, Equatable {
     let name: String
     let machine: String
     let state: State
+    let hasWindow: Bool
 
+    /// The name is the session's title, the one History shows, so a line
+    /// says what the session is doing; a placeholder such as "personal-8c"
+    /// (a tmux session name) shows only until a title is written.
     init(_ a: AgentSession) {
         id = a.id
-        name = a.name.isEmpty ? URL(fileURLWithPath: a.cwd).lastPathComponent : a.name
+        name = a.title ?? (a.name.isEmpty ? URL(fileURLWithPath: a.cwd).lastPathComponent : a.name)
+        hasWindow = a.hasWindow
         machine = a.isIMac ? "iMac" : a.isRemoteControl ? "phone" : "MacBook"
-        switch a.bucket {
+        switch a.liveState {
         case .working: state = .working
         case .needsInput: state = .needsInput
         default: state = .idle
