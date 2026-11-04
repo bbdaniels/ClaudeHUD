@@ -489,14 +489,14 @@ enum SessionScan {
     }
 
     /// The conversation as it stands: its last `promptLimit` real prompts
-    /// (the rule of `conversationOpening`), the start of the reply to the
-    /// last of them (else of the latest reply before it), and when the last
-    /// prompt was sent. What a title regenerated from recent history reads
+    /// (the rule of `conversationOpening`) and the start of the assistant's
+    /// latest message, which tracks work the session does on its own between
+    /// prompts. What a title regenerated from recent history reads
     /// (`SessionTitler`). Reads only the last `window` bytes, since a long
     /// session's transcript runs to megabytes. Read-only.
     static func conversationTail(in path: String, promptLimit: Int, window: UInt64 = 2_097_152)
-        -> (prompts: [String], reply: String?, lastPromptAt: Date?) {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return ([], nil, nil) }
+        -> (prompts: [String], reply: String?) {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return ([], nil) }
         defer { handle.closeFile() }
         let size = handle.seekToEndOfFile()
         let start = size > window ? size - window : 0
@@ -506,13 +506,8 @@ enum SessionScan {
 
         let sources = TranscriptRecord.humanTurnMarkers
         let assistantMarker = Data("\"type\":\"assistant\"".utf8)
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let isoWhole = ISO8601DateFormatter()
         var prompts: [String] = []
-        var lastPromptAt: Date?
-        var replyAfterLast: String?
-        var replyBefore: String?
+        var latest: String?
         for line in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
             let maybePrompt = sources.contains(where: { line.range(of: $0) != nil })
             let maybeReply = line.range(of: assistantMarker) != nil
@@ -525,33 +520,30 @@ enum SessionScan {
             if role == "user", maybePrompt, isRealPrompt(text) {
                 prompts.append(String(text.prefix(300)))
                 if prompts.count > promptLimit { prompts.removeFirst() }
-                lastPromptAt = (json["timestamp"] as? String).flatMap { iso.date(from: $0) ?? isoWhole.date(from: $0) } ?? lastPromptAt
-                if let r = replyAfterLast { replyBefore = r }
-                replyAfterLast = nil
-            } else if role == "assistant", replyAfterLast == nil {
-                replyAfterLast = String(text.prefix(400))
+            } else if role == "assistant" {
+                latest = String(text.prefix(400))
             }
         }
-        return (prompts, replyAfterLast ?? replyBefore, lastPromptAt)
+        return (prompts, latest)
     }
 }
 
 /// When `SessionTitler` writes a session's title (Ben, 2026-11-03): an
 /// untitled session once it has three real prompts or has sat for 30 minutes
 /// (a one-word opener like "yes" alone makes a poor title); a titled one
-/// again only after a prompt sent since its title was written, and at most
-/// once a minute. `titledAt` is the sidecar's modification time, nil when
-/// there is none.
+/// again whenever its transcript has grown since the title was written, its
+/// own background work included ("it should retitle even if it is just
+/// working in the background"), at most once a minute. `titledAt` is the
+/// sidecar's modification time, nil when there is none.
 enum SessionTitleSchedule {
     static let refreshEvery: TimeInterval = 60
     static let settleAge: TimeInterval = 30 * 60
 
-    static func due(titledAt: Date?, promptCount: Int, lastPromptAt: Date?, transcriptModified: Date, now: Date) -> Bool {
+    static func due(titledAt: Date?, promptCount: Int, transcriptModified: Date, now: Date) -> Bool {
         guard promptCount > 0 else { return false }
         guard let titledAt else {
             return promptCount >= 3 || now.timeIntervalSince(transcriptModified) > settleAge
         }
-        guard now.timeIntervalSince(titledAt) >= refreshEvery, let lastPromptAt else { return false }
-        return lastPromptAt > titledAt
+        return now.timeIntervalSince(titledAt) >= refreshEvery && transcriptModified > titledAt
     }
 }

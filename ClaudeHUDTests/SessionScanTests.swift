@@ -125,7 +125,7 @@ final class SessionScanTests: XCTestCase {
         return j
     }
 
-    func testTheTailReadsTheLastFivePromptsAndTheReplyToTheLast() throws {
+    func testTheTailReadsTheLastFivePromptsAndTheLatestMessage() throws {
         let dir = NSTemporaryDirectory() + "tail-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         var recs: [[String: Any]] = []
@@ -141,10 +141,9 @@ final class SessionScanTests: XCTestCase {
         let tail = SessionScan.conversationTail(in: path, promptLimit: 5)
         XCTAssertEqual(tail.prompts, ["prompt 3", "prompt 4", "prompt 5", "prompt 6", "prompt 7"])
         XCTAssertEqual(tail.reply, "reply 7")
-        XCTAssertEqual(tail.lastPromptAt, ISO8601DateFormatter().date(from: "2026-11-03T10:07:00Z"))
     }
 
-    func testBeforeItsReplyLandsTheTailTakesTheReplyBefore() throws {
+    func testBeforeTheNextReplyLandsTheTailTakesTheLatestOne() throws {
         let dir = NSTemporaryDirectory() + "tail-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let recs = [turn("user", "first", at: "2026-11-03T10:00:00Z"),
@@ -159,20 +158,21 @@ final class SessionScanTests: XCTestCase {
         XCTAssertEqual(tail.reply, "answer one")
     }
 
-    func testATitleIsRewrittenOnlyAfterANewPromptAndAtMostOnceAMinute() {
+    func testATitleIsRewrittenAfterAnyNewActivityAtMostOnceAMinute() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         let due = SessionTitleSchedule.due
         // Untitled: three prompts, or settled.
-        XCTAssertFalse(due(nil, 1, now, now, now))
-        XCTAssertTrue(due(nil, 3, now, now, now))
-        XCTAssertTrue(due(nil, 1, now.addingTimeInterval(-3600), now.addingTimeInterval(-31 * 60), now))
-        XCTAssertFalse(due(nil, 0, nil, now.addingTimeInterval(-3600), now))
-        // Titled two minutes ago: due only for a prompt sent since.
+        XCTAssertFalse(due(nil, 1, now, now))
+        XCTAssertTrue(due(nil, 3, now, now))
+        XCTAssertTrue(due(nil, 1, now.addingTimeInterval(-31 * 60), now))
+        XCTAssertFalse(due(nil, 0, now.addingTimeInterval(-3600), now))
+        // Titled two minutes ago: due when the transcript grew since, a
+        // prompt or the session's own work alike.
         let titled = now.addingTimeInterval(-120)
-        XCTAssertTrue(due(titled, 5, now.addingTimeInterval(-60), now, now))
-        XCTAssertFalse(due(titled, 5, titled.addingTimeInterval(-1), now, now))
-        // Titled thirty seconds ago: not yet, whatever was sent.
+        XCTAssertTrue(due(titled, 5, now.addingTimeInterval(-10), now))
+        XCTAssertFalse(due(titled, 5, titled.addingTimeInterval(-1), now))
+        // Titled thirty seconds ago: not yet, whatever happened.
         let recent = now.addingTimeInterval(-30)
-        XCTAssertFalse(due(recent, 5, now, now, now))
+        XCTAssertFalse(due(recent, 5, now, now))
     }
 }
