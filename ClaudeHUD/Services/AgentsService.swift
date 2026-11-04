@@ -175,6 +175,16 @@ final class AgentsService: ObservableObject {
         // process exists for it. Scanned once per refresh (throttled).
         let attaches = attachScan()
 
+        // The CLI's own record of each running session
+        // (~/.claude/sessions/<pid>.json) is the one source of a live
+        // session's state, as for the gate's `live` and the runner's
+        // session-watch. The daemon's `state.json` is written on events and
+        // falls behind: on 2026-11-03 it still read "blocked" minutes after
+        // Ben answered sportspredict's question, while the CLI read busy, and
+        // the line showed red. `state.json` speaks only for a job no
+        // process holds.
+        let cliLive = ClaudeSessionRecords.readLive()
+
         let jobDirs = (try? fm.contentsOfDirectory(at: Self.jobsDir,
                                                    includingPropertiesForKeys: nil,
                                                    options: [.skipsHiddenFiles])) ?? []
@@ -186,14 +196,18 @@ final class AgentsService: ObservableObject {
             guard let data = try? Data(contentsOf: stateURL),
                   let s = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { continue }
 
-            let rawState = (s["state"] as? String) ?? "unknown"
+            let jobSessionId = s["sessionId"] as? String
+            let cli = alive[id] == nil ? nil
+                : cliLive.first { $0.jobId == id || (jobSessionId != nil && $0.sessionId == jobSessionId) }
+            let rawState = cli?.displayState ?? (s["state"] as? String) ?? "unknown"
             let intent = (s["intent"] as? String) ?? ""
-            let detail = (s["detail"] as? String) ?? (s["output"] as? [String: Any]).flatMap { $0["result"] as? String } ?? ""
+            let detail = cli.map { $0.waitingFor ?? "" }
+                ?? (s["detail"] as? String) ?? (s["output"] as? [String: Any]).flatMap { $0["result"] as? String } ?? ""
             let cwd = (s["cwd"] as? String) ?? alive[id]?.cwd ?? ""
             let projectName = cwd.isEmpty ? "" : URL(fileURLWithPath: cwd).lastPathComponent
             let template = s["template"] as? String
-            let tempo = s["tempo"] as? String
-            let inFlightTasks = ((s["inFlight"] as? [String: Any])?["tasks"] as? Int) ?? 0
+            let tempo = cli == nil ? s["tempo"] as? String : nil
+            let inFlightTasks = cli == nil ? ((s["inFlight"] as? [String: Any])?["tasks"] as? Int) ?? 0 : 0
             let transcriptPath = s["linkScanPath"] as? String
             // Only a worktree that still exists counts: a path left behind in
             // `state.json` after the worktree was removed must not veto the
@@ -226,7 +240,7 @@ final class AgentsService: ObservableObject {
                 intent: intent,
                 cwd: cwd,
                 createdAt: Self.parseDate(s["createdAt"]),
-                updatedAt: Self.parseDate(s["updatedAt"]),
+                updatedAt: cli?.updatedAt ?? Self.parseDate(s["updatedAt"]),
                 isAlive: alive[id] != nil,
                 pid: alive[id]?.pid,
                 isPinned: pins.contains(id),
@@ -251,7 +265,7 @@ final class AgentsService: ObservableObject {
         // each, keyed by session id, always alive and open while its process
         // runs (the record is dropped once the pid is gone), so the reaper,
         // which deletes only dead rows, never considers them.
-        for r in ClaudeSessionRecords.readLive() where r.isRemoteControlChild {
+        for r in cliLive where r.isRemoteControlChild {
             let transcript = ClaudeSessionRecords.transcriptPath(sessionId: r.sessionId, cwd: r.cwd)
             let transcriptMtime = transcript.flatMap {
                 (try? fm.attributesOfItem(atPath: $0))?[.modificationDate] as? Date
