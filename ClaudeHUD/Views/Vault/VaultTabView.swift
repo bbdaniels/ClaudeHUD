@@ -552,7 +552,7 @@ private struct ProjectRowView: View {
         .onHover { launchHovering = $0 }
         .contextMenu {
             Button("New session on the iMac") { launch(cwd: launchCwd) }
-            Button("New session on this Mac") { launch(cwd: launchCwd, onThisMac: true) }
+            Button("New session on the MacBook") { launch(cwd: launchCwd, onThisMac: true) }
         }
     }
 
@@ -590,7 +590,7 @@ private struct ProjectRowView: View {
         if !AgentsService.open(session, projectWindow: window, terminalService: terminalService) { NSSound.beep() }
     }
 
-    /// `onThisMac`: the right-click menu's "New session on this Mac"; a
+    /// `onThisMac`: the right-click menu's "New session on the MacBook"; a
     /// plain click starts the session on the iMac (`launchClaudeSession`).
     private func launch(cwd: String, onThisMac: Bool = false) {
         _ = performMagicLaunch(projectName: project.name, cwd: cwd,

@@ -222,7 +222,7 @@ struct HUDContentView: View {
                 .hudTip("New Claude session in ~/Projects, on the iMac; right-click to choose the machine")
                 .contextMenu {
                     Button("New session on the iMac") { terminalService.launchClaudeInProjects() }
-                    Button("New session on this Mac") { terminalService.launchClaudeInProjects(onThisMac: true) }
+                    Button("New session on the MacBook") { terminalService.launchClaudeInProjects(onThisMac: true) }
                 }
                 .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
                     showTerminalPopover = true
