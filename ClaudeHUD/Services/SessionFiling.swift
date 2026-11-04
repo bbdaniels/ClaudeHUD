@@ -146,6 +146,10 @@ struct ClaudeSessionRecord: Equatable {
     /// The tmux pane the session runs in, as "<session>:@<window>.%<pane>",
     /// when it runs in one (the iMac's pi-gate sessions do).
     var tmux: String? = nil
+    /// The command that attaches a terminal to that tmux session, as the
+    /// iMac's gate reports it (`live`): on the gate's own tmux server for a
+    /// session it launched or adopted, else on the default server.
+    var attach: String? = nil
 
     /// A session started from the Claude app through Remote Control: an
     /// interactive `--print` child of `claude remote-control` (entrypoint
@@ -195,7 +199,7 @@ enum ClaudeSessionRecords {
             bridgeSessionId: string("bridgeSessionId"), jobId: string("jobId"),
             status: string("status"), waitingFor: string("waitingFor"),
             startedAt: millis("startedAt"), updatedAt: millis("updatedAt"),
-            procStart: string("procStart"), tmux: string("tmux"))
+            procStart: string("procStart"), tmux: string("tmux"), attach: string("attach"))
     }
 
     /// Every record in `dir` whose process is still the one that wrote it.

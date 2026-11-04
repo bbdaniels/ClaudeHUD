@@ -235,11 +235,15 @@ struct AgentSession: Identifiable, Equatable {
     /// page in the browser instead of raising a window.
     var remoteControlURL: URL? = nil
 
-    /// Set only on an iMac row: the tmux session on the iMac's default tmux
-    /// server that holds it, which a click attaches a Ghostty window to over
-    /// ssh. Nil for an iMac session with no terminal (one Remote Control
-    /// spawned), which has nowhere to open on this Mac.
+    /// Set only on an iMac row: the tmux session on the iMac that holds it,
+    /// which a click attaches a Ghostty window to over ssh. Nil for an iMac
+    /// session with no terminal (one the Remote Control server spawned from
+    /// the phone or claude.ai), which a click first moves into the gate's
+    /// tmux with the gate's `adopt` (AgentsService.open).
     var iMacTmux: String? = nil
+    /// The gate's command that attaches to `iMacTmux` (its own tmux server
+    /// or the default one); nil from a gate that does not report it.
+    var iMacAttach: String? = nil
     /// The tty of the terminal attached to this session on this Mac (a
     /// `claude attach` or an ssh `tmux attach`), which names its Ghostty tab
     /// so a click can select that tab rather than only raise the window.

@@ -109,6 +109,17 @@ final class IMacAttachScanTests: XCTestCase {
         XCTAssertEqual(IMacLauncher.attachTarget(command: "/usr/bin/ssh -t imac tmux attach -t =x"), "x")
     }
 
+    /// A session the gate launched or adopted is on its own tmux server.
+    func testAnAttachOnTheGatesServerIsFound() {
+        XCTAssertEqual(IMacLauncher.attachTarget(command: "ssh -t imac tmux -L pi-gate attach -t =rc-projects-c068e11d"),
+                       "rc-projects-c068e11d")
+    }
+
+    func testAdoptRunsTheGatesVerbQuoted() {
+        XCTAssertEqual(IMacLauncher.adoptCommand(name: "projects-c068e11d", sessionId: "c068e11d-5513-5ee9-8337-b970d9375149"),
+                       "~/bin/pi-gate 'adopt' 'projects-c068e11d' 'c068e11d-5513-5ee9-8337-b970d9375149'")
+    }
+
     func testOtherCommandsAreNotAttaches() {
         XCTAssertNil(IMacLauncher.attachTarget(command: "ssh imac tmux ls"))
         XCTAssertNil(IMacLauncher.attachTarget(command: "ssh -t pi tmux attach -t =x"))

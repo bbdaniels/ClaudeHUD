@@ -199,12 +199,30 @@ enum IMacLauncher {
                                dir: obj["dir"] as? String))
     }
 
+    /// What the iMac's shell runs to move a session the Remote Control
+    /// server spawned (one from the phone or claude.ai, with no terminal)
+    /// into the gate's tmux as `name`: the gate's `adopt` verb, which stops
+    /// the server's copy and resumes the conversation (pi-gate-launch.md).
+    static func adoptCommand(name: String, sessionId: String) -> String {
+        ([gatePath] + ["adopt", name, sessionId].map(shellQuote)).joined(separator: " ")
+    }
+
     /// Run the launcher over ssh. Blocks until it answers (it waits for the
     /// session's channel, up to about a minute): call it off the main thread.
     static func run(_ r: Request) -> Outcome {
+        run(arguments: sshArguments(r), prompt: r.prompt)
+    }
+
+    /// `adopt` over ssh; blocks like `run`.
+    static func adopt(name: String, sessionId: String) -> Outcome {
+        run(arguments: ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", sshHost,
+                        adoptCommand(name: name, sessionId: sessionId)], prompt: nil)
+    }
+
+    private static func run(arguments: [String], prompt: String?) -> Outcome {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-        process.arguments = sshArguments(r)
+        process.arguments = arguments
         let input = Pipe(), output = Pipe()
         process.standardInput = input
         process.standardOutput = output
@@ -214,20 +232,21 @@ enum IMacLauncher {
         } catch {
             return .failed("ssh could not start: \(error.localizedDescription)")
         }
-        if let prompt = r.prompt { input.fileHandleForWriting.write(Data(prompt.utf8)) }
+        if let prompt { input.fileHandleForWriting.write(Data(prompt.utf8)) }
         try? input.fileHandleForWriting.close()
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         return outcome(status: process.terminationStatus, stdout: data)
     }
 
-    /// The tmux session an `ssh <iMac> tmux attach -t '=<name>'` command line
-    /// attaches to, or nil for any other command.
+    /// The tmux session an `ssh <iMac> tmux [-L <server>] attach -t '=<name>'`
+    /// command line attaches to, or nil for any other command.
     static func attachTarget(command: String) -> String? {
         let parts = command.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
         guard let argv0 = parts.first, argv0 == "ssh" || argv0.hasSuffix("/ssh"),
               parts.contains(sshHost),
-              let a = parts.firstIndex(of: "attach"), a > 0, parts[a - 1].hasSuffix("tmux"),
+              let a = parts.firstIndex(of: "attach"), a > 0,
+              parts[..<a].contains(where: { $0.trimmingCharacters(in: CharacterSet(charactersIn: "'\"")).hasSuffix("tmux") }),
               let t = parts[a...].firstIndex(of: "-t"), t + 1 < parts.count else { return nil }
         let name = parts[t + 1].trimmingCharacters(in: CharacterSet(charactersIn: "'\"="))
         return name.isEmpty ? nil : name

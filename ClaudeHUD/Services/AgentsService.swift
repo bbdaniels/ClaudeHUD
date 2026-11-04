@@ -321,6 +321,7 @@ final class AgentsService: ObservableObject {
                 worktreePath: nil,
                 sessionId: r.sessionId,
                 iMacTmux: tmuxSession,
+                iMacAttach: r.attach,
                 attachedTTY: attach?.tty
             ))
         }
@@ -561,9 +562,34 @@ final class AgentsService: ObservableObject {
         let bg = UserDefaults.standard.bool(forKey: "history.useColors") && dir != nil
             ? TerminalService.projectColor(for: URL(fileURLWithPath: a.cwd).lastPathComponent) : nil
         if a.isIMac {
-            guard let tmux = a.iMacTmux else { return false }
+            guard let tmux = a.iMacTmux else {
+                // No terminal: a session the Remote Control server spawned
+                // (the phone, claude.ai). The gate's `adopt` moves it into
+                // its tmux, then it opens as any iMac session does.
+                guard let sid = a.sessionId else { return false }
+                let name = IMacLauncher.resumeName(project: URL(fileURLWithPath: a.cwd).lastPathComponent,
+                                                   sessionId: sid)
+                Task.detached(priority: .userInitiated) {
+                    let outcome = IMacLauncher.adopt(name: name, sessionId: sid)
+                    await MainActor.run {
+                        switch outcome {
+                        case .running(let answer):
+                            terminalService.launchWithCommand(IMacLauncher.attachCommand(answer), inDirectory: dir,
+                                                              usingApp: app, backgroundColor: bg,
+                                                              existingGhosttyPid: projectWindow)
+                        case .notOnIMac(let reason), .failed(let reason):
+                            let alert = NSAlert()
+                            alert.alertStyle = .warning
+                            alert.messageText = "The session did not open on the iMac"
+                            alert.informativeText = "\(reason)\n\n\(a.name)"
+                            alert.runModal()
+                        }
+                    }
+                }
+                return true
+            }
             let answer = IMacLauncher.Answer(started: false, session: tmux,
-                attach: "tmux attach -t " + IMacLauncher.shellQuote("=" + tmux), dir: nil)
+                attach: a.iMacAttach ?? "tmux attach -t " + IMacLauncher.shellQuote("=" + tmux), dir: nil)
             return terminalService.launchWithCommand(IMacLauncher.attachCommand(answer), inDirectory: dir,
                                                      usingApp: app, backgroundColor: bg, existingGhosttyPid: projectWindow)
         }
