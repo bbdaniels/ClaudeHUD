@@ -115,4 +115,64 @@ final class SessionScanTests: XCTestCase {
         XCTAssertEqual(SessionScan.iMacProjectDir("-home-bbdaniels-Projects-a", transcript: dir + "/x.jsonl", home: home).path,
                        home + "/Projects/a", "a directory the folder is not named after falls back to the decoder")
     }
+
+    // MARK: Titles from recent history
+
+    private func turn(_ role: String, _ text: String, at ts: String) -> [String: Any] {
+        var j: [String: Any] = ["type": role, "timestamp": ts,
+                                "message": ["role": role, "content": text]]
+        if role == "user" { j["promptSource"] = "typed" }
+        return j
+    }
+
+    func testTheTailReadsTheLastFivePromptsAndTheReplyToTheLast() throws {
+        let dir = NSTemporaryDirectory() + "tail-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        var recs: [[String: Any]] = []
+        for k in 1...7 {
+            recs.append(turn("user", "prompt \(k)", at: "2026-11-03T10:0\(k):00.000Z"))
+            recs.append(turn("assistant", "reply \(k)", at: "2026-11-03T10:0\(k):30.000Z"))
+        }
+        recs.append(turn("user", "[Request interrupted by user]", at: "2026-11-03T10:09:00.000Z"))
+        let data = try recs.map { try JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]) }
+            .reduce(Data()) { $0 + $1 + Data("\n".utf8) }
+        let path = dir + "/t.jsonl"
+        try data.write(to: URL(fileURLWithPath: path))
+        let tail = SessionScan.conversationTail(in: path, promptLimit: 5)
+        XCTAssertEqual(tail.prompts, ["prompt 3", "prompt 4", "prompt 5", "prompt 6", "prompt 7"])
+        XCTAssertEqual(tail.reply, "reply 7")
+        XCTAssertEqual(tail.lastPromptAt, ISO8601DateFormatter().date(from: "2026-11-03T10:07:00Z"))
+    }
+
+    func testBeforeItsReplyLandsTheTailTakesTheReplyBefore() throws {
+        let dir = NSTemporaryDirectory() + "tail-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let recs = [turn("user", "first", at: "2026-11-03T10:00:00Z"),
+                    turn("assistant", "answer one", at: "2026-11-03T10:00:10Z"),
+                    turn("user", "second", at: "2026-11-03T10:01:00Z")]
+        let data = try recs.map { try JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]) }
+            .reduce(Data()) { $0 + $1 + Data("\n".utf8) }
+        let path = dir + "/t.jsonl"
+        try data.write(to: URL(fileURLWithPath: path))
+        let tail = SessionScan.conversationTail(in: path, promptLimit: 5)
+        XCTAssertEqual(tail.prompts, ["first", "second"])
+        XCTAssertEqual(tail.reply, "answer one")
+    }
+
+    func testATitleIsRewrittenOnlyAfterANewPromptAndAtMostEveryFiveMinutes() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let due = SessionTitleSchedule.due
+        // Untitled: three prompts, or settled.
+        XCTAssertFalse(due(nil, 1, now, now, now))
+        XCTAssertTrue(due(nil, 3, now, now, now))
+        XCTAssertTrue(due(nil, 1, now.addingTimeInterval(-3600), now.addingTimeInterval(-31 * 60), now))
+        XCTAssertFalse(due(nil, 0, nil, now.addingTimeInterval(-3600), now))
+        // Titled six minutes ago: due only for a prompt sent since.
+        let titled = now.addingTimeInterval(-360)
+        XCTAssertTrue(due(titled, 5, now.addingTimeInterval(-60), now, now))
+        XCTAssertFalse(due(titled, 5, titled.addingTimeInterval(-1), now, now))
+        // Titled two minutes ago: not yet, whatever was sent.
+        let recent = now.addingTimeInterval(-120)
+        XCTAssertFalse(due(recent, 5, now, now, now))
+    }
 }

@@ -183,7 +183,7 @@ enum SessionScan {
 
     /// Session titles, keyed by session id under
     /// ~/.claude/hud/session-titles/<id>.txt. `SessionTitler` is the only
-    /// writer. The retired per-session vault digest also wrote sidecars here;
+    /// writer, and rewrites a title as the session moves on. The retired per-session vault digest also wrote sidecars here;
     /// those files still display, and nothing but `SessionTitler` writes new
     /// ones (the daily review that replaced the digest writes none). Loaded
     /// once per scan; an untitled session falls
@@ -470,9 +470,7 @@ enum SessionScan {
                 if isReply, role == "assistant" {
                     reply = String(trimmed.prefix(400))
                 } else if isPrompt, role == "user" {
-                    if TranscriptHead.magicLaunchProject(trimmed) != nil || TranscriptHead.isPassThroughPrompt(trimmed) { continue }
-                    if trimmed.hasPrefix("Caveat: The messages below") { continue }  // local-command caveat
-                    if trimmed.hasPrefix("[Request interrupted") { continue }        // interrupt sentinel
+                    guard isRealPrompt(trimmed) else { continue }
                     prompts.append(String(trimmed.prefix(300)))
                 }
                 if done() { return (prompts, reply) }
@@ -480,5 +478,80 @@ enum SessionScan {
             if atEOF { return (prompts, reply) }
             pending = Data(pending[end...])
         }
+    }
+
+    /// A human turn's text that is a real prompt: not a magic-launch head, a
+    /// pass-through, a local-command caveat or an interrupt sentinel. One
+    /// rule for the opening and the tail.
+    static func isRealPrompt(_ text: String) -> Bool {
+        !(TranscriptHead.magicLaunchProject(text) != nil || TranscriptHead.isPassThroughPrompt(text)
+          || text.hasPrefix("Caveat: The messages below") || text.hasPrefix("[Request interrupted"))
+    }
+
+    /// The conversation as it stands: its last `promptLimit` real prompts
+    /// (the rule of `conversationOpening`), the start of the reply to the
+    /// last of them (else of the latest reply before it), and when the last
+    /// prompt was sent. What a title regenerated from recent history reads
+    /// (`SessionTitler`). Reads only the last `window` bytes, since a long
+    /// session's transcript runs to megabytes. Read-only.
+    static func conversationTail(in path: String, promptLimit: Int, window: UInt64 = 2_097_152)
+        -> (prompts: [String], reply: String?, lastPromptAt: Date?) {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return ([], nil, nil) }
+        defer { handle.closeFile() }
+        let size = handle.seekToEndOfFile()
+        let start = size > window ? size - window : 0
+        handle.seek(toFileOffset: start)
+        var data = handle.readDataToEndOfFile()
+        if start > 0, let nl = data.firstIndex(of: 0x0A) { data = Data(data[data.index(after: nl)...]) }
+
+        let sources = TranscriptRecord.humanTurnMarkers
+        let assistantMarker = Data("\"type\":\"assistant\"".utf8)
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let isoWhole = ISO8601DateFormatter()
+        var prompts: [String] = []
+        var lastPromptAt: Date?
+        var replyAfterLast: String?
+        var replyBefore: String?
+        for line in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
+            let maybePrompt = sources.contains(where: { line.range(of: $0) != nil })
+            let maybeReply = line.range(of: assistantMarker) != nil
+            guard maybePrompt || maybeReply,
+                  let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                  let role = TranscriptRecord.role(from: json),
+                  let content = TranscriptRecord.messageContent(from: json) else { continue }
+            let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.isEmpty { continue }
+            if role == "user", maybePrompt, isRealPrompt(text) {
+                prompts.append(String(text.prefix(300)))
+                if prompts.count > promptLimit { prompts.removeFirst() }
+                lastPromptAt = (json["timestamp"] as? String).flatMap { iso.date(from: $0) ?? isoWhole.date(from: $0) } ?? lastPromptAt
+                if let r = replyAfterLast { replyBefore = r }
+                replyAfterLast = nil
+            } else if role == "assistant", replyAfterLast == nil {
+                replyAfterLast = String(text.prefix(400))
+            }
+        }
+        return (prompts, replyAfterLast ?? replyBefore, lastPromptAt)
+    }
+}
+
+/// When `SessionTitler` writes a session's title (Ben, 2026-11-03): an
+/// untitled session once it has three real prompts or has sat for 30 minutes
+/// (a one-word opener like "yes" alone makes a poor title); a titled one
+/// again only after a prompt sent since its title was written, and at most
+/// every five minutes. `titledAt` is the sidecar's modification time, nil when
+/// there is none.
+enum SessionTitleSchedule {
+    static let refreshEvery: TimeInterval = 5 * 60
+    static let settleAge: TimeInterval = 30 * 60
+
+    static func due(titledAt: Date?, promptCount: Int, lastPromptAt: Date?, transcriptModified: Date, now: Date) -> Bool {
+        guard promptCount > 0 else { return false }
+        guard let titledAt else {
+            return promptCount >= 3 || now.timeIntervalSince(transcriptModified) > settleAge
+        }
+        guard now.timeIntervalSince(titledAt) >= refreshEvery, let lastPromptAt else { return false }
+        return lastPromptAt > titledAt
     }
 }
