@@ -540,10 +540,10 @@ enum SessionScan {
 /// untitled session once it has three real prompts or has sat for 30 minutes
 /// (a one-word opener like "yes" alone makes a poor title); a titled one
 /// again only after a prompt sent since its title was written, and at most
-/// every five minutes. `titledAt` is the sidecar's modification time, nil when
+/// once a minute. `titledAt` is the sidecar's modification time, nil when
 /// there is none.
 enum SessionTitleSchedule {
-    static let refreshEvery: TimeInterval = 5 * 60
+    static let refreshEvery: TimeInterval = 60
     static let settleAge: TimeInterval = 30 * 60
 
     static func due(titledAt: Date?, promptCount: Int, lastPromptAt: Date?, transcriptModified: Date, now: Date) -> Bool {

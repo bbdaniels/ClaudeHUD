@@ -159,7 +159,7 @@ final class SessionScanTests: XCTestCase {
         XCTAssertEqual(tail.reply, "answer one")
     }
 
-    func testATitleIsRewrittenOnlyAfterANewPromptAndAtMostEveryFiveMinutes() {
+    func testATitleIsRewrittenOnlyAfterANewPromptAndAtMostOnceAMinute() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         let due = SessionTitleSchedule.due
         // Untitled: three prompts, or settled.
@@ -167,12 +167,12 @@ final class SessionScanTests: XCTestCase {
         XCTAssertTrue(due(nil, 3, now, now, now))
         XCTAssertTrue(due(nil, 1, now.addingTimeInterval(-3600), now.addingTimeInterval(-31 * 60), now))
         XCTAssertFalse(due(nil, 0, nil, now.addingTimeInterval(-3600), now))
-        // Titled six minutes ago: due only for a prompt sent since.
-        let titled = now.addingTimeInterval(-360)
+        // Titled two minutes ago: due only for a prompt sent since.
+        let titled = now.addingTimeInterval(-120)
         XCTAssertTrue(due(titled, 5, now.addingTimeInterval(-60), now, now))
         XCTAssertFalse(due(titled, 5, titled.addingTimeInterval(-1), now, now))
-        // Titled two minutes ago: not yet, whatever was sent.
-        let recent = now.addingTimeInterval(-120)
+        // Titled thirty seconds ago: not yet, whatever was sent.
+        let recent = now.addingTimeInterval(-30)
         XCTAssertFalse(due(recent, 5, now, now, now))
     }
 }

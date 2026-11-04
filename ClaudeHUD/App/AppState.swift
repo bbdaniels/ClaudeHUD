@@ -54,6 +54,7 @@ class AppState: ObservableObject {
         // Session scan at launch, which also brings the transcript search
         // index up to date off-main, so the first History search is warm.
         Task { await sessionHistoryService.refresh() }
+        sessionHistoryService.startPeriodicRefresh()
 
         // Unlock secrets vault — single Touch ID prompt for the whole session.
         // Services were initialized before secrets were available, so notify

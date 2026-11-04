@@ -54,6 +54,22 @@ class SessionHistoryService: ObservableObject {
         startMirror()
     }
 
+    private var periodic: DispatchSourceTimer?
+
+    /// Rescan, and so retitle, every `SessionTitleSchedule.refreshEvery`
+    /// while the app runs, not only when the panel opens (Ben, 2026-11-03:
+    /// "do it every minute"). A GCD timer fires whatever the panel's run-loop
+    /// mode (AgentsService.start). Idempotent.
+    func startPeriodicRefresh() {
+        guard periodic == nil else { return }
+        let t = DispatchSource.makeTimerSource(queue: .main)
+        let every = SessionTitleSchedule.refreshEvery
+        t.schedule(deadline: .now() + every, repeating: every, leeway: .seconds(5))
+        t.setEventHandler { [weak self] in Task { @MainActor in await self?.refresh() } }
+        t.resume()
+        periodic = t
+    }
+
     private func rescan() async {
         if let inFlight = refreshTask { return await inFlight.value }
         let task = Task { await performRefresh() }
@@ -238,7 +254,7 @@ enum TranscriptText {
 /// When: an untitled session once it has three real prompts or has been idle
 /// for 30 minutes (a one-word opener like "yes" alone makes a poor title); a
 /// titled one again only after a prompt sent since its title was written,
-/// and at most every five minutes (the sidecar's modification time is when
+/// and at most once a minute (the sidecar's modification time is when
 /// it was titled). Cost control: the newest sessions first, calls one at a
 /// time with a pause between them and a cap per pass, and a failed session is
 /// not retried until the next launch.
@@ -281,7 +297,9 @@ actor SessionTitler {
         var prompt = """
             Write a title for this chat session so its owner can see in a list what it is \
             working on now. Name the concrete current task in 3 to 8 words, sentence case, \
-            no quotes, no trailing period. Reply with the title only.
+            no quotes, no trailing period. Write it for a non-programmer: say what the work \
+            is for, in plain words, with no file names, function names, commands or jargon. \
+            Reply with the title only.
 
             The person's most recent messages, oldest first:
             """
