@@ -959,13 +959,14 @@ func magicLaunchArg(projectName: String, resolvedVaultPath: String?) -> String {
 @MainActor
 func performMagicLaunch(projectName: String, cwd: String, resolvedVaultPath: String?,
                         liveSessions: [AgentSession] = [],
+                        onThisMac: Bool = false,
                         terminalService: TerminalService) -> Bool {
     // The vault path is the Mac's; `/project` reads only its last folder
     // name, which is the same on the iMac.
     let arg = magicLaunchArg(projectName: projectName, resolvedVaultPath: resolvedVaultPath)
     return launchClaudeSession(prompt: arg, name: projectName, cwd: cwd,
                                existingGhosttyPid: liveSessions.compactMap(\.attachedGhosttyPid).first,
-                               terminalService: terminalService)
+                               onThisMac: onThisMac, terminalService: terminalService)
 }
 
 /// THE HUD launch path for a Claude session (new session and resume).
@@ -980,10 +981,10 @@ func performMagicLaunch(projectName: String, cwd: String, resolvedVaultPath: Str
 /// On this Mac, by the daemon-registered `claude --bg` + `claude attach`
 /// form (`launchMacSession`), only where the session is not on the iMac: a
 /// folder outside ~/Projects, a folder the iMac does not have yet, or a
-/// transcript that is the Mac's. History now lists the iMac's sessions
-/// too (`SessionHost`, `IMacMirror`); the fallback goes when the iMac holds
-/// every checkout (vault plan `ClaudeHUD/plans/2026-11-03 - Sessions Live on
-/// the iMac`). When the iMac refuses or does not answer, an alert says why
+/// transcript that is the Mac's, and wherever Ben chooses this Mac
+/// (`onThisMac`: a project launch button's right-click menu, "a right click
+/// gives location choice", Ben 2026-11-04), so this path stays when the iMac
+/// holds every checkout. When the iMac refuses or does not answer, an alert says why
 /// and offers this Mac; nothing starts here unasked.
 ///
 /// A transcript that ran on the iMac (`host: .iMac`, a History row from the
@@ -998,6 +999,7 @@ func performMagicLaunch(projectName: String, cwd: String, resolvedVaultPath: Str
 func launchClaudeSession(prompt: String? = nil, resume: String? = nil, name: String, cwd: String,
                          host: SessionHost = .mac,
                          existingGhosttyPid: pid_t? = nil,
+                         onThisMac: Bool = false,
                          terminalService: TerminalService) -> Bool {
     let onMac: @MainActor () -> Bool = {
         launchMacSession(prompt: prompt, resume: resume, name: name, cwd: cwd,
@@ -1005,7 +1007,7 @@ func launchClaudeSession(prompt: String? = nil, resume: String? = nil, name: Str
     }
     let folder: String
     let macFallback: Bool
-    switch IMacLauncher.route(host: host, cwd: cwd) {
+    switch IMacLauncher.route(host: host, cwd: cwd, onThisMac: onThisMac) {
     case .macOnly:
         return onMac()
     case .refused(let reason):

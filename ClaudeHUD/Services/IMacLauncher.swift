@@ -142,8 +142,12 @@ enum IMacLauncher {
     /// The route for a session that ran on `host` in `cwd` (a path on this
     /// Mac, as `SessionInfo.projectPath` holds it). A new session is the
     /// Mac's case: it starts on the iMac when the folder is under ~/Projects.
-    static func route(host: SessionHost, cwd: String, home: String = NSHomeDirectory()) -> Route {
+    /// `onThisMac`: Ben chose this Mac for a new session, so it starts
+    /// here; a transcript that is the iMac's still resumes only there.
+    static func route(host: SessionHost, cwd: String, onThisMac: Bool = false,
+                      home: String = NSHomeDirectory()) -> Route {
         let folder = projectsFolder(forMacPath: cwd, home: home)
+        if onThisMac, host == .mac { return .macOnly }
         switch host {
         case .mac:
             return folder.map { .iMacThenMac(folder: $0) } ?? .macOnly

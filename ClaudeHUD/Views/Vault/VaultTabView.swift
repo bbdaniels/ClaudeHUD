@@ -546,9 +546,13 @@ private struct ProjectRowView: View {
                                  : .secondary.opacity(launchHovering ? 0.95 : 0.45))
         }
         .buttonStyle(.plain)
-        .help(hasCwd ? "New session — loads project context from the Obsidian wiki"
-                     : "New session in ~ (no cwds: set yet) — loads project context from the wiki")
+        .help(hasCwd ? "New session on the iMac, loading project context from the wiki; right-click to choose the machine"
+                     : "New session in ~ (no cwds: set yet), loading project context from the wiki")
         .onHover { launchHovering = $0 }
+        .contextMenu {
+            Button("New session on the iMac") { launch(cwd: launchCwd) }
+            Button("New session on this Mac") { launch(cwd: launchCwd, onThisMac: true) }
+        }
     }
 
     @ViewBuilder private var manuscriptorButton: some View {
@@ -585,10 +589,13 @@ private struct ProjectRowView: View {
         if !AgentsService.open(session, projectWindow: window, terminalService: terminalService) { NSSound.beep() }
     }
 
-    private func launch(cwd: String) {
+    /// `onThisMac`: the right-click menu's "New session on this Mac"; a
+    /// plain click starts the session on the iMac (`launchClaudeSession`).
+    private func launch(cwd: String, onThisMac: Bool = false) {
         _ = performMagicLaunch(projectName: project.name, cwd: cwd,
                                resolvedVaultPath: project.folder.path,
                                liveSessions: ownSessionsProvider(),
+                               onThisMac: onThisMac,
                                terminalService: terminalService)
         launched = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { launched = false }

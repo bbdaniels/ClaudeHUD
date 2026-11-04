@@ -89,6 +89,10 @@ final class IMacLauncherTests: XCTestCase {
         let home = "/Users/x"
         XCTAssertEqual(IMacLauncher.route(host: .mac, cwd: "/Users/x/Projects/a", home: home), .iMacThenMac(folder: "a"))
         XCTAssertEqual(IMacLauncher.route(host: .mac, cwd: "/Users/x/Desktop", home: home), .macOnly)
+        // Chosen: this Mac for a new session; an iMac transcript stays there.
+        XCTAssertEqual(IMacLauncher.route(host: .mac, cwd: "/Users/x/Projects/a", onThisMac: true, home: home), .macOnly)
+        XCTAssertEqual(IMacLauncher.route(host: .iMac, cwd: "/Users/x/Projects/a", onThisMac: true, home: home),
+                       .iMacOnly(folder: "a"))
         XCTAssertEqual(IMacLauncher.route(host: .iMac, cwd: "/Users/x/Projects/a/b", home: home), .iMacOnly(folder: "a/b"))
         XCTAssertEqual(IMacLauncher.route(host: .iMac, cwd: "/Users/x/Projects", home: home), .iMacOnly(folder: "."))
         XCTAssertEqual(IMacLauncher.route(host: .iMac, cwd: "/home/bbdaniels", home: home),
