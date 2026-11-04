@@ -297,9 +297,10 @@ actor SessionTitler {
         var prompt = """
             Write a title for this chat session so its owner can see in a list what it is \
             working on now. Name the concrete current task in 3 to 8 words, sentence case, \
-            no quotes, no trailing period. Write it for a non-programmer: say what the work \
-            is for, in plain words, with no file names, function names, commands or jargon. \
-            Reply with the title only.
+            no quotes, no trailing period, ordinary words separated by spaces. Say what the \
+            work is for, the way the owner would tell a friend who does not program: \
+            "Keeping session names up to date", not "Haiku title cadence refactor". Never \
+            name a tool, model, program, file, function or command. Reply with the title only.
 
             The person's most recent messages, oldest first:
             """
