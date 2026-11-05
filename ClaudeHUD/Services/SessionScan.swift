@@ -488,43 +488,131 @@ enum SessionScan {
           || text.hasPrefix("Caveat: The messages below") || text.hasPrefix("[Request interrupted"))
     }
 
-    /// The conversation as it stands: its last `promptLimit` real prompts
-    /// (the rule of `conversationOpening`) and the start of the assistant's
-    /// latest message, which tracks work the session does on its own between
-    /// prompts. What a title regenerated from recent history reads
-    /// (`SessionTitler`). Reads only the last `window` bytes, since a long
-    /// session's transcript runs to megabytes. Read-only.
-    static func conversationTail(in path: String, promptLimit: Int, window: UInt64 = 2_097_152)
-        -> (prompts: [String], reply: String?) {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return ([], nil) }
+    /// What a session's title is written from (`SessionTitler`), read from
+    /// the whole transcript rather than its tail, so a long session is named
+    /// by what it is, not by its last five words ("check ai", "are they
+    /// good"): every real prompt, the project its latest `/project` named,
+    /// and the start of the assistant's first and latest messages (the first
+    /// is the session's opening status report). A transcript over
+    /// `wholeLimit` bytes is read from its first `headBytes` and last
+    /// `tailBytes` only. Read-only.
+    static func titleContext(in path: String, wholeLimit: UInt64 = 16 << 20,
+                             headBytes: UInt64 = 4 << 20, tailBytes: UInt64 = 8 << 20) -> SessionTitleContext {
+        var ctx = SessionTitleContext()
+        guard let handle = FileHandle(forReadingAtPath: path) else { return ctx }
         defer { handle.closeFile() }
         let size = handle.seekToEndOfFile()
-        let start = size > window ? size - window : 0
-        handle.seek(toFileOffset: start)
-        var data = handle.readDataToEndOfFile()
-        if start > 0, let nl = data.firstIndex(of: 0x0A) { data = Data(data[data.index(after: nl)...]) }
+        var chunks: [Data] = []
+        handle.seek(toFileOffset: 0)
+        if size <= wholeLimit {
+            chunks.append(handle.readDataToEndOfFile())
+        } else {
+            var head = handle.readData(ofLength: Int(headBytes))
+            if let nl = head.lastIndex(of: 0x0A) { head = Data(head[..<nl]) }
+            handle.seek(toFileOffset: size - tailBytes)
+            var tail = handle.readDataToEndOfFile()
+            if let nl = tail.firstIndex(of: 0x0A) { tail = Data(tail[tail.index(after: nl)...]) }
+            chunks = [head, tail]
+        }
 
         let sources = TranscriptRecord.humanTurnMarkers
         let assistantMarker = Data("\"type\":\"assistant\"".utf8)
-        var prompts: [String] = []
-        var latest: String?
-        for line in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
-            let maybePrompt = sources.contains(where: { line.range(of: $0) != nil })
-            let maybeReply = line.range(of: assistantMarker) != nil
-            guard maybePrompt || maybeReply,
-                  let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-                  let role = TranscriptRecord.role(from: json),
-                  let content = TranscriptRecord.messageContent(from: json) else { continue }
-            let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
-            if text.isEmpty { continue }
-            if role == "user", maybePrompt, isRealPrompt(text) {
-                prompts.append(String(text.prefix(300)))
-                if prompts.count > promptLimit { prompts.removeFirst() }
-            } else if role == "assistant" {
-                latest = String(text.prefix(400))
+        for data in chunks {
+            for line in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
+                let maybePrompt = sources.contains(where: { line.range(of: $0) != nil })
+                let maybeReply = line.range(of: assistantMarker) != nil
+                guard maybePrompt || maybeReply,
+                      let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                      let role = TranscriptRecord.role(from: json),
+                      let content = TranscriptRecord.messageContent(from: json) else { continue }
+                let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                if text.isEmpty { continue }
+                if role == "user", maybePrompt {
+                    if let project = TranscriptHead.magicLaunchProject(text) {
+                        ctx.launchedProject = project
+                    } else if isRealPrompt(text) {
+                        ctx.prompts.append(String(text.prefix(300)))
+                    }
+                } else if role == "assistant" {
+                    if ctx.opening == nil { ctx.opening = String(text.prefix(400)) }
+                    ctx.reply = String(text.prefix(400))
+                }
             }
         }
-        return (prompts, latest)
+        return ctx
+    }
+}
+
+/// The inputs of one session title: what `SessionScan.titleContext` reads
+/// from the transcript, and the session's project and folder, which the
+/// History list supplies (`project`: the vault project the one filing rule
+/// gives it, `SessionFiling`; `folder`: the directory most of its records
+/// ran in).
+struct SessionTitleContext: Equatable {
+    var project: String?
+    var folder: String?
+    /// The project the session's latest `/project` named.
+    var launchedProject: String?
+    /// Every real prompt, oldest first.
+    var prompts: [String] = []
+    /// The start of the assistant's first message.
+    var opening: String?
+    /// The start of the assistant's latest message.
+    var reply: String?
+}
+
+/// The one Haiku call that titles a session (`SessionTitler`). The call is
+/// isolated: `--setting-sources ""` loads no settings, CLAUDE.md, hooks or
+/// project list, and its own `--system-prompt` replaces Claude Code's, so the
+/// model sees only the session it is naming. Before 2026-11-05 it ran with
+/// the Mac's user settings, whose SessionStart hook lists every vault
+/// project, and with only the last five prompts, so a thesis workshop session
+/// whose recent prompts were "are they good" and "check ai" was titled after
+/// Estonia, a project in that list (twenty such titles that day).
+enum SessionTitlePrompt {
+    static let system = """
+        You name chat sessions for a list their owner scans. Reply with one title and \
+        nothing else: 3 to 8 words, sentence case, no quotes, no trailing period, \
+        ordinary words separated by spaces. Name the concrete task the session is on now, \
+        and say what the work is for, the way the owner would tell a friend who does not \
+        program: "Keeping session names up to date", not "Haiku title cadence refactor". \
+        Never name a tool, model, program, file, function or command. When a project is \
+        given, the session belongs to it: name only that project or its own subject, \
+        never a project, place or study the input does not mention.
+        """
+
+    /// Every prompt when there are few; else the first `first`, `middle`
+    /// evenly spaced between, and the last `last`, oldest first.
+    static func sample(_ prompts: [String], first: Int = 3, middle: Int = 4, last: Int = 5) -> [String] {
+        let n = prompts.count
+        guard n > first + middle + last else { return prompts }
+        var idx = Array(0..<first)
+        let lo = first, hi = n - last  // the middle run is prompts[lo..<hi]
+        for k in 1...middle { idx.append(lo + (hi - lo) * k / (middle + 1)) }
+        idx += Array(hi..<n)
+        var seen = Set<Int>()
+        return idx.filter { seen.insert($0).inserted }.map { prompts[$0] }
+    }
+
+    static func message(_ c: SessionTitleContext) -> String {
+        var m = ""
+        if let project = c.project ?? c.launchedProject { m += "Project: \(project)\n" }
+        if let folder = c.folder, !folder.isEmpty { m += "Folder: \(folder)\n" }
+        if let opening = c.opening { m += "\nStart of the assistant's first message:\n\(opening)\n" }
+        let picked = sample(c.prompts)
+        let label = picked.count < c.prompts.count
+            ? "The person's messages, sampled across the session (\(c.prompts.count) in all), oldest first:"
+            : "The person's messages, oldest first:"
+        m += "\n\(label)"
+        for (i, p) in picked.enumerated() { m += "\n\(i + 1). \(p)" }
+        if let reply = c.reply, reply != c.opening { m += "\n\nStart of the assistant's latest message:\n\(reply)" }
+        m += "\n\nWrite the title for what the session is working on now."
+        return m
+    }
+
+    static func arguments(for c: SessionTitleContext) -> [String] {
+        ["-p", "--model", "haiku", "--setting-sources", "", "--system-prompt", system,
+         "--strict-mcp-config", "--tools", "", "--no-session-persistence", message(c)]
     }
 }
 

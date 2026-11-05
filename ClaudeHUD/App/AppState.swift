@@ -45,6 +45,7 @@ class AppState: ObservableObject {
         let vaultURL = vaultManager.currentVault.map { URL(fileURLWithPath: $0.path) }
         vaultIngestService.start(vaultPath: vaultURL)
         vaultProjectService.start(vaultPath: vaultURL)
+        sessionHistoryService.vaultProjects = vaultProjectService
 
         // Remote Control server: observe the launchd agent, and keep its
         // permission mode in step with the header picker. Never starts a

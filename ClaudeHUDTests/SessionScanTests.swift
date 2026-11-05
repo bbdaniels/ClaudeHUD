@@ -125,37 +125,86 @@ final class SessionScanTests: XCTestCase {
         return j
     }
 
-    func testTheTailReadsTheLastFivePromptsAndTheLatestMessage() throws {
-        let dir = NSTemporaryDirectory() + "tail-\(UUID().uuidString)"
+    private func writeRecords(_ recs: [[String: Any]]) throws -> String {
+        let dir = NSTemporaryDirectory() + "title-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        var recs: [[String: Any]] = []
-        for k in 1...7 {
-            recs.append(turn("user", "prompt \(k)", at: "2026-11-03T10:0\(k):00.000Z"))
-            recs.append(turn("assistant", "reply \(k)", at: "2026-11-03T10:0\(k):30.000Z"))
-        }
-        recs.append(turn("user", "[Request interrupted by user]", at: "2026-11-03T10:09:00.000Z"))
+        addTeardownBlock { try? FileManager.default.removeItem(atPath: dir) }
         let data = try recs.map { try JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]) }
             .reduce(Data()) { $0 + $1 + Data("\n".utf8) }
         let path = dir + "/t.jsonl"
         try data.write(to: URL(fileURLWithPath: path))
-        let tail = SessionScan.conversationTail(in: path, promptLimit: 5)
-        XCTAssertEqual(tail.prompts, ["prompt 3", "prompt 4", "prompt 5", "prompt 6", "prompt 7"])
-        XCTAssertEqual(tail.reply, "reply 7")
+        return path
     }
 
-    func testBeforeTheNextReplyLandsTheTailTakesTheLatestOne() throws {
-        let dir = NSTemporaryDirectory() + "tail-\(UUID().uuidString)"
-        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        let recs = [turn("user", "first", at: "2026-11-03T10:00:00Z"),
-                    turn("assistant", "answer one", at: "2026-11-03T10:00:10Z"),
-                    turn("user", "second", at: "2026-11-03T10:01:00Z")]
-        let data = try recs.map { try JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]) }
-            .reduce(Data()) { $0 + $1 + Data("\n".utf8) }
-        let path = dir + "/t.jsonl"
-        try data.write(to: URL(fileURLWithPath: path))
-        let tail = SessionScan.conversationTail(in: path, promptLimit: 5)
-        XCTAssertEqual(tail.prompts, ["first", "second"])
-        XCTAssertEqual(tail.reply, "answer one")
+    /// The thesis workshop session of 2026-10-27, in miniature: opened with
+    /// `/project`, then a status report, then short prompts.
+    func testTheTitleContextReadsTheWholeSessionAndItsProject() throws {
+        var recs = [turn("user", "<command-message>project</command-message>\n<command-name>/project</command-name>\n<command-args>PPOL 5013 Thesis Workshop :: /Users/bbdaniels/Projects/obsidian/PPOL 5013 Thesis Workshop</command-args>", at: "2026-10-27T18:33:12Z"),
+                    turn("assistant", "Status: thesis workshop, submissions due", at: "2026-10-27T18:33:40Z")]
+        for k in 1...7 {
+            recs.append(turn("user", "prompt \(k)", at: "2026-10-27T19:0\(k):00Z"))
+            recs.append(turn("assistant", "reply \(k)", at: "2026-10-27T19:0\(k):30Z"))
+        }
+        recs.append(turn("user", "[Request interrupted by user]", at: "2026-10-27T19:09:00Z"))
+        let c = SessionScan.titleContext(in: try writeRecords(recs))
+        XCTAssertEqual(c.launchedProject, "PPOL 5013 Thesis Workshop")
+        XCTAssertEqual(c.prompts, (1...7).map { "prompt \($0)" })
+        XCTAssertEqual(c.opening, "Status: thesis workshop, submissions due")
+        XCTAssertEqual(c.reply, "reply 7")
+    }
+
+    func testALongTranscriptIsReadFromItsHeadAndTail() throws {
+        var recs = [turn("user", "first prompt", at: "2026-11-03T10:00:00Z"),
+                    turn("assistant", "opening status", at: "2026-11-03T10:00:10Z")]
+        let filler = String(repeating: "x", count: 1000)
+        for k in 0..<200 { recs.append(turn("assistant", "\(filler) \(k)", at: "2026-11-03T10:01:00Z")) }
+        recs.append(turn("user", "last prompt", at: "2026-11-03T11:00:00Z"))
+        let c = SessionScan.titleContext(in: try writeRecords(recs), wholeLimit: 20_000,
+                                         headBytes: 5_000, tailBytes: 5_000)
+        XCTAssertEqual(c.prompts, ["first prompt", "last prompt"])
+        XCTAssertEqual(c.opening, "opening status")
+    }
+
+    func testPromptsAreSampledAcrossTheWholeSession() {
+        let few = (1...12).map { "p\($0)" }
+        XCTAssertEqual(SessionTitlePrompt.sample(few), few)
+        let many = (1...40).map { "p\($0)" }
+        let picked = SessionTitlePrompt.sample(many)
+        XCTAssertEqual(picked.count, 12)
+        XCTAssertEqual(Array(picked.prefix(3)), ["p1", "p2", "p3"])
+        XCTAssertEqual(Array(picked.suffix(5)), ["p36", "p37", "p38", "p39", "p40"])
+        XCTAssertTrue(picked[3...6].allSatisfy { many.firstIndex(of: $0)! >= 3 && many.firstIndex(of: $0)! < 35 })
+    }
+
+    func testTheTitleMessageNamesTheSessionsProjectAndFolder() {
+        var c = SessionTitleContext(project: "PPOL 5013 Thesis Workshop",
+                                    folder: "/Users/bbdaniels/Documents/Teaching/PPOL-5013-Thesis-Workshop",
+                                    launchedProject: "Something Else",
+                                    prompts: ["are they good", "check ai"],
+                                    opening: "Status report", reply: "Filled in")
+        let m = SessionTitlePrompt.message(c)
+        XCTAssertTrue(m.hasPrefix("Project: PPOL 5013 Thesis Workshop\nFolder: /Users/bbdaniels/Documents/Teaching/PPOL-5013-Thesis-Workshop\n"))
+        XCTAssertFalse(m.contains("Something Else"))
+        XCTAssertTrue(m.contains("1. are they good\n2. check ai"))
+        XCTAssertTrue(m.contains("first message:\nStatus report"))
+        XCTAssertTrue(m.contains("latest message:\nFilled in"))
+        // Unfiled: the project its `/project` named.
+        c.project = nil
+        XCTAssertTrue(SessionTitlePrompt.message(c).hasPrefix("Project: Something Else\n"))
+    }
+
+    /// The call loads no settings (so no hook's project list) and replaces
+    /// Claude Code's system prompt with its own.
+    func testTheTitleCallIsIsolated() {
+        let args = SessionTitlePrompt.arguments(for: SessionTitleContext(prompts: ["x"]))
+        let i = args.firstIndex(of: "--setting-sources")!
+        XCTAssertEqual(args[i + 1], "")
+        let j = args.firstIndex(of: "--system-prompt")!
+        XCTAssertEqual(args[j + 1], SessionTitlePrompt.system)
+        XCTAssertTrue(args.contains("--strict-mcp-config"))
+        XCTAssertEqual(args[args.firstIndex(of: "--tools")! + 1], "")
+        XCTAssertFalse(args.contains("--bare"))  // it would drop the subscription login
+        XCTAssertEqual(args.last, SessionTitlePrompt.message(SessionTitleContext(prompts: ["x"])))
     }
 
     func testATitleIsRewrittenAfterAnyNewActivityAtMostOnceAMinute() {
