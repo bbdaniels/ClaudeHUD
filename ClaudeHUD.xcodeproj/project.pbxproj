@@ -72,6 +72,7 @@
 		9C3637274F96736D202895D8 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 330288F7F0E1F56443C80A74 /* TodayView.swift */; };
 		9D1751A3FD807556940D4438 /* ntfy-notify.sh in Resources */ = {isa = PBXBuildFile; fileRef = C6D82DD1759F543B48C98E52 /* ntfy-notify.sh */; };
 		9DA0FDBD089DA3477830FAE4 /* MCPConfigLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBEE4757D18F462A43F672AB /* MCPConfigLoader.swift */; };
+		A01729C1D0A3B85B53B32214 /* AttachFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F5B461D70D201DDC2C46FD /* AttachFocus.swift */; };
 		A48E9985D965A3F9C26A9B03 /* ClaudeProcessClassifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05D7C162E33744B76D6CE257 /* ClaudeProcessClassifierTests.swift */; };
 		A6CE6F13DE90FD2DB48C69A2 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CFD163F5056F20A18D23477 /* AppState.swift */; };
 		A71658DD4D0B31D25606F7AB /* SessionFiling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FAE66E99EB85A66B1E4DFDD /* SessionFiling.swift */; };
@@ -79,22 +80,29 @@
 		AA1830B8C3DD8D346BBF9895 /* KeychainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE31FD7228157DC53CDE8B9E /* KeychainService.swift */; };
 		AB1D0A0392E8C30197A7DC11 /* VaultIngestService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 207CDABC03F0B223AFE35A88 /* VaultIngestService.swift */; };
 		ABB72147FFBF17F0076E58DC /* ClaudeWebFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FE78438CDBB1B82E2CD3203 /* ClaudeWebFetcher.swift */; };
+		ADE90FD39A5673896E383107 /* AttachFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F8147DADC5FCCB68D760D7D /* AttachFocusTests.swift */; };
 		AF44EBFA0AB87F2490D412F9 /* StdioMCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19A889B1D9FE0780BB3042FA /* StdioMCPClient.swift */; };
 		B0FD3286D3EB86C0C4B2375E /* SessionHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57ABA0D74FFFA689FC8C514 /* SessionHost.swift */; };
 		B1D0E311CB84A624077E53F1 /* AgentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD87037F81301BEE1808859F /* AgentsView.swift */; };
 		B28C401B5B93D1B0AE175BE3 /* ObsidianMarkdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EEBFE2793D1BE2364B60C89 /* ObsidianMarkdownView.swift */; };
 		B6062851E1689D3F69E61783 /* AgentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AEA2D1DA808678730DAFAB2 /* AgentModels.swift */; };
+		B6FDEF53606D0A2215924B47 /* PanelToggleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02A7425E4E602F719D1C163C /* PanelToggleTests.swift */; };
 		CD7941AD5A6EEEDF57AED073 /* ProjectResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E196A0AEBD4F89C4DBAFB5D7 /* ProjectResolverTests.swift */; };
 		D0756275787722E728214B42 /* VaultProjectTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB651537B00E2E60ED97A772 /* VaultProjectTree.swift */; };
 		D2DCCD7F974CD4FCC1DC76E1 /* AgentsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08C85940214C84CB1A4E170C /* AgentsService.swift */; };
 		D831217733E887EEEEBCA50E /* VaultProjectService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64CADF92CE2A4ECE2EA81336 /* VaultProjectService.swift */; };
+		DCAE2F4A19DDCD8BC74C79D3 /* AttachFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F5B461D70D201DDC2C46FD /* AttachFocus.swift */; };
 		DDCEC17B9077CB73DC23A91A /* VaultProjectTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB651537B00E2E60ED97A772 /* VaultProjectTree.swift */; };
+		E29AF62B9B355DB0C505CF22 /* PanelToggle.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECF32EB6AD8CA6F1CBD98A8A /* PanelToggle.swift */; };
 		E7EFBDDB60EC4968B77D04B5 /* SkillsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C704E240AFCDBD31AC48951 /* SkillsService.swift */; };
+		E957217FD251405B515AC2C1 /* PanelToggle.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECF32EB6AD8CA6F1CBD98A8A /* PanelToggle.swift */; };
 		EEC5054A3B33EBA08F1A8D24 /* JSONRPCTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 620FB4690A1A9D7786A56696 /* JSONRPCTypes.swift */; };
 		F17C080B97EEB5E9D2735B14 /* VaultAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65E56E18D7A0EAD77100C255 /* VaultAccess.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		02A7425E4E602F719D1C163C /* PanelToggleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelToggleTests.swift; sourceTree = "<group>"; };
+		02F5B461D70D201DDC2C46FD /* AttachFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachFocus.swift; sourceTree = "<group>"; };
 		05D7C162E33744B76D6CE257 /* ClaudeProcessClassifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeProcessClassifierTests.swift; sourceTree = "<group>"; };
 		08C85940214C84CB1A4E170C /* AgentsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsService.swift; sourceTree = "<group>"; };
 		17F46482310A6FD0D702F970 /* UsageModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageModels.swift; sourceTree = "<group>"; };
@@ -110,6 +118,7 @@
 		39C7242E2783A2815CB305E2 /* HUDPanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUDPanelController.swift; sourceTree = "<group>"; };
 		3B9601851634E06856B4D47D /* SSEMCPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEMCPClient.swift; sourceTree = "<group>"; };
 		3C25C90AD7421B63879BFE80 /* MarkdownBlocks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownBlocks.swift; sourceTree = "<group>"; };
+		3F8147DADC5FCCB68D760D7D /* AttachFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachFocusTests.swift; sourceTree = "<group>"; };
 		3FAE66E99EB85A66B1E4DFDD /* SessionFiling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionFiling.swift; sourceTree = "<group>"; };
 		44C3321F95137F8014F94C16 /* LibraryItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryItem.swift; sourceTree = "<group>"; };
 		48D9389B80C07D234779F5AF /* GhosttyWindowService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyWindowService.swift; sourceTree = "<group>"; };
@@ -167,6 +176,7 @@
 		E196A0AEBD4F89C4DBAFB5D7 /* ProjectResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectResolverTests.swift; sourceTree = "<group>"; };
 		E29EA2BAC4BE95B756B86E59 /* CoreText.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreText.framework; path = System/Library/Frameworks/CoreText.framework; sourceTree = SDKROOT; };
 		E992A83FCF56D1E426D04F7A /* SessionScanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionScanTests.swift; sourceTree = "<group>"; };
+		ECF32EB6AD8CA6F1CBD98A8A /* PanelToggle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelToggle.swift; sourceTree = "<group>"; };
 		ECF4D0E046CD2AE96517B5AC /* VaultManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultManager.swift; sourceTree = "<group>"; };
 		EF071C0FD812AE7E6F9A7928 /* LibraryRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryRow.swift; sourceTree = "<group>"; };
 		F5CF31D45958F7B287926676 /* FloatingNoteWindowManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingNoteWindowManager.swift; sourceTree = "<group>"; };
@@ -192,6 +202,7 @@
 			children = (
 				B41B2701679A6FA57B239A02 /* ActiveTasks.swift */,
 				08C85940214C84CB1A4E170C /* AgentsService.swift */,
+				02F5B461D70D201DDC2C46FD /* AttachFocus.swift */,
 				99EC467878E98AC7D52F8203 /* ClaudeProcessClassifier.swift */,
 				89B4EC6274B95DFA33E0C571 /* ClaudeProcessMonitor.swift */,
 				4FE78438CDBB1B82E2CD3203 /* ClaudeWebFetcher.swift */,
@@ -202,6 +213,7 @@
 				D7EE451409BCA1277D6282FF /* IMacLauncher.swift */,
 				CE31FD7228157DC53CDE8B9E /* KeychainService.swift */,
 				DB043CB409497C537E66D2B6 /* LibraryService.swift */,
+				ECF32EB6AD8CA6F1CBD98A8A /* PanelToggle.swift */,
 				9B94D0D82CF1A2E7920DEE61 /* RemoteControlServerService.swift */,
 				4A1004F7D0D3C5C144210C7D /* ScreenCoverService.swift */,
 				59E8596B647276D0A1586779 /* SecretsVault.swift */,
@@ -388,9 +400,11 @@
 			isa = PBXGroup;
 			children = (
 				50033B8E71A69F51D0C4867F /* ActiveTasksDueDateTests.swift */,
+				3F8147DADC5FCCB68D760D7D /* AttachFocusTests.swift */,
 				05D7C162E33744B76D6CE257 /* ClaudeProcessClassifierTests.swift */,
 				C61D113AA90FEF30717CAB03 /* GhosttyStackTests.swift */,
 				BA019621667901F1EDBA4E4F /* IMacLauncherTests.swift */,
+				02A7425E4E602F719D1C163C /* PanelToggleTests.swift */,
 				E196A0AEBD4F89C4DBAFB5D7 /* ProjectResolverTests.swift */,
 				A21A11D410B9F5296C55F5F7 /* SessionFilingTests.swift */,
 				FCE95C51E4C114A93E8C4749 /* SessionHostTests.swift */,
@@ -509,12 +523,16 @@
 			files = (
 				60A5A6AF8A8EF5B15282BE5C /* ActiveTasks.swift in Sources */,
 				7A03189EDE7B0B322909FCCC /* ActiveTasksDueDateTests.swift in Sources */,
+				DCAE2F4A19DDCD8BC74C79D3 /* AttachFocus.swift in Sources */,
+				ADE90FD39A5673896E383107 /* AttachFocusTests.swift in Sources */,
 				5D9122BAC2CF9167B2846662 /* ClaudeProcessClassifier.swift in Sources */,
 				A48E9985D965A3F9C26A9B03 /* ClaudeProcessClassifierTests.swift in Sources */,
 				A9C018B14809179F9123AB2F /* GhosttyStack.swift in Sources */,
 				6C7BC806028E0F23736C3278 /* GhosttyStackTests.swift in Sources */,
 				2A9FB0CDC0AE19E4A2637D42 /* IMacLauncher.swift in Sources */,
 				60D57262CD13B7C50DC6939A /* IMacLauncherTests.swift in Sources */,
+				E957217FD251405B515AC2C1 /* PanelToggle.swift in Sources */,
+				B6FDEF53606D0A2215924B47 /* PanelToggleTests.swift in Sources */,
 				CD7941AD5A6EEEDF57AED073 /* ProjectResolverTests.swift in Sources */,
 				A71658DD4D0B31D25606F7AB /* SessionFiling.swift in Sources */,
 				268809B34C1257D1DD4FBCA4 /* SessionFilingTests.swift in Sources */,
@@ -540,6 +558,7 @@
 				D2DCCD7F974CD4FCC1DC76E1 /* AgentsService.swift in Sources */,
 				B1D0E311CB84A624077E53F1 /* AgentsView.swift in Sources */,
 				A6CE6F13DE90FD2DB48C69A2 /* AppState.swift in Sources */,
+				A01729C1D0A3B85B53B32214 /* AttachFocus.swift in Sources */,
 				11D068D60F1FBC84E1D988EA /* ClaudeHUDApp.swift in Sources */,
 				66BEF368C8D771EB91CCA46B /* ClaudeProcessClassifier.swift in Sources */,
 				492BC7653640FF9128AA1571 /* ClaudeProcessMonitor.swift in Sources */,
@@ -566,6 +585,7 @@
 				4DEA00856BE8FFB74E36A917 /* NoteContentView.swift in Sources */,
 				2808B31571DA2A54C001878A /* NoteFile.swift in Sources */,
 				B28C401B5B93D1B0AE175BE3 /* ObsidianMarkdownView.swift in Sources */,
+				E29AF62B9B355DB0C505CF22 /* PanelToggle.swift in Sources */,
 				49C5ED6B9CE798547957F5B3 /* RemoteControlServerService.swift in Sources */,
 				716AF768A9028A0E83E447BD /* SSEMCPClient.swift in Sources */,
 				561F123A3DD19B92F6D0F233 /* ScreenCoverService.swift in Sources */,
