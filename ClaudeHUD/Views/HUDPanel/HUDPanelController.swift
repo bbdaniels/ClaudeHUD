@@ -26,8 +26,8 @@ class HUDPanelController {
         panel.level = .normal
         panel.isFloatingPanel = false
         panel.hidesOnDeactivate = false
-        // THE tooltip fix. This is an .accessory (menubar agent) app whose
-        // panel is shown from a status-item click, so the app is usually NOT
+        // THE tooltip fix. The panel is usually shown from a
+        // status-item click or the hotkey, so the app is usually NOT
         // the active app while the user mouses over the panel. macOS suppresses
         // NSView.toolTip (which SwiftUI `.help()` uses) for windows of an
         // inactive app unless this is set — which is why NO tooltip ever
@@ -109,10 +109,12 @@ class HUDPanelController {
         // actually on the desktop you're looking at; otherwise show() (which
         // activates the app and, via .moveToActiveSpace, pulls the panel to the
         // current Space).
-        if let panel, panel.isVisible, panel.isOnActiveSpace {
-            hide()
-        } else {
-            show()
-        }
+        // A buried panel (under another app's window) is brought forward, not
+        // hidden: hide only the panel in front (`PanelToggle`).
+        let action = PanelToggle.action(isVisible: panel?.isVisible ?? false,
+                                        isOnActiveSpace: panel?.isOnActiveSpace ?? false,
+                                        appIsActive: NSApp.isActive,
+                                        isKeyWindow: panel?.isKeyWindow ?? false)
+        if action == .hide { hide() } else { show() }
     }
 }

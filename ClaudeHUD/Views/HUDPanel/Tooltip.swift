@@ -2,8 +2,8 @@ import SwiftUI
 
 // Custom, pure-SwiftUI tooltip.
 //
-// Why this exists instead of `.help()`: ClaudeHUD is an `.accessory` menubar
-// agent whose UI lives in an NSPanel hosted via NSHostingController. In that
+// Why this exists instead of `.help()`: ClaudeHUD (an `.accessory` menubar
+// agent until 2026-11-06, a regular app since) keeps its UI in an NSPanel hosted via NSHostingController. In that
 // configuration AppKit's tooltip subsystem (`NSView.toolTip`, which SwiftUI
 // `.help()` drives) never fires — verified empirically across hosting-view,
 // styleMask, and inactive-app-tooltip fixes. `.onHover` *does* fire here

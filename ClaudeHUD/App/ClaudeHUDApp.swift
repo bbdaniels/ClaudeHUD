@@ -39,7 +39,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let ghosttyStack = GhosttyStackManager()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        // A regular app, with a Dock icon and a Cmd-Tab entry (Ben, 2026-11-06).
+        // As a menu bar (.accessory) app it was never in the order macOS follows
+        // when the front app quits, so closing a session's Ghostty window brought
+        // Arc forward over the panel and it looked as if it had hidden itself.
+        NSApp.setActivationPolicy(.regular)
 
         panelController = HUDPanelController(appState: appState)
         setupStatusItem()
@@ -55,6 +59,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Task {
             await appState.setup()
         }
+    }
+
+    /// A Dock click brings the panel forward, as it would any app's window.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        panelController?.show()
+        return false
     }
 
     private func setupStatusItem() {

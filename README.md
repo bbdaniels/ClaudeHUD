@@ -98,7 +98,7 @@ Notifications fire on `AskUserQuestion` and `PermissionRequest` hooks. ClaudeHUD
 
 **Info panel** -- Click the (i) icon in the header for a quick setup guide and dependency status checks.
 
-**Always available** -- Floating panel accessible from the menu bar on any Space or desktop. Click the menu bar icon to toggle, right-click for quick actions.
+**Always available** -- Floating panel accessible from the menu bar on any Space or desktop. Click the menu bar icon to toggle, right-click for quick actions. ClaudeHUD also has a Dock icon and a Cmd-Tab entry, and a Dock click brings the panel forward.
 
 ## Requirements
 
