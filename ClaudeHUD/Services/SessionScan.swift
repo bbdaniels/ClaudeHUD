@@ -484,63 +484,76 @@ enum SessionScan {
     }
 
     /// A human turn's text that is a real prompt: not a magic-launch head, a
-    /// pass-through, a local-command caveat or an interrupt sentinel. One
+    /// pass-through, a local-command caveat, an interrupt sentinel or the
+    /// summary Claude Code inserts when it compacts a conversation (it is
+    /// marked as a human turn; a 2026-11-06 session had eleven). One
     /// rule for the opening and the tail.
     static func isRealPrompt(_ text: String) -> Bool {
         !(TranscriptHead.magicLaunchProject(text) != nil || TranscriptHead.isPassThroughPrompt(text)
-          || text.hasPrefix("Caveat: The messages below") || text.hasPrefix("[Request interrupted"))
+          || text.hasPrefix("Caveat: The messages below") || text.hasPrefix("[Request interrupted")
+          || text.hasPrefix("This session is being continued from a previous conversation"))
     }
 
     /// What a session's title is written from (`SessionTitler`), read from
-    /// the whole transcript rather than its tail, so a long session is named
-    /// by what it is, not by its last five words ("check ai", "are they
-    /// good"): every real prompt, the project its latest `/project` named,
-    /// and the start of the assistant's first and latest messages (the first
-    /// is the session's opening status report). A transcript over
-    /// `wholeLimit` bytes is read from its first `headBytes` and last
-    /// `tailBytes` only. Read-only.
-    static func titleContext(in path: String, wholeLimit: UInt64 = 16 << 20,
-                             headBytes: UInt64 = 4 << 20, tailBytes: UInt64 = 8 << 20) -> SessionTitleContext {
+    /// the whole transcript, so a long session is named by what it is, not
+    /// by its last five words ("check ai", "are they good"): every real
+    /// prompt, the project its latest `/project` named, and the start of the
+    /// assistant's first and latest messages (the first is the session's
+    /// opening status report). The file is streamed a megabyte at a time and
+    /// only human turns and assistant text are parsed; the latest assistant
+    /// text is parsed once, at the end. Until 2026-11-06 a transcript over
+    /// 16 MB was read from its first 4 MB and last 8 MB only, so a 49 MB
+    /// session lost its middle and, since most of a tail is attachments,
+    /// most of its prompts, and was named after its first request ("Replying
+    /// to Bee's roof leak email", hours after that was done). Read-only.
+    static func titleContext(in path: String) -> SessionTitleContext {
         var ctx = SessionTitleContext()
         guard let handle = FileHandle(forReadingAtPath: path) else { return ctx }
         defer { handle.closeFile() }
-        let size = handle.seekToEndOfFile()
-        var chunks: [Data] = []
-        handle.seek(toFileOffset: 0)
-        if size <= wholeLimit {
-            chunks.append(handle.readDataToEndOfFile())
-        } else {
-            var head = handle.readData(ofLength: Int(headBytes))
-            if let nl = head.lastIndex(of: 0x0A) { head = Data(head[..<nl]) }
-            handle.seek(toFileOffset: size - tailBytes)
-            var tail = handle.readDataToEndOfFile()
-            if let nl = tail.firstIndex(of: 0x0A) { tail = Data(tail[tail.index(after: nl)...]) }
-            chunks = [head, tail]
-        }
 
         let sources = TranscriptRecord.humanTurnMarkers
         let assistantMarker = Data("\"type\":\"assistant\"".utf8)
-        for data in chunks {
-            for line in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
-                let maybePrompt = sources.contains(where: { line.range(of: $0) != nil })
-                let maybeReply = line.range(of: assistantMarker) != nil
-                guard maybePrompt || maybeReply,
-                      let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-                      let role = TranscriptRecord.role(from: json),
-                      let content = TranscriptRecord.messageContent(from: json) else { continue }
-                let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                if text.isEmpty { continue }
-                if role == "user", maybePrompt {
-                    if let project = TranscriptHead.magicLaunchProject(text) {
+        let textMarker = Data("\"type\":\"text\"".utf8)
+        var latestAssistant: Data?
+
+        func text(of line: Data) -> (role: String, text: String)? {
+            guard let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                  let role = TranscriptRecord.role(from: json),
+                  let content = TranscriptRecord.messageContent(from: json) else { return nil }
+            let t = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.isEmpty ? nil : (role, t)
+        }
+
+        var pending = Data()
+        while true {
+            let chunk = handle.readData(ofLength: 1_048_576)
+            let atEOF = chunk.isEmpty
+            pending.append(chunk)
+            // Complete lines only; keep a trailing partial line for the next chunk.
+            let end = atEOF ? pending.endIndex : (pending.lastIndex(of: 0x0A).map { pending.index(after: $0) } ?? pending.startIndex)
+            for line in pending[pending.startIndex..<end].split(separator: 0x0A, omittingEmptySubsequences: true) {
+                if sources.contains(where: { line.range(of: $0) != nil }) {
+                    guard let (role, t) = text(of: Data(line)), role == "user" else { continue }
+                    if let project = TranscriptHead.magicLaunchProject(t) {
                         ctx.launchedProject = project
-                    } else if isRealPrompt(text) {
-                        ctx.prompts.append(String(text.prefix(300)))
+                    } else if isRealPrompt(t) {
+                        ctx.prompts.append(String(t.prefix(300)))
                     }
-                } else if role == "assistant" {
-                    if ctx.opening == nil { ctx.opening = String(text.prefix(400)) }
-                    ctx.reply = String(text.prefix(400))
+                } else if line.range(of: assistantMarker) != nil, line.range(of: textMarker) != nil {
+                    if ctx.opening == nil {
+                        if let (role, t) = text(of: Data(line)), role == "assistant" { ctx.opening = String(t.prefix(400)) }
+                    } else {
+                        latestAssistant = Data(line)
+                    }
                 }
             }
+            if atEOF { break }
+            pending = Data(pending[end...])
+        }
+        if let line = latestAssistant, let (role, t) = text(of: line), role == "assistant" {
+            ctx.reply = String(t.prefix(400))
+        } else {
+            ctx.reply = ctx.opening
         }
         return ctx
     }
@@ -588,8 +601,9 @@ enum SessionTitlePrompt {
         """
 
     /// Every prompt when there are few; else the first `first`, `middle`
-    /// evenly spaced between, and the last `last`, oldest first.
-    static func sample(_ prompts: [String], first: Int = 3, middle: Int = 4, last: Int = 5) -> [String] {
+    /// evenly spaced between, and the last `last`, oldest first. Weighted to
+    /// the end, since the title names what the session is on now.
+    static func sample(_ prompts: [String], first: Int = 2, middle: Int = 3, last: Int = 7) -> [String] {
         let n = prompts.count
         guard n > first + middle + last else { return prompts }
         var idx = Array(0..<first)

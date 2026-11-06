@@ -119,8 +119,10 @@ final class SessionScanTests: XCTestCase {
     // MARK: Titles from recent history
 
     private func turn(_ role: String, _ text: String, at ts: String) -> [String: Any] {
+        // Assistant text as Claude Code writes it: a list of content blocks.
+        let content: Any = role == "assistant" ? [["type": "text", "text": text]] : text
         var j: [String: Any] = ["type": role, "timestamp": ts,
-                                "message": ["role": role, "content": text]]
+                                "message": ["role": role, "content": content]]
         if role == "user" { j["promptSource"] = "typed" }
         return j
     }
@@ -153,16 +155,23 @@ final class SessionScanTests: XCTestCase {
         XCTAssertEqual(c.reply, "reply 7")
     }
 
-    func testALongTranscriptIsReadFromItsHeadAndTail() throws {
+    /// The whole transcript is read, the middle included, and a compaction
+    /// summary is not a prompt (2026-11-06: a 49 MB session read from its
+    /// head and tail only was named after its first request).
+    func testALongTranscriptIsReadWholeAndSkipsCompactionSummaries() throws {
         var recs = [turn("user", "first prompt", at: "2026-11-03T10:00:00Z"),
                     turn("assistant", "opening status", at: "2026-11-03T10:00:10Z")]
         let filler = String(repeating: "x", count: 1000)
-        for k in 0..<200 { recs.append(turn("assistant", "\(filler) \(k)", at: "2026-11-03T10:01:00Z")) }
+        for k in 0..<3000 { recs.append(turn("assistant", "\(filler) \(k)", at: "2026-11-03T10:01:00Z")) }
+        recs.append(turn("user", "middle prompt", at: "2026-11-03T10:30:00Z"))
+        recs.append(turn("user", "This session is being continued from a previous conversation that ran out of context.", at: "2026-11-03T10:31:00Z"))
+        for k in 0..<3000 { recs.append(turn("assistant", "\(filler) \(k)", at: "2026-11-03T10:32:00Z")) }
         recs.append(turn("user", "last prompt", at: "2026-11-03T11:00:00Z"))
-        let c = SessionScan.titleContext(in: try writeRecords(recs), wholeLimit: 20_000,
-                                         headBytes: 5_000, tailBytes: 5_000)
-        XCTAssertEqual(c.prompts, ["first prompt", "last prompt"])
+        recs.append(turn("assistant", "latest reply", at: "2026-11-03T11:00:10Z"))
+        let c = SessionScan.titleContext(in: try writeRecords(recs))
+        XCTAssertEqual(c.prompts, ["first prompt", "middle prompt", "last prompt"])
         XCTAssertEqual(c.opening, "opening status")
+        XCTAssertEqual(c.reply, "latest reply")
     }
 
     func testPromptsAreSampledAcrossTheWholeSession() {
@@ -171,9 +180,9 @@ final class SessionScanTests: XCTestCase {
         let many = (1...40).map { "p\($0)" }
         let picked = SessionTitlePrompt.sample(many)
         XCTAssertEqual(picked.count, 12)
-        XCTAssertEqual(Array(picked.prefix(3)), ["p1", "p2", "p3"])
-        XCTAssertEqual(Array(picked.suffix(5)), ["p36", "p37", "p38", "p39", "p40"])
-        XCTAssertTrue(picked[3...6].allSatisfy { many.firstIndex(of: $0)! >= 3 && many.firstIndex(of: $0)! < 35 })
+        XCTAssertEqual(Array(picked.prefix(2)), ["p1", "p2"])
+        XCTAssertEqual(Array(picked.suffix(7)), (34...40).map { "p\($0)" })
+        XCTAssertTrue(picked[2...4].allSatisfy { many.firstIndex(of: $0)! >= 2 && many.firstIndex(of: $0)! < 33 })
     }
 
     func testTheTitleMessageNamesTheSessionsProjectAndFolder() {
