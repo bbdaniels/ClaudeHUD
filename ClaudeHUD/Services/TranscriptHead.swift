@@ -140,13 +140,37 @@ enum TranscriptHead {
         case magicLaunch(String)
     }
 
-    /// Classify a session from the first 64 KB of its transcript.
+    /// The first window `classify(path:)` reads, and the most it reads.
+    static let headWindow = 64 << 10
+    static let headLimit = 4 << 20
+
+    /// Classify a session from the head of its transcript: the first
+    /// `headWindow` bytes, widened fourfold while the head holds no verdict,
+    /// up to `headLimit`. Only whole lines are classified, so a record cut at
+    /// the window's edge is never half read (a cut inside a multibyte
+    /// character also made the whole head undecodable). Before 2026-11-05 the
+    /// head was a fixed 64 KB: a continued session whose carried-over
+    /// attachments fill that window before its first prompt (48 KB and 55 KB
+    /// records in two that day) read as `.unknown`, so history dropped it,
+    /// the titler, which takes its sessions from history, never named it,
+    /// and its live row kept its starting name.
     static func classify(path: String) -> Verdict {
         guard let handle = FileHandle(forReadingAtPath: path) else { return .unknown }
         defer { handle.closeFile() }
-        let data = handle.readData(ofLength: 65536)
-        guard let text = String(data: data, encoding: .utf8) else { return .unknown }
-        return classify(text: text)
+        var data = Data()
+        var window = headWindow
+        while true {
+            data.append(handle.readData(ofLength: window - data.count))
+            let atEnd = data.count < window
+            let whole = atEnd ? data : data[..<(data.lastIndex(of: 0x0A) ?? data.endIndex)]
+            guard let text = String(data: whole, encoding: .utf8) else { return .unknown }
+            let verdict = classify(text: text)
+            if verdict == .unknown, !atEnd, window < headLimit {
+                window = min(window * 4, headLimit)
+                continue
+            }
+            return verdict
+        }
     }
 
     /// Classify a session from the text of its transcript's head.
@@ -182,7 +206,7 @@ enum TranscriptHead {
     static func classify(text: String) -> Verdict {
         var sawSdk = false
         var sawLive = false
-        for line in text.components(separatedBy: "\n").prefix(400) {
+        for line in text.components(separatedBy: "\n") {
             guard !line.isEmpty,
                   let lineData = line.data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any]

@@ -155,9 +155,11 @@ enum SessionScan {
                     // A titled session: the sidecar title wins. Strip a
                     // leading "<project>: ", since every row already carries a
                     // project tag and old sidecars carry the prefix forever
-                    // otherwise. A sidecar also rescues .unknown heads (e.g. a
-                    // giant first record that overflows the head window): a
-                    // title was only ever written for a session with substance.
+                    // otherwise. A sidecar also keeps an .unknown head listed
+                    // (one titled before its head stopped holding a prompt).
+                    // It cannot rescue one that never had a title: the titler
+                    // takes its sessions from this list, so the head read
+                    // (`TranscriptHead.classify`) must find the first prompt.
                     preview = stripProjectPrefix(title, projectName: projectName)
                 } else if let label = verdict.label {
                     preview = label
@@ -405,7 +407,8 @@ enum SessionScan {
     }
 
     /// A transcript's listing verdict: its head class resolved to a label.
-    /// Expensive (a 64 KB head read, plus up to 1 MB for a magic launch), so
+    /// Expensive (a 64 KB head read, widened up to 4 MB while the head holds
+    /// no prompt, plus up to 1 MB for a magic launch), so
     /// the scan caches it per file version.
     static func headVerdict(for path: String, mtime: Double, size: Int64) -> CachedHead {
         switch TranscriptHead.classify(path: path) {

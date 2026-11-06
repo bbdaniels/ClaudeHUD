@@ -86,6 +86,43 @@ final class TranscriptHeadTests: XCTestCase {
         XCTAssertEqual(head(""), .unknown)
     }
 
+    func classifyFile(_ lines: [String]) throws -> TranscriptHead.Verdict {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: url)
+        return TranscriptHead.classify(path: url.path)
+    }
+
+    func attachment(bytes: Int, fill: String = "x", lead: String = "") -> String {
+        #"{"attachment":{"content":""# + lead + String(repeating: fill, count: bytes) + #""},"entrypoint":"cli","type":"attachment"}"#
+    }
+
+    /// As two continued sessions were on 2026-11-05: carried-over
+    /// attachments fill the first 64 KB before the first prompt.
+    func testAPromptBehindAttachmentsLargerThanTheFirstWindowIsFound() throws {
+        let v = try classifyFile([attachment(bytes: 4_000), attachment(bytes: 48_000), attachment(bytes: 20_000),
+                                  record(["entrypoint": "cli", "promptSource": "typed"], text: "Write the rtools45 install script")])
+        XCTAssertEqual(v, .normal("Write the rtools45 install script"))
+    }
+
+    /// A window edge inside a multibyte character used to make the whole
+    /// head undecodable; only whole lines are classified now.
+    func testAWindowEdgeInsideAMultibyteCharacterDoesNotHideThePrompt() throws {
+        let prompt = record(["entrypoint": "cli", "promptSource": "typed"], text: "Plan the trip")
+        // Bytes before the first "é": the prompt line, its newline, the
+        // attachment's opening. An odd remainder puts the edge mid-character.
+        let before = prompt.utf8.count + 1 + #"{"attachment":{"content":""#.utf8.count
+        let pad = (TranscriptHead.headWindow - before) % 2 == 0 ? "x" : ""
+        let v = try classifyFile([prompt, attachment(bytes: 40_000, fill: "é", lead: pad)])
+        XCTAssertEqual(v, .normal("Plan the trip"))
+    }
+
+    func testAHeadWithNoPromptWithinTheLimitStaysUnknown() throws {
+        let v = try classifyFile([attachment(bytes: TranscriptHead.headLimit + 1_000),
+                                  record(["entrypoint": "cli", "promptSource": "typed"], text: "Too far in")])
+        XCTAssertEqual(v, .unknown)
+    }
+
     // MARK: Record working directory
 
     func testCwdIsTheLastOccurrenceInTheLine() {
