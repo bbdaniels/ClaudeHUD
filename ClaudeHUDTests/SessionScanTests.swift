@@ -210,19 +210,29 @@ final class SessionScanTests: XCTestCase {
     func testATitleIsRewrittenAfterAnyNewActivityAtMostOnceAMinute() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         let due = SessionTitleSchedule.due
-        // Untitled: three prompts, or settled.
-        XCTAssertFalse(due(nil, 1, now, now))
-        XCTAssertTrue(due(nil, 3, now, now))
-        XCTAssertTrue(due(nil, 1, now.addingTimeInterval(-31 * 60), now))
-        XCTAssertFalse(due(nil, 0, now.addingTimeInterval(-3600), now))
+        // Untitled: at once, as soon as there is anything to name it from.
+        XCTAssertTrue(due(nil, true, now, now))
+        XCTAssertFalse(due(nil, false, now.addingTimeInterval(-3600), now))
         // Titled two minutes ago: due when the transcript grew since, a
         // prompt or the session's own work alike.
         let titled = now.addingTimeInterval(-120)
-        XCTAssertTrue(due(titled, 5, now.addingTimeInterval(-10), now))
-        XCTAssertFalse(due(titled, 5, titled.addingTimeInterval(-1), now))
+        XCTAssertTrue(due(titled, true, now.addingTimeInterval(-10), now))
+        XCTAssertFalse(due(titled, true, titled.addingTimeInterval(-1), now))
         // Titled thirty seconds ago: not yet, whatever happened.
         let recent = now.addingTimeInterval(-30)
-        XCTAssertFalse(due(recent, 5, now, now))
+        XCTAssertFalse(due(recent, true, now, now))
+    }
+
+    /// A session opened with `/project` has something to name before its
+    /// first typed prompt: "ClaudeHUD vault read" (Ben, 2026-11-06).
+    func testASessionHasContentFromAProjectOpenAPromptOrAReply() {
+        XCTAssertFalse(SessionTitleContext().hasContent)
+        XCTAssertTrue(SessionTitleContext(launchedProject: "ClaudeHUD").hasContent)
+        XCTAssertTrue(SessionTitleContext(prompts: ["x"]).hasContent)
+        XCTAssertTrue(SessionTitleContext(opening: "Reading the vault").hasContent)
+        let m = SessionTitlePrompt.message(SessionTitleContext(launchedProject: "ClaudeHUD"))
+        XCTAssertTrue(m.contains("Project: ClaudeHUD"))
+        XCTAssertTrue(m.contains("no message yet"))
     }
 
     func testAFailedSessionIsRetriedAfterTheBackoffNotOnlyAtTheNextLaunch() {

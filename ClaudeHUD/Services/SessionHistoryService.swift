@@ -272,9 +272,8 @@ enum TranscriptText {
 /// ~/.claude/hud/session-titles/<id>.txt, the label source the scan and the
 /// Projects lines read. Transcripts are only read, never modified.
 ///
-/// When: an untitled session once it has three real prompts or has been idle
-/// for 30 minutes (a one-word opener like "yes" alone makes a poor title); a
-/// titled one again whenever its transcript has grown since its title was
+/// When (`SessionTitleSchedule`): an untitled session as soon as it has
+/// anything to name it from; a titled one again whenever its transcript has grown since its title was
 /// written, background work included, at most once a minute (the sidecar's modification time is when
 /// it was titled). Cost control: the newest sessions first, calls one at a
 /// time with a pause between them and a cap per pass. A failed call is logged
@@ -309,7 +308,7 @@ actor SessionTitler {
             if let titledAt, c.modified <= titledAt || now.timeIntervalSince(titledAt) < SessionTitleSchedule.refreshEvery { continue }
 
             var context = SessionScan.titleContext(in: c.path)
-            guard SessionTitleSchedule.due(titledAt: titledAt, promptCount: context.prompts.count,
+            guard SessionTitleSchedule.due(titledAt: titledAt, hasContent: context.hasContent,
                            transcriptModified: c.modified, now: now) else { continue }
             context.project = c.project
             context.folder = c.folder

@@ -562,6 +562,9 @@ struct SessionTitleContext: Equatable {
     var opening: String?
     /// The start of the assistant's latest message.
     var reply: String?
+
+    /// Whether there is anything to name the session from.
+    var hasContent: Bool { !prompts.isEmpty || launchedProject != nil || opening != nil }
 }
 
 /// The one Haiku call that titles a session (`SessionTitler`). The call is
@@ -603,7 +606,9 @@ enum SessionTitlePrompt {
         if let folder = c.folder, !folder.isEmpty { m += "Folder: \(folder)\n" }
         if let opening = c.opening { m += "\nStart of the assistant's first message:\n\(opening)\n" }
         let picked = sample(c.prompts)
-        let label = picked.count < c.prompts.count
+        let label = picked.isEmpty
+            ? "The person has typed no message yet beyond opening the project."
+            : picked.count < c.prompts.count
             ? "The person's messages, sampled across the session (\(c.prompts.count) in all), oldest first:"
             : "The person's messages, oldest first:"
         m += "\n\(label)"
@@ -619,22 +624,23 @@ enum SessionTitlePrompt {
     }
 }
 
-/// When `SessionTitler` writes a session's title (Ben, 2026-11-03): an
-/// untitled session once it has three real prompts or has sat for 30 minutes
-/// (a one-word opener like "yes" alone makes a poor title); a titled one
-/// again whenever its transcript has grown since the title was written, its
-/// own background work included ("it should retitle even if it is just
-/// working in the background"), at most once a minute. `titledAt` is the
-/// sidecar's modification time, nil when there is none.
+/// When `SessionTitler` writes a session's title: an untitled session as
+/// soon as it has anything to name, a real prompt, a `/project` or an
+/// assistant message (Ben, 2026-11-06: "we want naming right away even if
+/// it's just 'xxx vault read'"); a titled one again whenever its transcript
+/// has grown since the title was written, its own background work included
+/// ("it should retitle even if it is just working in the background", Ben,
+/// 2026-11-03), at most once a minute. Retitling is what corrects a thin
+/// first title. Until 2026-11-06 an untitled session waited for three typed
+/// prompts or 30 idle minutes, so busy sessions opened with `/project`, whose
+/// work is mostly the assistant's, showed a placeholder for as long as they
+/// ran. `titledAt` is the sidecar's modification time, nil when there is none.
 enum SessionTitleSchedule {
     static let refreshEvery: TimeInterval = 60
-    static let settleAge: TimeInterval = 30 * 60
 
-    static func due(titledAt: Date?, promptCount: Int, transcriptModified: Date, now: Date) -> Bool {
-        guard promptCount > 0 else { return false }
-        guard let titledAt else {
-            return promptCount >= 3 || now.timeIntervalSince(transcriptModified) > settleAge
-        }
+    static func due(titledAt: Date?, hasContent: Bool, transcriptModified: Date, now: Date) -> Bool {
+        guard hasContent else { return false }
+        guard let titledAt else { return true }
         return now.timeIntervalSince(titledAt) >= refreshEvery && transcriptModified > titledAt
     }
 
