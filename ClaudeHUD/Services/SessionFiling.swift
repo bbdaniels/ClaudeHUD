@@ -80,6 +80,15 @@ enum SessionFiling {
     }
 
     /// Collapse a worktree path back to its parent repo cwd.
+    /// Where a process tree a session left out is listed: the project of the
+    /// folder it runs in, else its session's project, else "" (General). A
+    /// tree is the folder's work, whatever the conversation was about
+    /// (Ben, 2026-11-06: a Personal session's `npm run dev` in ai-med was
+    /// listed under Personal, "why isn't it under ai-med though?").
+    static func treeFolder(own: String?, session: String?) -> String {
+        own ?? session ?? ""
+    }
+
     static func repoCwd(_ p: String) -> String {
         if let range = p.range(of: "/.claude/worktrees/") {
             return String(p[..<range.lowerBound])

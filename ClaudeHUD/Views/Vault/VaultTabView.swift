@@ -150,7 +150,8 @@ struct VaultTabView: View {
                 a.sessionId.map { (sessionId: $0, cwd: a.cwd, host: SessionHost.mac) }
             }
             await projectService.primeResolution(
-                forCwds: Set(agentsService.agents.map { SessionFiling.repoCwd($0.cwd) }).filter { !$0.isEmpty })
+                forCwds: Set((agentsService.agents.map(\.cwd) + agentsService.lostTrees.map(\.cwd))
+                    .map { SessionFiling.repoCwd($0) }).filter { !$0.isEmpty })
             await projectService.primeFiling(sessions: history + live,
                                              cwdCounts: sessionHistory.transcriptCwdCounts)
             var map: [String: Date] = [:]
@@ -209,6 +210,7 @@ struct VaultTabView: View {
         var h = Hasher()
         h.combine(sessionHistory.sessions.count)
         h.combine(Set(agentsService.agents.map { "\($0.sessionId ?? "")\u{0}\($0.cwd)" }))
+        h.combine(Set(agentsService.lostTrees.map(\.cwd)))
         h.combine(sessionHistory.transcriptCwdGeneration)
         h.combine(SessionFiling.claimsSignature())
         return h.finalize()
@@ -251,13 +253,16 @@ struct VaultTabView: View {
     }
 
     /// folder name → the process trees left out by sessions that are gone
-    /// (`AgentsService.lostTrees`), filed the way a session is: by its
-    /// session's claim, else its cwd. "" holds those under no project, which
-    /// General lists.
+    /// (`AgentsService.lostTrees`), filed by `SessionFiling.treeFolder`: the
+    /// project of the folder the tree runs in, else its session's. "" holds
+    /// those under no project, which General lists.
     private var lostTreesByFolder: [String: [StrayTree]] {
         var map: [String: [StrayTree]] = [:]
         for t in agentsService.lostTrees {
-            map[t.cwd.isEmpty ? "" : projectService.folder(forSession: t.sessionId, cwd: t.cwd) ?? "", default: []].append(t)
+            let folder = t.cwd.isEmpty ? "" : SessionFiling.treeFolder(
+                own: projectService.folderName(forCwd: SessionFiling.repoCwd(t.cwd)),
+                session: projectService.folder(forSession: t.sessionId, cwd: t.cwd))
+            map[folder, default: []].append(t)
         }
         return map
     }

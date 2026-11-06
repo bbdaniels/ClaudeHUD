@@ -231,6 +231,12 @@ final class SessionLightTests: XCTestCase {
         XCTAssertEqual(light(quietFor: 7200, window: true), .attention)
     }
 
+    func testALeftOutTreeIsListedUnderTheProjectItRunsIn() {
+        XCTAssertEqual(SessionFiling.treeFolder(own: "AI-MED", session: "Personal"), "AI-MED")
+        XCTAssertEqual(SessionFiling.treeFolder(own: nil, session: "Personal"), "Personal")
+        XCTAssertEqual(SessionFiling.treeFolder(own: nil, session: nil), "")
+    }
+
     func testAnIdleServiceIsALeftoverAndOnlyAWaitingOneIsRed() {
         XCTAssertEqual(SessionLight.ofService(running: false, waiting: false), .dimmed)
         XCTAssertEqual(SessionLight.ofService(running: true, waiting: false), .running)
