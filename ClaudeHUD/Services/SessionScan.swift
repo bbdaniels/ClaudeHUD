@@ -634,4 +634,33 @@ enum SessionTitleSchedule {
         }
         return now.timeIntervalSince(titledAt) >= refreshEvery && transcriptModified > titledAt
     }
+
+    /// A session whose title call failed is tried again after this long, not
+    /// only at the next launch (2026-11-05: every call failed from 15:26 and
+    /// no name changed for eight hours, because a failure was never retried).
+    static let retryAfter: TimeInterval = 15 * 60
+
+    static func retryDue(failedAt: Date?, now: Date) -> Bool {
+        guard let failedAt else { return true }
+        return now.timeIntervalSince(failedAt) >= retryAfter
+    }
+}
+
+/// What a failed title call said, for the log: its exit status and the start
+/// of both outputs, on one line. The CLI prints some errors (a usage limit, a
+/// login) on stdout, so both are kept.
+enum SessionTitleFailure {
+    static let keep = 300
+
+    static func describe(status: Int32?, stdout: String, stderr: String, launchError: String? = nil) -> String {
+        if let launchError { return "did not start: \(launchError)" }
+        func clip(_ s: String) -> String {
+            let one = s.split(whereSeparator: \.isNewline)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            return one.isEmpty ? "(empty)" : String(one.prefix(keep))
+        }
+        return "exit \(status.map(String.init) ?? "?"); stdout: \(clip(stdout)); stderr: \(clip(stderr))"
+    }
 }

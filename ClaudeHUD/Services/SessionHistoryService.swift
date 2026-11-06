@@ -277,13 +277,15 @@ enum TranscriptText {
 /// titled one again whenever its transcript has grown since its title was
 /// written, background work included, at most once a minute (the sidecar's modification time is when
 /// it was titled). Cost control: the newest sessions first, calls one at a
-/// time with a pause between them and a cap per pass, and a failed session is
-/// not retried until the next launch.
+/// time with a pause between them and a cap per pass. A failed call is logged
+/// with what it said (`SessionTitleFailure`), ends the pass, since the cause
+/// (a usage limit, a login) is usually shared by every call, and its session
+/// is tried again after `SessionTitleSchedule.retryAfter`.
 actor SessionTitler {
     private static let titlesDir = "\(NSHomeDirectory())/.claude/hud/session-titles"
     private static let claudePath = "\(NSHomeDirectory())/.local/bin/claude"
     private static let perPass = 25
-    private var failed = Set<String>()
+    private var failedAt: [String: Date] = [:]
 
     struct Candidate {
         let id: String
@@ -298,7 +300,8 @@ actor SessionTitler {
         guard FileManager.default.isExecutableFile(atPath: Self.claudePath) else { return }
         let now = Date()
         var calls = 0
-        for c in candidates.sorted(by: { $0.modified > $1.modified }) where !failed.contains(c.id) {
+        for c in candidates.sorted(by: { $0.modified > $1.modified })
+        where SessionTitleSchedule.retryDue(failedAt: failedAt[c.id], now: now) {
             if calls >= Self.perPass || Task.isCancelled { break }
             let sidecar = "\(Self.titlesDir)/\(c.id).txt"
             let titledAt = (try? FileManager.default.attributesOfItem(atPath: sidecar))?[.modificationDate] as? Date
@@ -312,11 +315,15 @@ actor SessionTitler {
             context.folder = c.folder
 
             calls += 1
-            guard let title = await Self.generate(context) else {
-                failed.insert(c.id)
-                logger.error("session title: generation failed for \(c.id, privacy: .public)")
-                continue
+            let outcome = await Self.generate(context)
+            guard case .success(let title) = outcome else {
+                if case .failure(let why) = outcome {
+                    logger.error("session title: generation failed for \(c.id, privacy: .public): \(why.text, privacy: .public)")
+                }
+                failedAt[c.id] = Date()
+                break   // the cause is usually shared: the next pass tries again
             }
+            failedAt[c.id] = nil
             Self.writeSidecar(id: c.id, title: title)
             await onTitle(c.id, title)
             try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -324,7 +331,9 @@ actor SessionTitler {
         if calls > 0 { logger.info("session titles: \(calls, privacy: .public) generated") }
     }
 
-    private static func generate(_ context: SessionTitleContext) async -> String? {
+    struct Failure: Error { let text: String }
+
+    private static func generate(_ context: SessionTitleContext) async -> Result<String, Failure> {
         let arguments = SessionTitlePrompt.arguments(for: context)
         return await withCheckedContinuation { cont in
             DispatchQueue.global(qos: .utility).async {
@@ -335,20 +344,35 @@ actor SessionTitler {
                 var env = ProcessInfo.processInfo.environment
                 env.removeValue(forKey: "CLAUDECODE")
                 process.environment = env
-                let out = Pipe()
+                let out = Pipe(), err = Pipe()
                 process.standardOutput = out
-                process.standardError = Pipe()
-                do { try process.run() } catch { cont.resume(returning: nil); return }
+                process.standardError = err
+                do { try process.run() } catch {
+                    let why = SessionTitleFailure.describe(status: nil, stdout: "", stderr: "",
+                                                           launchError: error.localizedDescription)
+                    cont.resume(returning: .failure(Failure(text: why))); return
+                }
                 let timer = DispatchWorkItem { if process.isRunning { process.terminate() } }
                 DispatchQueue.global().asyncAfter(deadline: .now() + 90, execute: timer)
+                // stderr is read beside stdout, so a full stderr pipe cannot stall the call.
+                var errData = Data()
+                let errRead = DispatchGroup()
+                errRead.enter()
+                DispatchQueue.global(qos: .utility).async {
+                    errData = err.fileHandleForReading.readDataToEndOfFile()
+                    errRead.leave()
+                }
                 let data = out.fileHandleForReading.readDataToEndOfFile()
+                errRead.wait()
                 process.waitUntilExit()
                 timer.cancel()
-                guard process.terminationStatus == 0,
-                      let text = String(data: data, encoding: .utf8) else {
-                    cont.resume(returning: nil); return
+                let text = String(decoding: data, as: UTF8.self)
+                if process.terminationStatus == 0, let title = sanitize(text) {
+                    cont.resume(returning: .success(title)); return
                 }
-                cont.resume(returning: sanitize(text))
+                let why = SessionTitleFailure.describe(status: process.terminationStatus, stdout: text,
+                                                       stderr: String(decoding: errData, as: UTF8.self))
+                cont.resume(returning: .failure(Failure(text: why)))
             }
         }
     }

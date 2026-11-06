@@ -224,4 +224,25 @@ final class SessionScanTests: XCTestCase {
         let recent = now.addingTimeInterval(-30)
         XCTAssertFalse(due(recent, 5, now, now))
     }
+
+    func testAFailedSessionIsRetriedAfterTheBackoffNotOnlyAtTheNextLaunch() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let retry = SessionTitleSchedule.retryDue
+        XCTAssertTrue(retry(nil, now))
+        XCTAssertFalse(retry(now.addingTimeInterval(-60), now))
+        XCTAssertFalse(retry(now.addingTimeInterval(-SessionTitleSchedule.retryAfter + 1), now))
+        XCTAssertTrue(retry(now.addingTimeInterval(-SessionTitleSchedule.retryAfter), now))
+    }
+
+    func testAFailedCallIsDescribedByItsExitAndBothOutputsOnOneLine() {
+        let d = SessionTitleFailure.describe(status: 1, stdout: "Claude AI usage limit reached\n",
+                                             stderr: "Error: something\nsecond line\n")
+        XCTAssertEqual(d, "exit 1; stdout: Claude AI usage limit reached; stderr: Error: something second line")
+        XCTAssertEqual(SessionTitleFailure.describe(status: 0, stdout: "", stderr: ""),
+                       "exit 0; stdout: (empty); stderr: (empty)")
+        let long = String(repeating: "x", count: 1000)
+        XCTAssertLessThanOrEqual(SessionTitleFailure.describe(status: 2, stdout: long, stderr: long).count, 2 * 300 + 40)
+        XCTAssertEqual(SessionTitleFailure.describe(status: nil, stdout: "", stderr: "", launchError: "no such file"),
+                       "did not start: no such file")
+    }
 }
