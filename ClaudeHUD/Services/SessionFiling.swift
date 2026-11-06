@@ -161,7 +161,8 @@ struct ClaudeSessionRecord: Equatable {
     var attach: String? = nil
     /// Set by the iMac's gate (`live`) on a session that is a service, not
     /// Ben's work: "duet", the runner's Duet session, which systemd starts
-    /// again whenever it ends (2026-11-06).
+    /// again whenever it ends (2026-11-06). ClaudeHUD lists no such session
+    /// (`AgentsService.reload`).
     var service: String? = nil
 
     /// A session started from the Claude app through Remote Control: an

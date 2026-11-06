@@ -319,7 +319,10 @@ final class AgentsService: ObservableObject {
         // claude.ai page: Ben, 2026-11-03, "claude.ai ... is never the right
         // place to land"). The stop, logs and remove menu stays hidden.
         IMacLive.refresh { [weak self] in Task { @MainActor in self?.reload() } }
-        for r in IMacLive.cached where r.kind == "interactive" {
+        // A service session (the runner's Duet session, `service` from the
+        // gate) is not Ben's work and is left out: what it needs reaches him in
+        // the Duet chat, and the runner restarts it (Ben, 2026-11-06, "hide it").
+        for r in IMacLive.cached where r.kind == "interactive" && r.service == nil {
             let cwd = SessionHost.iMac.macPath(r.cwd)
             let project = cwd.isEmpty ? "" : URL(fileURLWithPath: cwd).lastPathComponent
             let tmuxSession = r.tmux.flatMap { $0.split(separator: ":").first.map(String.init) }
@@ -348,8 +351,7 @@ final class AgentsService: ObservableObject {
                 iMacTmux: tmuxSession,
                 iMacAttach: r.attach,
                 attachedTTY: attach?.tty,
-                inShell: r.status == "shell",
-                service: r.service
+                inShell: r.status == "shell"
             ))
         }
 

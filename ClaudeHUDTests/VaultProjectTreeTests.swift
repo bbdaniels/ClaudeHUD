@@ -237,12 +237,6 @@ final class SessionLightTests: XCTestCase {
         XCTAssertEqual(SessionFiling.treeFolder(own: nil, session: nil), "")
     }
 
-    func testAnIdleServiceIsALeftoverAndOnlyAWaitingOneIsRed() {
-        XCTAssertEqual(SessionLight.ofService(running: false, waiting: false), .dimmed)
-        XCTAssertEqual(SessionLight.ofService(running: true, waiting: false), .running)
-        XCTAssertEqual(SessionLight.ofService(running: false, waiting: true), .attention)
-    }
-
     func testAServiceRecordIsReadFromTheGatesLiveRow() {
         let row = #"{"pid": 7, "sessionId": "s", "cwd": "/x", "tmux": "duet:@0.%0", "attach": "tmux -L duet attach -t =duet", "service": "duet"}"#
         let r = ClaudeSessionRecords.parse(Data(row.utf8))
