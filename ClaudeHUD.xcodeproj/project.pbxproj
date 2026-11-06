@@ -21,6 +21,7 @@
 		216CE15D4C12C3FF11A0B0DA /* TranscriptHeadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29A820821CF961958265C819 /* TranscriptHeadTests.swift */; };
 		2175A7C2DE35392D478B5530 /* SessionHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57ABA0D74FFFA689FC8C514 /* SessionHost.swift */; };
 		22E9986D54197F5AACE3B317 /* LibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB043CB409497C537E66D2B6 /* LibraryService.swift */; };
+		23481FD22C7CE8427EB86C34 /* HostProcs.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB3BA8639E7160F135AC3EE9 /* HostProcs.swift */; };
 		268809B34C1257D1DD4FBCA4 /* SessionFilingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21A11D410B9F5296C55F5F7 /* SessionFilingTests.swift */; };
 		2808B31571DA2A54C001878A /* NoteFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94F002554690052369E931AE /* NoteFile.swift */; };
 		294735844DA967EC8381EBED /* SessionScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504C9D1F6A897A77D79731E3 /* SessionScan.swift */; };
@@ -68,6 +69,7 @@
 		8AD16A218DB480071A205E6A /* IMacLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7EE451409BCA1277D6282FF /* IMacLauncher.swift */; };
 		8C46A3A5A8F635DA6316E52D /* HUDPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39C7242E2783A2815CB305E2 /* HUDPanelController.swift */; };
 		8FA5F9C2B51FAC76BF7CBBB7 /* hud-slack-mcp.py in Resources */ = {isa = PBXBuildFile; fileRef = 1D731581C9FAF0D35F075729 /* hud-slack-mcp.py */; };
+		904EF29F4E0A782352DB55C9 /* HostProcsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56D94EDE8FDD699B87FB0898 /* HostProcsTests.swift */; };
 		9092A413B34B317EF735C5AB /* TranscriptHead.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD67EC652572F4A5C555BDEC /* TranscriptHead.swift */; };
 		9C3637274F96736D202895D8 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 330288F7F0E1F56443C80A74 /* TodayView.swift */; };
 		9D1751A3FD807556940D4438 /* ntfy-notify.sh in Resources */ = {isa = PBXBuildFile; fileRef = C6D82DD1759F543B48C98E52 /* ntfy-notify.sh */; };
@@ -87,6 +89,7 @@
 		B28C401B5B93D1B0AE175BE3 /* ObsidianMarkdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EEBFE2793D1BE2364B60C89 /* ObsidianMarkdownView.swift */; };
 		B6062851E1689D3F69E61783 /* AgentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AEA2D1DA808678730DAFAB2 /* AgentModels.swift */; };
 		B6FDEF53606D0A2215924B47 /* PanelToggleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02A7425E4E602F719D1C163C /* PanelToggleTests.swift */; };
+		C33493F7FE503475B4858C5D /* HostProcs.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB3BA8639E7160F135AC3EE9 /* HostProcs.swift */; };
 		CD7941AD5A6EEEDF57AED073 /* ProjectResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E196A0AEBD4F89C4DBAFB5D7 /* ProjectResolverTests.swift */; };
 		D0756275787722E728214B42 /* VaultProjectTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB651537B00E2E60ED97A772 /* VaultProjectTree.swift */; };
 		D2DCCD7F974CD4FCC1DC76E1 /* AgentsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08C85940214C84CB1A4E170C /* AgentsService.swift */; };
@@ -129,6 +132,7 @@
 		50033B8E71A69F51D0C4867F /* ActiveTasksDueDateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveTasksDueDateTests.swift; sourceTree = "<group>"; };
 		504C9D1F6A897A77D79731E3 /* SessionScan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionScan.swift; sourceTree = "<group>"; };
 		50E5626B4C84084B8B14BB91 /* Tooltip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tooltip.swift; sourceTree = "<group>"; };
+		56D94EDE8FDD699B87FB0898 /* HostProcsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostProcsTests.swift; sourceTree = "<group>"; };
 		58276C1EA3EC3682B1C6FE36 /* ClaudeHUD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeHUD.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		59E8596B647276D0A1586779 /* SecretsVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecretsVault.swift; sourceTree = "<group>"; };
 		5E0D64CF3689B9D885F9F313 /* TodoItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoItem.swift; sourceTree = "<group>"; };
@@ -176,6 +180,7 @@
 		E196A0AEBD4F89C4DBAFB5D7 /* ProjectResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectResolverTests.swift; sourceTree = "<group>"; };
 		E29EA2BAC4BE95B756B86E59 /* CoreText.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreText.framework; path = System/Library/Frameworks/CoreText.framework; sourceTree = SDKROOT; };
 		E992A83FCF56D1E426D04F7A /* SessionScanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionScanTests.swift; sourceTree = "<group>"; };
+		EB3BA8639E7160F135AC3EE9 /* HostProcs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostProcs.swift; sourceTree = "<group>"; };
 		ECF32EB6AD8CA6F1CBD98A8A /* PanelToggle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelToggle.swift; sourceTree = "<group>"; };
 		ECF4D0E046CD2AE96517B5AC /* VaultManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultManager.swift; sourceTree = "<group>"; };
 		EF071C0FD812AE7E6F9A7928 /* LibraryRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryRow.swift; sourceTree = "<group>"; };
@@ -209,6 +214,7 @@
 				C4F8DF109D37F16025DE5337 /* GhosttyStack.swift */,
 				39ACFAE369472D788A304B29 /* GhosttyStackManager.swift */,
 				48D9389B80C07D234779F5AF /* GhosttyWindowService.swift */,
+				EB3BA8639E7160F135AC3EE9 /* HostProcs.swift */,
 				D906C2A42EF5CC6963D24D58 /* HotkeyService.swift */,
 				D7EE451409BCA1277D6282FF /* IMacLauncher.swift */,
 				CE31FD7228157DC53CDE8B9E /* KeychainService.swift */,
@@ -403,6 +409,7 @@
 				3F8147DADC5FCCB68D760D7D /* AttachFocusTests.swift */,
 				05D7C162E33744B76D6CE257 /* ClaudeProcessClassifierTests.swift */,
 				C61D113AA90FEF30717CAB03 /* GhosttyStackTests.swift */,
+				56D94EDE8FDD699B87FB0898 /* HostProcsTests.swift */,
 				BA019621667901F1EDBA4E4F /* IMacLauncherTests.swift */,
 				02A7425E4E602F719D1C163C /* PanelToggleTests.swift */,
 				E196A0AEBD4F89C4DBAFB5D7 /* ProjectResolverTests.swift */,
@@ -529,6 +536,8 @@
 				A48E9985D965A3F9C26A9B03 /* ClaudeProcessClassifierTests.swift in Sources */,
 				A9C018B14809179F9123AB2F /* GhosttyStack.swift in Sources */,
 				6C7BC806028E0F23736C3278 /* GhosttyStackTests.swift in Sources */,
+				23481FD22C7CE8427EB86C34 /* HostProcs.swift in Sources */,
+				904EF29F4E0A782352DB55C9 /* HostProcsTests.swift in Sources */,
 				2A9FB0CDC0AE19E4A2637D42 /* IMacLauncher.swift in Sources */,
 				60D57262CD13B7C50DC6939A /* IMacLauncherTests.swift in Sources */,
 				E957217FD251405B515AC2C1 /* PanelToggle.swift in Sources */,
@@ -570,6 +579,7 @@
 				09F41069A4BB4FC3ECCC9C57 /* GhosttyWindowService.swift in Sources */,
 				100D1AE5FEA20720849E25EE /* HUDContentView.swift in Sources */,
 				8C46A3A5A8F635DA6316E52D /* HUDPanelController.swift in Sources */,
+				C33493F7FE503475B4858C5D /* HostProcs.swift in Sources */,
 				763D915CF0FBE368DEE6A12F /* HotkeyService.swift in Sources */,
 				8AD16A218DB480071A205E6A /* IMacLauncher.swift in Sources */,
 				EEC5054A3B33EBA08F1A8D24 /* JSONRPCTypes.swift in Sources */,

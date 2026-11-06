@@ -417,7 +417,10 @@ enum SessionLight: Equatable {
     /// `holding`: orange, a session whose one shell command has run past
     /// `holdingAfter` with nothing else moving, a dev server or watcher it
     /// started in the foreground (Ben, 2026-11-04: "perm process then is our
-    /// new category -- orange"). Neither working nor waiting on Ben.
+    /// new category -- orange"), or one whose turn has ended with work still
+    /// out (`workOut`: a background agent or shell task not yet reported
+    /// back, or a process tree it left running; Ben, 2026-11-06, "we know
+    /// when there's a process out"). Neither working nor waiting on Ben.
     case running, holding, attention, dimmed
 
     static let dimAfter: TimeInterval = 3600
@@ -425,10 +428,13 @@ enum SessionLight: Equatable {
 
     /// `lastMoved` is when the session last wrote its state or transcript;
     /// `inShell` is the CLI's "shell" status, whose state time is when the
-    /// command started; `AgentSession.light` passes both.
-    static func of(running: Bool, inShell: Bool = false, hasWindow: Bool, lastMoved: Date, now: Date) -> SessionLight {
+    /// command started; `workOut` is `HostProcsSnapshot.hasWorkOut`;
+    /// `AgentSession.light` passes all three.
+    static func of(running: Bool, inShell: Bool = false, workOut: Bool = false,
+                   hasWindow: Bool, lastMoved: Date, now: Date) -> SessionLight {
         if running, inShell, now.timeIntervalSince(lastMoved) > holdingAfter { return .holding }
         if running { return .running }
+        if workOut { return .holding }
         return !hasWindow && now.timeIntervalSince(lastMoved) > dimAfter ? .dimmed : .attention
     }
 

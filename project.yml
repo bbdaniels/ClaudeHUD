@@ -51,6 +51,7 @@ targets:
       - path: ClaudeHUD/Services/IMacLauncher.swift
       - path: ClaudeHUD/Services/PanelToggle.swift
       - path: ClaudeHUD/Services/AttachFocus.swift
+      - path: ClaudeHUD/Services/HostProcs.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.claudehud.tests

@@ -59,8 +59,11 @@ struct VaultTabView: View {
                     let lines = folderSessionLines
                     let sections = recencySections(live: live)
                     let general = generalSessions
-                    if !general.isEmpty && searchText.isEmpty {
+                    let lost = lostTreesByFolder
+                    let generalLost = lost[""] ?? []
+                    if (!general.isEmpty || !generalLost.isEmpty) && searchText.isEmpty {
                         GeneralRowView(lines: LiveSessionLine.lines(general, now: Date()),
+                                       lostTrees: generalLost,
                                        sessions: { generalSessions })
                     }
                     if sections.isEmpty {
@@ -91,6 +94,7 @@ struct VaultTabView: View {
                                         today: today,
                                         liveSessions: node.liveCounts(in: live),
                                         sessionLines: lines[node.project.name] ?? [],
+                                        lostTrees: lost[node.project.name] ?? [],
                                         badgeSessionsProvider: { liveSessions(forFolders: node.folderNames) },
                                         ownSessionsProvider: { liveSessions(forFolders: [node.project.name]) }
                                     )
@@ -102,6 +106,7 @@ struct VaultTabView: View {
                                             today: today,
                                             liveSessions: live[child.name] ?? LiveSessionCounts(),
                                             sessionLines: lines[child.name] ?? [],
+                                            lostTrees: lost[child.name] ?? [],
                                             badgeSessionsProvider: { liveSessions(forFolders: [child.name]) },
                                             ownSessionsProvider: { liveSessions(forFolders: [child.name]) }
                                         )
@@ -245,6 +250,18 @@ struct VaultTabView: View {
         projectService.liveSessionsByFolder(in: agentsService.agents)
     }
 
+    /// folder name → the process trees left out by sessions that are gone
+    /// (`AgentsService.lostTrees`), filed the way a session is: by its
+    /// session's claim, else its cwd. "" holds those under no project, which
+    /// General lists.
+    private var lostTreesByFolder: [String: [StrayTree]] {
+        var map: [String: [StrayTree]] = [:]
+        for t in agentsService.lostTrees {
+            map[t.cwd.isEmpty ? "" : projectService.folder(forSession: t.sessionId, cwd: t.cwd) ?? "", default: []].append(t)
+        }
+        return map
+    }
+
     /// Live sessions filed under no project: most often one started in
     /// ~/Projects itself, from the phone's New session or the `>_` button.
     /// They are listed under General at the top (Ben, 2026-11-03) until work
@@ -374,6 +391,7 @@ struct VaultTabView: View {
 /// dot, and one line per session.
 private struct GeneralRowView: View {
     let lines: [LiveSessionLine]
+    let lostTrees: [StrayTree]
     let sessions: () -> [AgentSession]
     @Environment(\.fontScale) private var scale
     @EnvironmentObject private var terminalService: TerminalService
@@ -399,6 +417,7 @@ private struct GeneralRowView: View {
                     if let s = sessions().first(where: { $0.id == line.id }) { open(s) } else { NSSound.beep() }
                 }
             }
+            ForEach(lostTrees) { LostTreeLineView(tree: $0, inset: 16) }
         }
     }
 
@@ -476,6 +495,9 @@ private struct ProjectRowView: View {
     let liveSessions: LiveSessionCounts
     /// This project's own live sessions, one line each, listed under the row.
     let sessionLines: [LiveSessionLine]
+    /// The process trees its ended sessions left running, one line each
+    /// under the sessions (`LostTreeLineView`).
+    let lostTrees: [StrayTree]
     /// Resolves the sessions behind `liveSessions`, most recently active
     /// first: what a badge click cycles through. A closure, not an array, so
     /// the roster is walked on click only — holding the sessions here would
@@ -500,6 +522,7 @@ private struct ProjectRowView: View {
                     if let s = badgeSessionsProvider().first(where: { $0.id == line.id }) { open(s) } else { NSSound.beep() }
                 }
             }
+            ForEach(lostTrees) { LostTreeLineView(tree: $0, inset: (isChild ? Self.childInset : 4) + 12) }
         }
     }
 
@@ -799,8 +822,77 @@ struct SessionLineView: View {
     }
 }
 
+/// One process tree left hanging, its session gone (Ben, 2026-11-06: "a
+/// hanging process should get a red dot and a cancel button"): a red dot,
+/// its command, its machine and age in grey, and a × that stops the whole
+/// tree through the gate's `reap` on its machine, with no confirmation. The Mac's scan misses trees made only of Apple's
+/// own binaries, so no line there does not mean nothing is left.
+struct LostTreeLineView: View {
+    let tree: StrayTree
+    let inset: CGFloat
+    @Environment(\.fontScale) private var scale
+    @State private var hovering = false
+    @State private var stopping = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle().fill(Color.red)
+                .frame(width: 6, height: 6).frame(width: 10)
+            Text(tree.command)
+                .font(.custom("Fira Code", size: 10.5 * scale))
+                .foregroundColor(.primary.opacity(0.6))
+                .lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: 8)
+            Text("\(tree.host == .iMac ? "iMac" : "MacBook") · \(Self.age(tree.seconds))")
+                .font(.custom("Fira Code", size: 9.5 * scale))
+                .foregroundColor(.secondary.opacity(0.7))
+            Button(action: stop) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9 * scale, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(hovering ? 1 : 0.6))
+                    .frame(width: 12)
+            }
+            .buttonStyle(.plain)
+            .disabled(stopping)
+            .help("Stop this process and everything it started")
+        }
+        .padding(.leading, inset)
+        .padding(.trailing, 4)
+        .padding(.vertical, 2)
+        .background(RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(hovering ? 0.08 : 0)))
+        .opacity(stopping ? 0.35 : 1)
+        .onHover { hovering = $0 }
+        .help("Left running by a session that has ended: \(tree.command)\n\(tree.processes) process\(tree.processes == 1 ? "" : "es") in \(tree.cwd.isEmpty ? "?" : tree.cwd)")
+    }
+
+    /// "12m", "5h", "3d".
+    static func age(_ seconds: Int) -> String {
+        if seconds < 3600 { return "\(max(seconds / 60, 1))m" }
+        if seconds < 86400 { return "\(seconds / 3600)h" }
+        return "\(seconds / 86400)d"
+    }
+
+    private func stop() {
+        stopping = true
+        let tree = tree
+        Task.detached(priority: .userInitiated) {
+            let failure = HostProcs.reap(tree)
+            await MainActor.run {
+                guard let failure else { return }
+                stopping = false
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "The process did not stop"
+                alert.informativeText = "\(failure)\n\n\(tree.command)"
+                alert.runModal()
+            }
+        }
+    }
+}
+
 extension SessionLight {
-    /// The dot: green running, orange holding a long shell command, red
+    /// The dot: green running, orange holding a long shell command or work
+    /// left out, red
     /// for anything that needs Ben (dimmed lines fade the red).
     var color: Color {
         switch self {

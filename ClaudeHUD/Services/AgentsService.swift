@@ -18,6 +18,9 @@ private let logger = Logger(subsystem: "com.claudehud", category: "AgentsService
 @MainActor
 final class AgentsService: ObservableObject {
     @Published private(set) var agents: [AgentSession] = []
+    /// The process trees left out whose session is gone, on both machines
+    /// (`HostProcs`), each listed under its project with a stop button.
+    @Published private(set) var lostTrees: [StrayTree] = []
     @Published private(set) var lastError: String?
     @Published private(set) var lastRefresh: Date?
 
@@ -349,11 +352,17 @@ final class AgentsService: ObservableObject {
             ))
         }
 
-        // Titles for the live sessions, read where History reads them.
+        // Titles for the live sessions, read where History reads them, and
+        // whether each has work out (`HostProcs`, polled every 30 s).
+        HostProcs.refresh { [weak self] in Task { @MainActor in self?.reload() } }
+        let procs = HostProcs.cached
         for i in result.indices where result[i].isAlive {
             guard let sid = result[i].sessionId else { continue }
             result[i].title = SessionScan.sidecarTitle(sessionId: sid, projectName: result[i].projectName)
+            result[i].workOut = procs.hasWorkOut(sessionId: sid)
         }
+        let lost = procs.lost(live: Set(result.filter(\.isAlive).compactMap(\.sessionId)))
+        if lostTrees != lost { lostTrees = lost }
 
         // Pinned first, then by effective bucket (open: needs-input →
         // working → idle → completed → detached at the very bottom), then
