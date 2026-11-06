@@ -362,7 +362,7 @@ final class AgentsService: ObservableObject {
             result[i].workOut = procs.hasWorkOut(sessionId: sid)
         }
         let lost = procs.lost(live: Set(result.filter(\.isAlive).compactMap(\.sessionId)))
-        HostProcs.stopHangingWatches(lost) { [weak self] in Task { @MainActor in self?.reload() } }
+        HostProcs.stopUnneeded(lost, services: procs.idleServices) { [weak self] in Task { @MainActor in self?.reload() } }
         if lostTrees != lost { lostTrees = lost }
 
         // Pinned first, then by effective bucket (open: needs-input →

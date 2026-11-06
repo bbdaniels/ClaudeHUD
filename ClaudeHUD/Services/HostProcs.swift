@@ -19,12 +19,14 @@ struct StrayTree: Identifiable, Equatable, Sendable {
     let processes: Int
     /// The gate's `kind`: `watch` for a log follow and its filters (`tail -F
     /// log | grep`), which reports only to the session that started it;
-    /// `job` otherwise.
+    /// `service` for an OpenCode background service with no client, which
+    /// any opencode command starts again on demand; `job` otherwise.
     var kind: String = "job"
 
     var id: String { "\(host.rawValue):\(pid):\(start)" }
     var isLost: Bool { state == "lost" }
     var isWatch: Bool { kind == "watch" }
+    var isService: Bool { kind == "service" }
 }
 
 /// What the gates' `procs` answered, both machines together.
@@ -41,7 +43,7 @@ struct HostProcsSnapshot: Equatable, Sendable {
     /// machine's gate called lost.
     func hasWorkOut(sessionId: String?) -> Bool {
         guard let sid = sessionId else { return false }
-        return (openTasks[sid] ?? 0) > 0 || trees.contains { $0.sessionId == sid }
+        return (openTasks[sid] ?? 0) > 0 || trees.contains { $0.sessionId == sid && !$0.isService }
     }
 
     /// The trees nothing owns: those no session running on either machine
@@ -49,10 +51,15 @@ struct HostProcsSnapshot: Equatable, Sendable {
     /// identified should have a watcher/owner identified. then it need not be
     /// shown"). Each gate sees only its own machine's sessions, so a tree an
     /// iMac gate calls lost may belong to a session running on this Mac over
-    /// ssh; `live` is both machines' running session ids.
+    /// ssh; `live` is both machines' running session ids. An idle service
+    /// is never listed: it is stopped quietly (`idleServices`).
     func lost(live: Set<String>) -> [StrayTree] {
-        trees.filter { t in t.isLost && !(t.sessionId.map(live.contains) ?? false) }
+        trees.filter { t in t.isLost && !t.isService && !(t.sessionId.map(live.contains) ?? false) }
     }
+
+    /// The idle services (an OpenCode background service with no client),
+    /// whoever started them.
+    var idleServices: [StrayTree] { trees.filter(\.isService) }
 }
 
 /// The poll of both gates' `procs`: this Mac's `~/bin/pi-gate` run here and
@@ -150,20 +157,32 @@ enum HostProcs {
     /// (Ben, 2026-11-06: "can claudehud auto inquire if its still needed").
     /// Each tree is tried once; one that will not stop stays listed with its
     /// × for Ben. `done` runs on the main queue after any stop.
-    static func stopHangingWatches(_ lost: [StrayTree], done: @escaping @Sendable () -> Void) {
+    /// An idle service is stopped the same way once every poll for
+    /// `serviceIdle` has found it idle (Ben, 2026-11-06: OpenCode's service
+    /// "needs to be cleaned up"); the next opencode command starts it again.
+    static func stopUnneeded(_ lost: [StrayTree], services: [StrayTree], now: Date = Date(),
+                             done: @escaping @Sendable () -> Void) {
         lock.lock()
-        let todo = lost.filter { $0.isWatch && !tried.contains($0.id) }
+        let ids = Set(services.map(\.id))
+        idleSince = idleSince.filter { ids.contains($0.key) }
+        for t in services where idleSince[t.id] == nil { idleSince[t.id] = now }
+        let due = services.filter { now.timeIntervalSince(idleSince[$0.id] ?? now) >= serviceIdle }
+        let todo = (lost.filter(\.isWatch) + due).filter { !tried.contains($0.id) }
         tried.formUnion(todo.map(\.id))
         lock.unlock()
         guard !todo.isEmpty else { return }
         DispatchQueue.global(qos: .utility).async {
             for tree in todo {
-                if let why = reap(tree) { NSLog("ClaudeHUD: could not stop hanging watch %d: %@", tree.pid, why) }
+                if let why = reap(tree) { NSLog("ClaudeHUD: could not stop %@ %d: %@", tree.kind, tree.pid, why) }
             }
             DispatchQueue.main.async(execute: done)
         }
     }
 
+    /// How long a service must be found idle before it is stopped.
+    static let serviceIdle: TimeInterval = 3600
+    /// When each idle service was first found idle in a row of polls.
+    private static var idleSince: [String: Date] = [:]
     private static var tried = Set<String>()
     private static let lock = NSLock()
     private static var last = HostProcsSnapshot()
