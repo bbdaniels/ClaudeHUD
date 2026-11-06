@@ -231,6 +231,20 @@ final class SessionLightTests: XCTestCase {
         XCTAssertEqual(light(quietFor: 7200, window: true), .attention)
     }
 
+    func testAnIdleServiceIsALeftoverAndOnlyAWaitingOneIsRed() {
+        XCTAssertEqual(SessionLight.ofService(running: false, waiting: false), .dimmed)
+        XCTAssertEqual(SessionLight.ofService(running: true, waiting: false), .running)
+        XCTAssertEqual(SessionLight.ofService(running: false, waiting: true), .attention)
+    }
+
+    func testAServiceRecordIsReadFromTheGatesLiveRow() {
+        let row = #"{"pid": 7, "sessionId": "s", "cwd": "/x", "tmux": "duet:@0.%0", "attach": "tmux -L duet attach -t =duet", "service": "duet"}"#
+        let r = ClaudeSessionRecords.parse(Data(row.utf8))
+        XCTAssertEqual(r?.service, "duet")
+        XCTAssertEqual(r?.attach, "tmux -L duet attach -t =duet")
+        XCTAssertNil(ClaudeSessionRecords.parse(Data(#"{"pid": 7, "sessionId": "s"}"#.utf8))?.service)
+    }
+
     func testTheHeaderIsRedOverGreenAndLeftoversLightNothing() {
         XCTAssertEqual(LiveSessionCounts(running: 1, attention: 1, dimmed: 0).light, .attention)
         XCTAssertEqual(LiveSessionCounts(running: 1, attention: 0, dimmed: 3).light, .running)

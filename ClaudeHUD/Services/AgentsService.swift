@@ -348,7 +348,8 @@ final class AgentsService: ObservableObject {
                 iMacTmux: tmuxSession,
                 iMacAttach: r.attach,
                 attachedTTY: attach?.tty,
-                inShell: r.status == "shell"
+                inShell: r.status == "shell",
+                service: r.service
             ))
         }
 

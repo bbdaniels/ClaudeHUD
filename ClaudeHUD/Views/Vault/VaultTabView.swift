@@ -732,6 +732,7 @@ struct LiveSessionLine: Identifiable, Equatable {
     let isIMac: Bool
     let light: SessionLight
     let hasWindow: Bool
+    let isService: Bool
 
     /// The name is the session's title, the one History shows, so a line
     /// says what the session is doing; a placeholder such as "personal-8c"
@@ -739,7 +740,8 @@ struct LiveSessionLine: Identifiable, Equatable {
     init(_ a: AgentSession, now: Date) {
         id = a.id
         sessionId = a.sessionId
-        name = a.title ?? (a.name.isEmpty ? URL(fileURLWithPath: a.cwd).lastPathComponent : a.name)
+        isService = a.isService
+        name = a.service == "duet" ? "Duet" : a.title ?? (a.name.isEmpty ? URL(fileURLWithPath: a.cwd).lastPathComponent : a.name)
         hasWindow = a.hasWindow
         isIMac = a.isIMac
         machine = a.isIMac ? "iMac" : a.isRemoteControl ? "phone" : "MacBook"
@@ -791,8 +793,8 @@ struct SessionLineView: View {
                     .frame(width: 12)
             }
             .buttonStyle(.plain)
-            .opacity(hovering && !stopping ? 1 : 0)
-            .disabled(!hovering || stopping || line.sessionId == nil)
+            .opacity(hovering && !stopping && !line.isService ? 1 : 0)
+            .disabled(!hovering || stopping || line.sessionId == nil || line.isService)
             .help("Stop this session")
         }
         .padding(.leading, inset)

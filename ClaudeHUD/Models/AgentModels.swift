@@ -258,6 +258,12 @@ struct AgentSession: Identifiable, Equatable {
     /// True when its turn has ended with work still out
     /// (`HostProcsSnapshot.hasWorkOut`), set by `AgentsService.reload`.
     var workOut: Bool = false
+    /// The gate's `service` mark (`ClaudeSessionRecord.service`): the
+    /// runner's Duet session. Its line is named "Duet", has no stop control
+    /// (the runner would only start it again), and is never red while idle,
+    /// since idle is its resting state (Ben, 2026-11-06).
+    var service: String? = nil
+    var isService: Bool { service != nil }
 
     /// True for a Remote Control session row (see `remoteControlURL`).
     var isRemoteControl: Bool { remoteControlURL != nil }
@@ -369,7 +375,10 @@ struct AgentSession: Identifiable, Equatable {
 
     /// The session's dot on its Projects line (`SessionLight`).
     func light(now: Date) -> SessionLight {
-        SessionLight.of(running: liveState == .working, inShell: inShell, workOut: workOut, hasWindow: hasWindow,
+        if isService {
+            return SessionLight.ofService(running: liveState == .working, waiting: rawState == "waiting")
+        }
+        return SessionLight.of(running: liveState == .working, inShell: inShell, workOut: workOut, hasWindow: hasWindow,
                         lastMoved: max(updatedAt ?? .distantPast, transcriptMtime ?? .distantPast), now: now)
     }
 

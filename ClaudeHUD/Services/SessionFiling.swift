@@ -150,6 +150,10 @@ struct ClaudeSessionRecord: Equatable {
     /// iMac's gate reports it (`live`): on the gate's own tmux server for a
     /// session it launched or adopted, else on the default server.
     var attach: String? = nil
+    /// Set by the iMac's gate (`live`) on a session that is a service, not
+    /// Ben's work: "duet", the runner's Duet session, which systemd starts
+    /// again whenever it ends (2026-11-06).
+    var service: String? = nil
 
     /// A session started from the Claude app through Remote Control: an
     /// interactive `--print` child of `claude remote-control` (entrypoint
@@ -199,7 +203,8 @@ enum ClaudeSessionRecords {
             bridgeSessionId: string("bridgeSessionId"), jobId: string("jobId"),
             status: string("status"), waitingFor: string("waitingFor"),
             startedAt: millis("startedAt"), updatedAt: millis("updatedAt"),
-            procStart: string("procStart"), tmux: string("tmux"), attach: string("attach"))
+            procStart: string("procStart"), tmux: string("tmux"), attach: string("attach"),
+            service: string("service"))
     }
 
     /// Every record in `dir` whose process is still the one that wrote it.

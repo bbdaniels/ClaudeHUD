@@ -438,6 +438,14 @@ enum SessionLight: Equatable {
         return !hasWindow && now.timeIntervalSince(lastMoved) > dimAfter ? .dimmed : .attention
     }
 
+    /// A service session's dot (`AgentSession.isService`, the runner's Duet
+    /// session): green while it works, red only while it waits on Ben, and
+    /// otherwise a leftover's, since idle is where a service rests and must
+    /// never turn General red (Ben, 2026-11-06).
+    static func ofService(running: Bool, waiting: Bool) -> SessionLight {
+        running ? .running : waiting ? .attention : .dimmed
+    }
+
     /// `items` in their order with the leftovers moved last.
     static func leftoversLast<T>(_ items: [T], light: (T) -> SessionLight) -> [T] {
         items.filter { light($0) != .dimmed } + items.filter { light($0) == .dimmed }
