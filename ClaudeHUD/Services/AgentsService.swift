@@ -46,6 +46,12 @@ final class AgentsService: ObservableObject {
     /// an `ssh … tmux attach -t =<name>` process on this Mac attaches to.
     nonisolated static func iMacAttachKey(_ tmux: String) -> String { "imac-tmux:" + tmux }
 
+    /// The key `scanAttaches` files this session's attach under: its tmux
+    /// session for an iMac session, its id for a Mac daemon session.
+    nonisolated static func attachKey(_ a: AgentSession) -> String? {
+        a.isIMac ? a.iMacTmux.map(iMacAttachKey) : a.id
+    }
+
     private var attachCache: (map: [String: AttachInfo], at: Date)?
 
     private func attachScan() -> [String: AttachInfo] {
@@ -596,10 +602,16 @@ final class AgentsService: ObservableObject {
     /// False when nothing could be opened.
     @discardableResult
     static func open(_ a: AgentSession, projectWindow: pid_t?, terminalService: TerminalService) -> Bool {
-        if let pid = a.attachedGhosttyPid {
-            if let tty = a.attachedTTY, GhosttyWindowService.focusTerminal(inProcess: pid, tty: tty) { return true }
-            if GhosttyWindowService.focusWindow(hostPid: pid, titleContains: URL(fileURLWithPath: a.cwd).lastPathComponent) { return true }
+        // Raise only an attach confirmed by a scan made now (`AttachFocus`):
+        // the session's attach as last scanned can name a window closed since,
+        // and a folder-name title match can raise an unrelated window.
+        let fresh = scanAttaches().mapValues { (ghosttyPid: $0.ghosttyPid, tty: $0.tty) }
+        if case .terminal(let pid, let tty) = AttachFocus.target(key: attachKey(a), fresh: fresh) {
+            if let tty, GhosttyWindowService.focusTerminal(inProcess: pid, tty: tty) { return true }
+            if GhosttyWindowService.focusWindow(hostPid: pid, titleContains: "") { return true }
         }
+        // A new tab only in a Ghostty process that still runs.
+        let projectWindow = projectWindow.flatMap { NSRunningApplication(processIdentifier: $0) == nil ? nil : $0 }
         let app = FileManager.default.fileExists(atPath: "/Applications/Ghostty.app") ? "/Applications/Ghostty.app" : nil
         let dir = a.cwd.isEmpty || !FileManager.default.fileExists(atPath: a.cwd) ? nil : a.cwd
         let bg = UserDefaults.standard.bool(forKey: "history.useColors") && dir != nil
