@@ -9,18 +9,21 @@ final class HostProcsTests: XCTestCase {
        {"pid": 12, "start": 345, "state": "lost", "command": "opencode serve", "cwd": "/home/bbdaniels/Projects/nemesis-tv",
         "sessionId": "gone", "login": null, "seconds": 90000, "processes": 3},
        {"pid": 13, "start": 346, "state": "out", "command": "npm run dev", "cwd": "/home/bbdaniels/Projects/ai-med",
-        "sessionId": "live", "login": null, "seconds": 600, "processes": 5},
+        "sessionId": "live", "login": null, "seconds": 600, "processes": 5, "kind": "job"},
+       {"pid": 14, "start": 347, "state": "lost", "command": "tail -F build.log", "cwd": "/Users/b",
+        "sessionId": "ended", "login": null, "seconds": 9000, "processes": 3, "kind": "watch"},
        {"pid": "bad"}],
      "tasks": [{"sessionId": "agents", "open": 2}]}
     """
 
     func testReadsTreesAndTasksAndMapsAnIMacCwdOntoThisMac() throws {
         let s = try XCTUnwrap(HostProcs.snapshot(from: Data(answer.utf8), host: .iMac))
-        XCTAssertEqual(s.trees.map(\.pid), [12, 13], "a malformed row is skipped")
+        XCTAssertEqual(s.trees.map(\.pid), [12, 13, 14], "a malformed row is skipped")
+        XCTAssertEqual(s.trees.map(\.isWatch), [false, false, true], "no kind reads as a job")
         XCTAssertEqual(s.trees[0].cwd, NSHomeDirectory() + "/Projects/nemesis-tv")
         XCTAssertEqual(s.trees[0].start, 345)
-        XCTAssertEqual(s.lost(live: []).map(\.pid), [12])
-        XCTAssertEqual(s.lost(live: ["gone"]).map(\.pid), [], "a tree whose session runs on the other machine is owned")
+        XCTAssertEqual(s.lost(live: []).map(\.pid), [12, 14])
+        XCTAssertEqual(s.lost(live: ["gone"]).map(\.pid), [14], "a tree whose session runs on the other machine is owned")
         XCTAssertEqual(s.openTasks, ["agents": 2])
         XCTAssertNil(HostProcs.snapshot(from: Data(#"{"ok": false, "error": "x"}"#.utf8), host: .mac))
         let mac = try XCTUnwrap(HostProcs.snapshot(from: Data(answer.utf8), host: .mac))

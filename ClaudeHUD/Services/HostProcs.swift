@@ -17,9 +17,14 @@ struct StrayTree: Identifiable, Equatable, Sendable {
     let sessionId: String?
     let seconds: Int
     let processes: Int
+    /// The gate's `kind`: `watch` for a log follow and its filters (`tail -F
+    /// log | grep`), which reports only to the session that started it;
+    /// `job` otherwise.
+    var kind: String = "job"
 
     var id: String { "\(host.rawValue):\(pid):\(start)" }
     var isLost: Bool { state == "lost" }
+    var isWatch: Bool { kind == "watch" }
 }
 
 /// What the gates' `procs` answered, both machines together.
@@ -74,7 +79,8 @@ enum HostProcs {
                 cwd: host == .iMac ? host.macPath(cwd) : cwd,
                 sessionId: p["sessionId"] as? String,
                 seconds: p["seconds"] as? Int ?? 0,
-                processes: p["processes"] as? Int ?? 1))
+                processes: p["processes"] as? Int ?? 1,
+                kind: p["kind"] as? String ?? "job"))
         }
         for t in obj["tasks"] as? [[String: Any]] ?? [] {
             if let sid = t["sessionId"] as? String, let n = t["open"] as? Int { s.openTasks[sid, default: 0] += n }
@@ -139,6 +145,26 @@ enum HostProcs {
         return "the gate answered nothing readable (exit \(r.status))"
     }
 
+    /// Stop, without asking, each hanging tree that is a watch: its session
+    /// is gone, so what it reports goes nowhere and it can never be needed
+    /// (Ben, 2026-11-06: "can claudehud auto inquire if its still needed").
+    /// Each tree is tried once; one that will not stop stays listed with its
+    /// × for Ben. `done` runs on the main queue after any stop.
+    static func stopHangingWatches(_ lost: [StrayTree], done: @escaping @Sendable () -> Void) {
+        lock.lock()
+        let todo = lost.filter { $0.isWatch && !tried.contains($0.id) }
+        tried.formUnion(todo.map(\.id))
+        lock.unlock()
+        guard !todo.isEmpty else { return }
+        DispatchQueue.global(qos: .utility).async {
+            for tree in todo {
+                if let why = reap(tree) { NSLog("ClaudeHUD: could not stop hanging watch %d: %@", tree.pid, why) }
+            }
+            DispatchQueue.main.async(execute: done)
+        }
+    }
+
+    private static var tried = Set<String>()
     private static let lock = NSLock()
     private static var last = HostProcsSnapshot()
     private static var fetchedAt: Date?
